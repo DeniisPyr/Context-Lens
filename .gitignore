@@ -1,0 +1,13 @@
+.project/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets (step 2: Gemini API key)
+.env
+
+# macOS
+.DS_Store
