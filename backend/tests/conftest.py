@@ -11,10 +11,12 @@ class FakeGemini:
     def __init__(self) -> None:
         self.answer = "Ahoj"
         self.error: Exception | None = None
-        self.questions: list[str] = []
+        self.prompts: list[str] = []
+        self.system_instructions: list[str] = []
 
-    async def ask(self, question: str) -> str:
-        self.questions.append(question)
+    async def ask(self, prompt: str, system_instruction: str) -> str:
+        self.prompts.append(prompt)
+        self.system_instructions.append(system_instruction)
         if self.error is not None:
             raise self.error
         return self.answer

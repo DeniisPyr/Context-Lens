@@ -40,12 +40,13 @@ class GeminiClient:
         self._model = model
         self._timeout_seconds = timeout_seconds
 
-    async def ask(self, question: str) -> str:
+    async def ask(self, prompt: str, system_instruction: str) -> str:
         try:
             interaction = await asyncio.wait_for(
                 self._client.aio.interactions.create(
                     model=self._model,
-                    input=question,
+                    input=prompt,
+                    system_instruction=system_instruction,
                     # Gemini keeps requests for 55 days unless told not to.
                     store=False,
                 ),
