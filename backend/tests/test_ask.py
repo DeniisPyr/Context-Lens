@@ -6,7 +6,12 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from context_lens.answering import SYSTEM_INSTRUCTION, Citation, ModelAnswer
+from context_lens.answering import (
+    NOT_FOUND_MESSAGE,
+    SYSTEM_INSTRUCTION,
+    Citation,
+    ModelAnswer,
+)
 from context_lens.clients.gemini import (
     GeminiClient,
     GeminiError,
@@ -54,7 +59,29 @@ def test_ask_returns_the_answer_with_citations_to_the_document(
     }
 
 
-def test_not_found_answer_comes_through_without_citations(
+def test_fabricated_citation_returns_the_not_found_message(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    fake_gemini.answer = ModelAnswer(
+        status="answered",
+        answer="The cat is purple.",
+        citations=[Citation(start_line=1, end_line=1, quote="The cat is purple.")],
+    )
+    document_id = upload_document(client)
+
+    response = client.post(
+        "/api/ask", json={"document_id": document_id, "question": "What colour is it?"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "not_found",
+        "answer": NOT_FOUND_MESSAGE,
+        "citations": [],
+    }
+
+
+def test_not_found_from_gemini_returns_the_fixed_message(
     client: TestClient, fake_gemini: FakeGemini
 ) -> None:
     fake_gemini.answer = ModelAnswer(
@@ -69,7 +96,7 @@ def test_not_found_answer_comes_through_without_citations(
     assert response.status_code == 200
     assert response.json() == {
         "status": "not_found",
-        "answer": "The document does not say.",
+        "answer": NOT_FOUND_MESSAGE,
         "citations": [],
     }
 

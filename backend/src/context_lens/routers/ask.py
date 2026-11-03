@@ -9,6 +9,7 @@ from context_lens.answering import (
     AnswerStatus,
     ModelAnswer,
     build_prompt,
+    verify_answer,
 )
 from context_lens.clients.gemini import (
     GeminiClient,
@@ -65,6 +66,7 @@ async def ask_question(
     except GeminiError as exc:
         logger.exception("Gemini could not answer.")
         raise HTTPException(502, "Gemini could not answer this question.") from exc
+    answer = verify_answer(answer, document)
     return AskResponse(
         status=answer.status,
         answer=answer.answer,

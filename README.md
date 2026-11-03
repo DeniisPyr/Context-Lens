@@ -2,7 +2,7 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
 
-> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document, with citations to its lines. Verifying those citations is next.
+> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. The React frontend is next.
 
 ## Run locally
 
