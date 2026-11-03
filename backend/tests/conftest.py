@@ -3,7 +3,21 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
+from context_lens.dependencies import get_gemini_client
 from context_lens.main import create_app
+
+
+class FakeGemini:
+    def __init__(self) -> None:
+        self.answer = "Ahoj"
+        self.error: Exception | None = None
+        self.questions: list[str] = []
+
+    async def ask(self, question: str) -> str:
+        self.questions.append(question)
+        if self.error is not None:
+            raise self.error
+        return self.answer
 
 
 @pytest.fixture
@@ -12,6 +26,16 @@ def anyio_backend() -> str:
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
-    with TestClient(create_app(), follow_redirects=False) as test_client:
+def fake_gemini() -> FakeGemini:
+    return FakeGemini()
+
+
+@pytest.fixture
+def client(
+    monkeypatch: pytest.MonkeyPatch, fake_gemini: FakeGemini
+) -> Iterator[TestClient]:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    app = create_app()
+    app.dependency_overrides[get_gemini_client] = lambda: fake_gemini
+    with TestClient(app, follow_redirects=False) as test_client:
         yield test_client
