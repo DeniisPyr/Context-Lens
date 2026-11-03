@@ -4,7 +4,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from context_lens.answering import SYSTEM_INSTRUCTION, build_prompt
+from context_lens.answering import (
+    SYSTEM_INSTRUCTION,
+    AnswerStatus,
+    ModelAnswer,
+    build_prompt,
+)
 from context_lens.clients.gemini import (
     GeminiClient,
     GeminiError,
@@ -25,8 +30,18 @@ class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
+class CitationResponse(BaseModel):
+    document_id: str
+    filename: str
+    start_line: int
+    end_line: int
+    quote: str
+
+
 class AskResponse(BaseModel):
+    status: AnswerStatus
     answer: str
+    citations: list[CitationResponse]
 
 
 @router.post("")
@@ -40,7 +55,7 @@ async def ask_question(
         raise HTTPException(404, "Document not found.")
     try:
         answer = await gemini.ask(
-            build_prompt(body.question, document), SYSTEM_INSTRUCTION
+            build_prompt(body.question, document), SYSTEM_INSTRUCTION, ModelAnswer
         )
     except GeminiUnavailableError as exc:
         logger.exception("Gemini is unavailable.")
@@ -50,4 +65,17 @@ async def ask_question(
     except GeminiError as exc:
         logger.exception("Gemini could not answer.")
         raise HTTPException(502, "Gemini could not answer this question.") from exc
-    return AskResponse(answer=answer)
+    return AskResponse(
+        status=answer.status,
+        answer=answer.answer,
+        citations=[
+            CitationResponse(
+                document_id=document.id,
+                filename=document.filename,
+                start_line=citation.start_line,
+                end_line=citation.end_line,
+                quote=citation.quote,
+            )
+            for citation in answer.citations
+        ],
+    )

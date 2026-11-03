@@ -11,6 +11,7 @@ from google.genai._interactions import (
     InternalServerError,
     RateLimitError,
 )
+from pydantic import BaseModel, ValidationError
 
 
 class GeminiError(Exception):
@@ -40,13 +41,20 @@ class GeminiClient:
         self._model = model
         self._timeout_seconds = timeout_seconds
 
-    async def ask(self, prompt: str, system_instruction: str) -> str:
+    async def ask[T: BaseModel](
+        self, prompt: str, system_instruction: str, response_model: type[T]
+    ) -> T:
         try:
             interaction = await asyncio.wait_for(
                 self._client.aio.interactions.create(
                     model=self._model,
                     input=prompt,
                     system_instruction=system_instruction,
+                    response_format={
+                        "type": "text",
+                        "mime_type": "application/json",
+                        "schema": response_model.model_json_schema(),
+                    },
                     # Gemini keeps requests for 55 days unless told not to.
                     store=False,
                 ),
@@ -64,7 +72,14 @@ class GeminiClient:
 
         if interaction.status != "completed" or not interaction.output_text:
             raise GeminiError(f"Gemini gave no answer: {interaction.status}.")
-        return interaction.output_text
+        try:
+            return response_model.model_validate_json(interaction.output_text)
+        except ValidationError:
+            # "from None": Pydantic's error quotes the output, which can hold document
+            # text, and the traceback would carry it into the logs.
+            raise GeminiError(
+                "Gemini returned an answer in the wrong format."
+            ) from None
 
     async def aclose(self) -> None:
         await self._client.aio.aclose()
