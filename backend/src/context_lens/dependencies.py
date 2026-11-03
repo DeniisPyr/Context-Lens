@@ -1,7 +1,9 @@
-from fastapi import Request
+from typing import Annotated
+
+from fastapi import Depends, Request
 
 from context_lens.clients.gemini import GeminiClient
-from context_lens.documents import DocumentStore
+from context_lens.services.documents import DocumentStore
 from context_lens.settings import Settings
 
 
@@ -15,3 +17,8 @@ def get_document_store(request: Request) -> DocumentStore:
 
 def get_settings(request: Request) -> Settings:
     return request.app.state.settings
+
+
+GeminiDep = Annotated[GeminiClient, Depends(get_gemini_client)]
+DocumentStoreDep = Annotated[DocumentStore, Depends(get_document_store)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]

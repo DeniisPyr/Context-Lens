@@ -3,7 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from context_lens.documents import Document
+from context_lens.clients.gemini import GeminiClient
+from context_lens.services.documents import Document
 
 logger = logging.getLogger(__name__)
 
@@ -77,3 +78,12 @@ def verify_answer(answer: ModelAnswer, document: Document) -> ModelAnswer:
         # Only the fact of the failure: the answer and quotes can be private.
         logger.warning("Citation verification failed, so the answer was rejected.")
     return ModelAnswer(status="not_found", answer=NOT_FOUND_MESSAGE, citations=[])
+
+
+async def answer_question(
+    question: str, document: Document, gemini: GeminiClient
+) -> ModelAnswer:
+    answer = await gemini.ask(
+        build_prompt(question, document), SYSTEM_INSTRUCTION, ModelAnswer
+    )
+    return verify_answer(answer, document)

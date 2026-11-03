@@ -5,9 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from context_lens.answering import Citation, ModelAnswer
 from context_lens.dependencies import get_gemini_client
 from context_lens.main import create_app
+from context_lens.services.answering import Citation, ModelAnswer
 
 
 class FakeGemini:

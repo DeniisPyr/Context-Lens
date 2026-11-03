@@ -1,72 +1,21 @@
-from pathlib import PureWindowsPath
-from typing import Annotated
+from fastapi import APIRouter, UploadFile
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from pydantic import BaseModel
-
-from context_lens.dependencies import get_document_store, get_settings
-from context_lens.documents import Document, DocumentStore
-from context_lens.settings import Settings
-
-ALLOWED_EXTENSIONS = {".txt", ".md"}
+from context_lens.dependencies import DocumentStoreDep, SettingsDep
+from context_lens.schemas.documents import DocumentSummary
+from context_lens.services.documents import add_upload
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
-class DocumentSummary(BaseModel):
-    id: str
-    filename: str
-    line_count: int
-
-
-def _to_summary(document: Document) -> DocumentSummary:
-    return DocumentSummary(
-        id=document.id, filename=document.filename, line_count=len(document.lines)
-    )
-
-
-def _clean_filename(filename: str | None) -> str:
-    # PureWindowsPath splits on both / and \, so it handles paths from any client.
-    path = PureWindowsPath(filename or "")
-    # Names like "/" or "C:\" have no suffix, so this rejects them too.
-    if path.suffix.lower() not in ALLOWED_EXTENSIONS:
-        raise HTTPException(415, "Only .txt and .md files are accepted.")
-    if "\x00" in path.name:
-        raise HTTPException(415, "The filename must not contain NUL characters.")
-    return path.name
-
-
-def _decode_text(data: bytes) -> str:
-    try:
-        text = data.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(415, "The file must be valid UTF-8 text.") from exc
-    if "\x00" in text:
-        raise HTTPException(415, "The file must not contain NUL characters.")
-    return text
-
-
 @router.post("", status_code=201)
 async def upload_document(
-    file: UploadFile,
-    store: Annotated[DocumentStore, Depends(get_document_store)],
-    settings: Annotated[Settings, Depends(get_settings)],
+    file: UploadFile, store: DocumentStoreDep, settings: SettingsDep
 ) -> DocumentSummary:
-    filename = _clean_filename(file.filename)
     data = await file.read(settings.max_upload_bytes + 1)
-    if len(data) > settings.max_upload_bytes:
-        raise HTTPException(
-            413,
-            f"The file must not be larger than {settings.max_upload_bytes:,} bytes.",
-        )
-    text = _decode_text(data)
-    if not text.strip():
-        raise HTTPException(422, "The file must not be empty.")
-    return _to_summary(store.add(filename, text))
+    document = add_upload(store, file.filename, data, settings.max_upload_bytes)
+    return DocumentSummary.from_document(document)
 
 
 @router.get("")
-async def list_documents(
-    store: Annotated[DocumentStore, Depends(get_document_store)],
-) -> list[DocumentSummary]:
-    return [_to_summary(document) for document in store.list_all()]
+async def list_documents(store: DocumentStoreDep) -> list[DocumentSummary]:
+    return [DocumentSummary.from_document(document) for document in store.list_all()]

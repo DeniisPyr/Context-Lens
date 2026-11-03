@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from context_lens.dependencies import get_document_store
-from context_lens.documents import Document, DocumentStore
 from context_lens.main import create_app
+from context_lens.services.documents import Document, DocumentStore
 
 URL = "/api/documents"
 LIMIT = 1_000_000

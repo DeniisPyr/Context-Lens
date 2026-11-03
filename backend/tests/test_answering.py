@@ -1,12 +1,12 @@
 import pytest
 
-from context_lens.answering import (
+from context_lens.services.answering import (
     NOT_FOUND_MESSAGE,
     Citation,
     ModelAnswer,
     verify_answer,
 )
-from context_lens.documents import Document
+from context_lens.services.documents import Document
 
 DOCUMENT = Document(
     id="doc-1",

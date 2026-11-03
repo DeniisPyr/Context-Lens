@@ -6,12 +6,6 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from context_lens.answering import (
-    NOT_FOUND_MESSAGE,
-    SYSTEM_INSTRUCTION,
-    Citation,
-    ModelAnswer,
-)
 from context_lens.clients.gemini import (
     GeminiClient,
     GeminiError,
@@ -19,6 +13,12 @@ from context_lens.clients.gemini import (
 )
 from context_lens.dependencies import get_gemini_client
 from context_lens.main import create_app
+from context_lens.services.answering import (
+    NOT_FOUND_MESSAGE,
+    SYSTEM_INSTRUCTION,
+    Citation,
+    ModelAnswer,
+)
 
 
 def upload_document(client: TestClient, text: str = "The cat is orange.") -> str:
