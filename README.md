@@ -2,7 +2,7 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
 
-> Work in progress: currently a FastAPI backend that answers questions with Gemini. Document upload and citations are next.
+> Work in progress: currently a FastAPI backend that answers questions with Gemini and accepts text document uploads. Answering from those documents is next, then citations.
 
 ## Run locally
 
@@ -24,6 +24,13 @@ Ask a question:
 curl -X POST http://localhost:8000/api/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "Say hello in Czech."}'
+```
+
+Upload a `.txt` or `.md` file (up to 1 MB, kept in memory until the server restarts), then list your uploads:
+
+```bash
+curl -F "file=@notes.txt" http://localhost:8000/api/documents
+curl http://localhost:8000/api/documents
 ```
 
 ## Code quality
