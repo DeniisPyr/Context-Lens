@@ -109,6 +109,12 @@ def test_file_over_the_size_limit_is_rejected(client: TestClient) -> None:
     assert client.get(URL).json() == []
 
 
+def test_file_type_is_checked_before_the_size(client: TestClient) -> None:
+    response = upload(client, b"x" * (LIMIT + 1), "notes.pdf")
+
+    assert response.status_code == 415
+
+
 def test_upload_limit_comes_from_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("MAX_UPLOAD_BYTES", "10")

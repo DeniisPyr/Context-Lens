@@ -250,6 +250,43 @@ def test_gemini_error_returns_502(client: TestClient, fake_gemini: FakeGemini) -
     assert response.json() == {"detail": "Gemini could not answer this question."}
 
 
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (GeminiUnavailableError("Busy."), "Gemini is unavailable."),
+        (GeminiError("Rejected."), "Gemini could not answer."),
+    ],
+    ids=["unavailable", "rejected"],
+)
+def test_gemini_failure_is_logged_with_its_cause(
+    client: TestClient,
+    fake_gemini: FakeGemini,
+    caplog: pytest.LogCaptureFixture,
+    error: GeminiError,
+    message: str,
+) -> None:
+    fake_gemini.error = error
+    document_id = upload_document(client)
+
+    client.post("/api/ask", json={"document_id": document_id, "question": "Hi"})
+
+    logged = [record for record in caplog.records if record.getMessage() == message]
+    assert [record.exc_info[1] for record in logged if record.exc_info] == [error]
+
+
+def test_settings_reach_the_gemini_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "test-model")
+    monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "7.5")
+    app = create_app()
+
+    with TestClient(app):
+        gemini = get_gemini_client(Request({"type": "http", "app": app}))
+
+    assert gemini._model == "test-model"
+    assert gemini._timeout_seconds == 7.5
+
+
 def test_starting_the_app_creates_the_real_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
