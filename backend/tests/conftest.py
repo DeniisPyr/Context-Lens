@@ -1,12 +1,13 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from context_lens.answering import Citation, ModelAnswer
 from context_lens.dependencies import get_gemini_client
 from context_lens.main import create_app
+from context_lens.services.answering import Citation, ModelAnswer
 
 
 class FakeGemini:
@@ -31,6 +32,15 @@ class FakeGemini:
         if self.error is not None:
             raise self.error
         return self.answer
+
+
+@pytest.fixture(autouse=True)
+def no_developer_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Settings reads .env from the working directory and then the environment, and a
+    # developer's own values there must not change the results.
+    monkeypatch.chdir(tmp_path)
+    for name in ("GEMINI_MODEL", "GEMINI_TIMEOUT_SECONDS", "MAX_UPLOAD_BYTES"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

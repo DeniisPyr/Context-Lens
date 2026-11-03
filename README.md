@@ -34,6 +34,26 @@ List your uploads:
 curl http://localhost:8000/api/documents
 ```
 
+## Project structure
+
+The backend lives in `backend/src/context_lens/`, and each file has one job:
+
+```
+context_lens/
+├── main.py                  # creates the app, registers routers and handlers
+├── settings.py              # configuration, from the environment or .env
+├── dependencies.py          # what routes can ask for: GeminiDep, DocumentStoreDep, SettingsDep
+├── exception_handlers.py    # maps domain errors to HTTP responses
+├── clients/gemini.py        # talks to the Gemini API
+├── routers/                 # route functions only
+│   └── api.py, ask.py, documents.py, health.py
+├── schemas/                 # API request and response models
+│   └── ask.py, documents.py, health.py
+└── services/                # logic, no FastAPI imports
+    ├── answering.py         # builds the prompt, asks Gemini, verifies citations
+    └── documents.py         # validates uploads and stores documents
+```
+
 ## Code quality
 
 ```bash

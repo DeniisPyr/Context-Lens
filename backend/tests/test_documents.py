@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from context_lens.dependencies import get_document_store
-from context_lens.documents import Document, DocumentStore
 from context_lens.main import create_app
+from context_lens.services.documents import Document, DocumentStore
 
 URL = "/api/documents"
 LIMIT = 1_000_000
@@ -107,6 +107,26 @@ def test_file_over_the_size_limit_is_rejected(client: TestClient) -> None:
     assert response.status_code == 413
     assert "larger than" in response.json()["detail"]
     assert client.get(URL).json() == []
+
+
+def test_file_type_is_checked_before_the_size(client: TestClient) -> None:
+    response = upload(client, b"x" * (LIMIT + 1), "notes.pdf")
+
+    assert response.status_code == 415
+
+
+def test_upload_limit_comes_from_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "10")
+
+    with TestClient(create_app()) as client:
+        response = upload(client, b"x" * 11)
+
+        assert response.status_code == 413
+        assert response.json() == {
+            "detail": "The file must not be larger than 10 bytes."
+        }
+        assert client.get(URL).json() == []
 
 
 @pytest.mark.parametrize(

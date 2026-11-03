@@ -1,11 +1,8 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
+
+from context_lens.schemas.health import HealthResponse
 
 router = APIRouter(prefix="/health", tags=["health"])
-
-
-class HealthResponse(BaseModel):
-    status: str
 
 
 @router.get("")
