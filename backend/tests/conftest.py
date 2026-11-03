@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,6 +32,15 @@ class FakeGemini:
         if self.error is not None:
             raise self.error
         return self.answer
+
+
+@pytest.fixture(autouse=True)
+def no_developer_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Settings reads .env from the working directory and then the environment, and a
+    # developer's own values there must not change the results.
+    monkeypatch.chdir(tmp_path)
+    for name in ("GEMINI_MODEL", "GEMINI_TIMEOUT_SECONDS", "MAX_UPLOAD_BYTES"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

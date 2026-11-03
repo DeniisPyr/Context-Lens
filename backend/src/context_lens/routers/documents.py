@@ -4,10 +4,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from context_lens.dependencies import get_document_store
+from context_lens.dependencies import get_document_store, get_settings
 from context_lens.documents import Document, DocumentStore
+from context_lens.settings import Settings
 
-MAX_UPLOAD_BYTES = 1_000_000
 ALLOWED_EXTENSIONS = {".txt", ".md"}
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -50,12 +50,14 @@ def _decode_text(data: bytes) -> str:
 async def upload_document(
     file: UploadFile,
     store: Annotated[DocumentStore, Depends(get_document_store)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> DocumentSummary:
     filename = _clean_filename(file.filename)
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(data) > MAX_UPLOAD_BYTES:
+    data = await file.read(settings.max_upload_bytes + 1)
+    if len(data) > settings.max_upload_bytes:
         raise HTTPException(
-            413, f"The file must not be larger than {MAX_UPLOAD_BYTES:,} bytes."
+            413,
+            f"The file must not be larger than {settings.max_upload_bytes:,} bytes.",
         )
     text = _decode_text(data)
     if not text.strip():

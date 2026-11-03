@@ -109,6 +109,20 @@ def test_file_over_the_size_limit_is_rejected(client: TestClient) -> None:
     assert client.get(URL).json() == []
 
 
+def test_upload_limit_comes_from_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("MAX_UPLOAD_BYTES", "10")
+
+    with TestClient(create_app()) as client:
+        response = upload(client, b"x" * 11)
+
+        assert response.status_code == 413
+        assert response.json() == {
+            "detail": "The file must not be larger than 10 bytes."
+        }
+        assert client.get(URL).json() == []
+
+
 @pytest.mark.parametrize(
     ("text", "lines"),
     [

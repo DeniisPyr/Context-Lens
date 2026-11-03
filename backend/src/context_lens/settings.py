@@ -7,3 +7,5 @@ class Settings(BaseSettings):
 
     gemini_api_key: SecretStr
     gemini_model: str = "gemini-3.8-flash"
+    gemini_timeout_seconds: float = 60.0
+    max_upload_bytes: int = 1_000_000

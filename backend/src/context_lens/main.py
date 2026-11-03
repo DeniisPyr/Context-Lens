@@ -13,8 +13,11 @@ from context_lens.settings import Settings
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = Settings()
     gemini_client = GeminiClient(
-        settings.gemini_api_key.get_secret_value(), settings.gemini_model
+        settings.gemini_api_key.get_secret_value(),
+        settings.gemini_model,
+        settings.gemini_timeout_seconds,
     )
+    app.state.settings = settings
     app.state.gemini_client = gemini_client
     app.state.document_store = DocumentStore()
     yield

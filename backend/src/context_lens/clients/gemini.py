@@ -27,7 +27,7 @@ class GeminiClient:
         self,
         api_key: str,
         model: str,
-        timeout_seconds: float = 60.0,
+        timeout_seconds: float,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._client = genai.Client(
