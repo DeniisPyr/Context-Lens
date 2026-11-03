@@ -2,21 +2,27 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
+from context_lens.answering import ModelAnswer
 from context_lens.dependencies import get_gemini_client
 from context_lens.main import create_app
 
 
 class FakeGemini:
     def __init__(self) -> None:
-        self.answer = "Ahoj"
+        self.answer = ModelAnswer(status="answered", answer="Ahoj", citations=[])
         self.error: Exception | None = None
         self.prompts: list[str] = []
         self.system_instructions: list[str] = []
+        self.response_models: list[type[BaseModel]] = []
 
-    async def ask(self, prompt: str, system_instruction: str) -> str:
+    async def ask(
+        self, prompt: str, system_instruction: str, response_model: type[BaseModel]
+    ) -> ModelAnswer:
         self.prompts.append(prompt)
         self.system_instructions.append(system_instruction)
+        self.response_models.append(response_model)
         if self.error is not None:
             raise self.error
         return self.answer

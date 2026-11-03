@@ -6,7 +6,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from context_lens.answering import SYSTEM_INSTRUCTION
+from context_lens.answering import SYSTEM_INSTRUCTION, Citation, ModelAnswer
 from context_lens.clients.gemini import (
     GeminiClient,
     GeminiError,
@@ -23,18 +23,55 @@ def upload_document(client: TestClient, text: str = "The cat is orange.") -> str
     return response.json()["id"]
 
 
-def test_ask_returns_only_the_answer(
+def test_ask_returns_the_answer_with_citations_to_the_document(
     client: TestClient, fake_gemini: FakeGemini
 ) -> None:
-    fake_gemini.answer = "Ahoj"
-    document_id = upload_document(client)
+    quote = "The cat is orange.\nThe dog is brown."
+    fake_gemini.answer = ModelAnswer(
+        status="answered",
+        answer="The cat is orange and the dog is brown.",
+        citations=[Citation(start_line=2, end_line=3, quote=quote)],
+    )
+    document_id = upload_document(client, f"Pets:\n{quote}")
 
     response = client.post(
-        "/api/ask", json={"document_id": document_id, "question": "Say hello in Czech."}
+        "/api/ask", json={"document_id": document_id, "question": "Describe the pets."}
     )
 
     assert response.status_code == 200
-    assert response.json() == {"answer": "Ahoj"}
+    assert response.json() == {
+        "status": "answered",
+        "answer": "The cat is orange and the dog is brown.",
+        "citations": [
+            {
+                "document_id": document_id,
+                "filename": "notes.txt",
+                "start_line": 2,
+                "end_line": 3,
+                "quote": quote,
+            }
+        ],
+    }
+
+
+def test_not_found_answer_comes_through_without_citations(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    fake_gemini.answer = ModelAnswer(
+        status="not_found", answer="The document does not say.", citations=[]
+    )
+    document_id = upload_document(client)
+
+    response = client.post(
+        "/api/ask", json={"document_id": document_id, "question": "How old is the cat?"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "not_found",
+        "answer": "The document does not say.",
+        "citations": [],
+    }
 
 
 def test_prompt_has_the_requested_document_and_the_stripped_question(
@@ -50,10 +87,39 @@ def test_prompt_has_the_requested_document_and_the_stripped_question(
 
     assert response.status_code == 200
     [prompt] = fake_gemini.prompts
-    assert "<document>\nThe cat is orange.\n</document>" in prompt
+    assert "<document>\n1: The cat is orange.\n</document>" in prompt
     assert prompt.endswith("What colour is the cat?")
     assert "Another document." not in prompt
     assert "notes.txt" not in prompt
+
+
+def test_prompt_numbers_each_line_of_the_document(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    document_id = upload_document(client, "first line\nsecond line\n")
+
+    client.post(
+        "/api/ask", json={"document_id": document_id, "question": "What is on line 2?"}
+    )
+
+    [prompt] = fake_gemini.prompts
+    assert "<document>\n1: first line\n2: second line\n</document>" in prompt
+    assert prompt.endswith("What is on line 2?")
+
+
+def test_prompt_numbering_matches_the_line_count_from_the_upload(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    # str.splitlines() would treat this form feed as a line break, making three lines.
+    upload = client.post(
+        "/api/documents", files={"file": ("notes.txt", b"one\x0cstill one\ntwo\n")}
+    )
+
+    client.post("/api/ask", json={"document_id": upload.json()["id"], "question": "Hi"})
+
+    assert upload.json()["line_count"] == 2
+    [prompt] = fake_gemini.prompts
+    assert "<document>\n1: one\x0cstill one\n2: two\n</document>" in prompt
 
 
 def test_gemini_receives_the_system_instruction(
@@ -64,6 +130,16 @@ def test_gemini_receives_the_system_instruction(
     client.post("/api/ask", json={"document_id": document_id, "question": "Hi"})
 
     assert fake_gemini.system_instructions == [SYSTEM_INSTRUCTION]
+
+
+def test_gemini_is_asked_for_a_model_answer(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    document_id = upload_document(client)
+
+    client.post("/api/ask", json={"document_id": document_id, "question": "Hi"})
+
+    assert fake_gemini.response_models == [ModelAnswer]
 
 
 def test_unknown_document_returns_404_without_calling_gemini(

@@ -1,9 +1,11 @@
 import asyncio
 import json
+import traceback
 from collections.abc import Awaitable, Callable
 
 import httpx
 import pytest
+from pydantic import BaseModel
 
 from context_lens.clients.gemini import (
     GeminiClient,
@@ -16,36 +18,49 @@ pytestmark = pytest.mark.anyio
 Handler = Callable[[httpx.Request], httpx.Response | Awaitable[httpx.Response]]
 
 
+class Reply(BaseModel):
+    text: str
+
+
 def make_client(handler: Handler, timeout_seconds: float = 5.0) -> GeminiClient:
     http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return GeminiClient("test-key", "test-model", timeout_seconds, http_client)
 
 
-def gemini_answer(text: str = "Ahoj", status: str = "completed") -> httpx.Response:
+def gemini_answer(
+    text: str = '{"text": "Ahoj"}', status: str = "completed"
+) -> httpx.Response:
     step = {"type": "model_output", "content": [{"type": "text", "text": text}]}
     return httpx.Response(200, json={"id": "", "status": status, "steps": [step]})
 
 
-async def test_ask_returns_the_answer() -> None:
-    gemini = make_client(lambda request: gemini_answer("Ahoj"))
+async def test_ask_parses_the_answer_into_the_response_model() -> None:
+    gemini = make_client(lambda request: gemini_answer('{"text": "Ahoj"}'))
 
-    assert await gemini.ask("Say hello in Czech.", "Be brief.") == "Ahoj"
+    answer = await gemini.ask("Say hello in Czech.", "Be brief.", Reply)
+
+    assert answer == Reply(text="Ahoj")
 
 
-async def test_ask_sends_the_prompt_and_instruction_and_opts_out_of_storage() -> None:
+async def test_ask_sends_the_prompt_and_schema_and_opts_out_of_storage() -> None:
     sent = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         sent.append(json.loads(request.content))
         return gemini_answer()
 
-    await make_client(handler).ask("Say hello in Czech.", "Be brief.")
+    await make_client(handler).ask("Say hello in Czech.", "Be brief.", Reply)
 
     assert sent == [
         {
             "model": "test-model",
             "input": "Say hello in Czech.",
             "system_instruction": "Be brief.",
+            "response_format": {
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": Reply.model_json_schema(),
+            },
             "store": False,
         }
     ]
@@ -60,7 +75,7 @@ async def test_overload_is_unavailable_after_one_retry(status_code: int) -> None
         return httpx.Response(status_code, json={"error": {"message": "busy"}})
 
     with pytest.raises(GeminiUnavailableError):
-        await make_client(handler).ask("Hi", "Be brief.")
+        await make_client(handler).ask("Hi", "Be brief.", Reply)
 
     assert len(requests) == 2
 
@@ -73,7 +88,7 @@ async def test_rejected_request_is_not_retried() -> None:
         return httpx.Response(400, json={"error": {"message": "API key not valid"}})
 
     with pytest.raises(GeminiError) as error:
-        await make_client(handler).ask("Hi", "Be brief.")
+        await make_client(handler).ask("Hi", "Be brief.", Reply)
 
     assert not isinstance(error.value, GeminiUnavailableError)
     assert len(requests) == 1
@@ -85,7 +100,7 @@ async def test_slow_gemini_hits_the_time_limit() -> None:
         return gemini_answer()
 
     with pytest.raises(GeminiUnavailableError):
-        await make_client(handler, timeout_seconds=0.01).ask("Hi", "Be brief.")
+        await make_client(handler, timeout_seconds=0.01).ask("Hi", "Be brief.", Reply)
 
 
 async def test_network_failure_is_unavailable() -> None:
@@ -93,18 +108,41 @@ async def test_network_failure_is_unavailable() -> None:
         raise httpx.ConnectError("Connection refused", request=request)
 
     with pytest.raises(GeminiUnavailableError):
-        await make_client(handler).ask("Hi", "Be brief.")
+        await make_client(handler).ask("Hi", "Be brief.", Reply)
 
 
 async def test_cut_off_answer_is_an_error() -> None:
-    gemini = make_client(lambda request: gemini_answer("Aho", status="incomplete"))
+    gemini = make_client(lambda request: gemini_answer(status="incomplete"))
 
-    with pytest.raises(GeminiError):
-        await gemini.ask("Hi", "Be brief.")
+    with pytest.raises(GeminiError, match="no answer"):
+        await gemini.ask("Hi", "Be brief.", Reply)
 
 
 async def test_empty_answer_is_an_error() -> None:
     gemini = make_client(lambda request: gemini_answer(""))
 
-    with pytest.raises(GeminiError):
-        await gemini.ask("Hi", "Be brief.")
+    with pytest.raises(GeminiError, match="no answer"):
+        await gemini.ask("Hi", "Be brief.", Reply)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["this is not JSON", '{"wrong": "shape"}'],
+    ids=["invalid_json", "wrong_shape"],
+)
+async def test_answer_in_the_wrong_format_is_an_error(text: str) -> None:
+    gemini = make_client(lambda request: gemini_answer(text))
+
+    with pytest.raises(GeminiError, match="wrong format") as error:
+        await gemini.ask("Hi", "Be brief.", Reply)
+
+    assert not isinstance(error.value, GeminiUnavailableError)
+
+
+async def test_wrong_format_error_does_not_quote_the_output() -> None:
+    gemini = make_client(lambda request: gemini_answer("The salary is 900 CZK"))
+
+    with pytest.raises(GeminiError) as error:
+        await gemini.ask("Hi", "Be brief.", Reply)
+
+    assert "900 CZK" not in "".join(traceback.format_exception(error.value))
