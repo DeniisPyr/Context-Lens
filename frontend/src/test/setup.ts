@@ -8,6 +8,9 @@ const style = document.createElement('style')
 style.textContent = styles
 document.head.append(style)
 
+// jsdom has no layout, so it leaves this out. A test that cares can spy on it.
+Element.prototype.scrollIntoView = () => {}
+
 afterEach(() => {
   cleanup()
 })

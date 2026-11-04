@@ -147,3 +147,69 @@ h2 {
   padding-left: 0.75rem;
   border-left: 3px solid light-dark(#ccc, #555);
 }
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: light-dark(#0b57d0, #8ab4f8);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:focus-visible,
+.line-list:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.line-viewer {
+  margin: 0.5rem 0 0;
+}
+
+.line-viewer .link-button {
+  display: block;
+}
+
+/* The first column fits the widest number shown, and subgrid lines every row up on it. */
+.line-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  max-height: 24rem;
+  margin: 0.25rem 0;
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid light-dark(#ddd, #444);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.875rem;
+  list-style: none;
+}
+
+.line-list li {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.line-list li[aria-current='true'] {
+  background: light-dark(#ffe58a, #5c4a00);
+  box-shadow: inset 3px 0 0 light-dark(#8a6d00, #ffd54f);
+  color: light-dark(#1a1a1a, #fff);
+}
+
+/* Safari only knows the prefixed user-select. */
+.line-number {
+  padding: 0 0.75rem 0 0.5rem;
+  opacity: 0.7;
+  text-align: right;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.line-text {
+  padding-right: 0.5rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
