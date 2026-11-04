@@ -37,23 +37,23 @@ describe('an answer', () => {
   it('shows two identical citations without a key warning', () => {
     const consoleError = vi.spyOn(console, 'error')
 
-    render(<Answer question="Why?" result={answered(oneLine, oneLine)} />)
+    render(<Answer filename="notes.txt" question="Why?" result={answered(oneLine, oneLine)} />)
 
     expect(screen.getAllByRole('blockquote')).toHaveLength(2)
     expect(consoleError).not.toHaveBeenCalled()
   })
 
   it('shows the question it answers and the answer text', () => {
-    render(<Answer question="Why?" result={answered(oneLine)} />)
+    render(<Answer filename="notes.txt" question="Why?" result={answered(oneLine)} />)
 
-    expect(screen.getByText('You asked: Why?')).toBeInTheDocument()
+    expect(screen.getByText('You asked about notes.txt: Why?')).toBeInTheDocument()
     expect(screen.getByText('The answer.')).toBeInTheDocument()
   })
 
   it('shows the filename, the lines and the quote of each citation, in order', () => {
     const other = { ...threeLines, filename: 'other.md' }
 
-    render(<Answer question="Why?" result={answered(oneLine, other)} />)
+    render(<Answer filename="notes.txt" question="Why?" result={answered(oneLine, other)} />)
 
     expect(screen.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
     const [first, second] = screen.getAllByRole('listitem')
@@ -70,9 +70,9 @@ describe('an answer', () => {
     const citation = { ...oneLine, filename: `${html}.txt`, quote: `${html} quote` }
     const result = { ...answered(citation), answer: `${html} answer` }
 
-    const { container } = render(<Answer question={`${html} question`} result={result} />)
+    const { container } = render(<Answer filename="notes.txt" question={`${html} question`} result={result} />)
 
-    expect(screen.getByText(`You asked: ${html} question`)).toBeInTheDocument()
+    expect(screen.getByText(`You asked about notes.txt: ${html} question`)).toBeInTheDocument()
     expect(screen.getByText(`${html} answer`)).toBeInTheDocument()
     expect(screen.getByText(`${html}.txt`)).toBeInTheDocument()
     expect(screen.getByRole('blockquote').textContent).toBe(`${html} quote`)
@@ -82,14 +82,14 @@ describe('an answer', () => {
   it('keeps line breaks in the question, the answer and the quotes, and wraps long text', () => {
     const result = { ...answered({ ...oneLine, quote: 'one\ntwo' }), answer: 'first\nsecond' }
 
-    render(<Answer question={'line one\nline two'} result={result} />)
+    render(<Answer filename="notes.txt" question={'line one\nline two'} result={result} />)
 
     const quote = screen.getByRole('blockquote')
     const answerText = screen.getByText(/first/)
     const asked = screen.getByText(/line one/)
     expect(quote.textContent).toBe('one\ntwo')
     expect(answerText.textContent).toBe('first\nsecond')
-    expect(asked.textContent).toBe('You asked: line one\nline two')
+    expect(asked.textContent).toBe('You asked about notes.txt: line one\nline two')
     for (const element of [quote, answerText, asked]) {
       expect(element).toHaveStyle({ whiteSpace: 'pre-wrap' })
     }
@@ -99,9 +99,9 @@ describe('an answer', () => {
 
 describe('when the document does not hold the answer', () => {
   it('shows the question and the message, with no sources', () => {
-    render(<Answer question="Why?" result={notFound} />)
+    render(<Answer filename="notes.txt" question="Why?" result={notFound} />)
 
-    expect(screen.getByText('You asked: Why?')).toBeInTheDocument()
+    expect(screen.getByText('You asked about notes.txt: Why?')).toBeInTheDocument()
     expect(screen.getByText(notFound.answer)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Sources' })).not.toBeInTheDocument()
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
@@ -110,18 +110,18 @@ describe('when the document does not hold the answer', () => {
   it('shows HTML in the message as plain text', () => {
     const html = '<img src=x onerror=alert(1)>'
 
-    const { container } = render(<Answer question="Why?" result={{ ...notFound, answer: html }} />)
+    const { container } = render(<Answer filename="notes.txt" question="Why?" result={{ ...notFound, answer: html }} />)
 
     expect(screen.getByText(html)).toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
   })
 
   it('looks different from an answer', () => {
-    const { unmount } = render(<Answer question="Why?" result={answered(oneLine)} />)
+    const { unmount } = render(<Answer filename="notes.txt" question="Why?" result={answered(oneLine)} />)
     expect(screen.getByText('The answer.')).not.toHaveStyle({ fontStyle: 'italic' })
     unmount()
 
-    render(<Answer question="Why?" result={notFound} />)
+    render(<Answer filename="notes.txt" question="Why?" result={notFound} />)
 
     expect(screen.getByText(notFound.answer)).toHaveStyle({ fontStyle: 'italic' })
   })

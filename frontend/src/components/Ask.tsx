@@ -10,12 +10,12 @@ export default function Ask({ documents }: { documents: DocumentSummary[] | null
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The question is kept with its answer because the textarea stays editable.
-  const [result, setResult] = useState<{ question: string; answer: AnswerResult } | null>(null)
+  // The document and question are kept with the answer because the form stays editable.
+  const [result, setResult] = useState<{ filename: string; question: string; answer: AnswerResult } | null>(null)
 
   const selected = documents?.find((doc) => doc.id === chosenId) ?? documents?.at(-1)
 
-  async function handleSubmit(event: SubmitEvent<HTMLFormElement>, documentId: string) {
+  async function handleSubmit(event: SubmitEvent<HTMLFormElement>, doc: DocumentSummary) {
     event.preventDefault()
     const asked = question.trim()
     if (!asked) {
@@ -27,7 +27,7 @@ export default function Ask({ documents }: { documents: DocumentSummary[] | null
     setError(null)
     setResult(null)
     try {
-      setResult({ question: asked, answer: await askQuestion(documentId, asked) })
+      setResult({ filename: doc.filename, question: asked, answer: await askQuestion(doc.id, asked) })
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -39,7 +39,7 @@ export default function Ask({ documents }: { documents: DocumentSummary[] | null
     <section>
       <h2>Ask a question</h2>
       {selected ? (
-        <form className="ask-form" onSubmit={(event) => handleSubmit(event, selected.id)}>
+        <form className="ask-form" onSubmit={(event) => handleSubmit(event, selected)}>
           <label>
             Document
             <select value={selected.id} onChange={(event) => setChosenId(event.target.value)}>
@@ -67,7 +67,7 @@ export default function Ask({ documents }: { documents: DocumentSummary[] | null
       ) : (
         <p>Upload a document to ask about it.</p>
       )}
-      {result && <Answer question={result.question} result={result.answer} />}
+      {result && <Answer filename={result.filename} question={result.question} result={result.answer} />}
     </section>
   )
 }

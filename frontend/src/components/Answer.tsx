@@ -4,10 +4,18 @@ function lineLabel({ start_line, end_line }: Citation) {
   return start_line === end_line ? `Line ${start_line}` : `Lines ${start_line}–${end_line}`
 }
 
-export default function Answer({ question, result }: { question: string; result: AnswerResult }) {
+type Props = {
+  filename: string
+  question: string
+  result: AnswerResult
+}
+
+export default function Answer({ filename, question, result }: Props) {
   return (
     <article className="answer">
-      <p className="answer-asked">You asked: {question}</p>
+      <p className="answer-asked">
+        You asked about {filename}: {question}
+      </p>
       {result.status === 'not_found' ? (
         <p className="answer-not-found">{result.answer}</p>
       ) : (

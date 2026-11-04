@@ -297,7 +297,7 @@ describe('asking', () => {
 
     const answer = within(await screen.findByRole('article'))
     // textContent, because getByText would hide spaces around the question.
-    expect(answer.getByText(/You asked/).textContent).toBe('You asked: Why?')
+    expect(answer.getByText(/You asked/).textContent).toBe('You asked about notes.txt: Why?')
     expect(answer.getByText('The answer.')).toBeInTheDocument()
     expect(answer.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
     expect(answer.getByText('Line 3')).toBeInTheDocument()
@@ -340,7 +340,7 @@ describe('asking', () => {
 
     const answer = within(await screen.findByRole('article'))
     expect(screen.getByRole('option', { name: filename })).toBeInTheDocument()
-    expect(answer.getByText(`You asked: ${html} question`)).toBeInTheDocument()
+    expect(answer.getByText(`You asked about ${filename}: ${html} question`)).toBeInTheDocument()
     expect(answer.getByText(`${html} answer`)).toBeInTheDocument()
     expect(answer.getByText(filename)).toBeInTheDocument()
     expect(answer.getByRole('blockquote').textContent).toBe(`${html} quote`)
@@ -356,8 +356,20 @@ describe('asking', () => {
     await screen.findByRole('article')
     await user.type(questionBox(), ' And how?')
 
-    expect(screen.getByText('You asked: Why?')).toBeInTheDocument()
+    expect(screen.getByText('You asked about notes.txt: Why?')).toBeInTheDocument()
     expect(questionBox()).toHaveValue('Why? And how?')
+  })
+
+  it('still says which document an answer is for after another one is chosen', async () => {
+    const user = userEvent.setup()
+    stubPage([notes, report], { 'POST /api/ask': () => Response.json(notFound) })
+
+    await renderPage()
+    await ask(user, 'Why?')
+    await screen.findByRole('article')
+    await user.selectOptions(documentSelect(), notes.id)
+
+    expect(screen.getByText('You asked about report.md: Why?')).toBeInTheDocument()
   })
 
   it('stops the browser from submitting the form itself', async () => {
@@ -412,7 +424,7 @@ describe('a question with no text', () => {
     await user.click(askButton())
 
     expect(screen.getByRole('alert')).toHaveTextContent('Type a question first.')
-    expect(screen.getByText('You asked: Why?')).toBeInTheDocument()
+    expect(screen.getByText('You asked about notes.txt: Why?')).toBeInTheDocument()
   })
 })
 
@@ -447,8 +459,8 @@ describe('while waiting for an answer', () => {
 
     answer(Response.json(notFound))
 
-    expect(await screen.findByText('You asked: How?')).toBeInTheDocument()
-    expect(screen.queryByText('You asked: Why?')).not.toBeInTheDocument()
+    expect(await screen.findByText('You asked about notes.txt: How?')).toBeInTheDocument()
+    expect(screen.queryByText('You asked about notes.txt: Why?')).not.toBeInTheDocument()
   })
 
   it('removes the previous error as soon as a new question is sent', async () => {
