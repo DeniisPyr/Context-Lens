@@ -1,12 +1,14 @@
 from unittest.mock import ANY
 
 import pytest
+from conftest import FakeGemini
 from fastapi import Request
 from fastapi.testclient import TestClient
 from httpx2 import Response
 
 from context_lens.dependencies import get_document_store
 from context_lens.main import create_app
+from context_lens.services.answering import Citation, ModelAnswer
 from context_lens.services.documents import Document, DocumentStore
 
 URL = "/api/documents"
@@ -197,6 +199,98 @@ def test_list_is_in_upload_order_without_the_text(client: TestClient) -> None:
     assert response.json() == uploads
     assert [item["filename"] for item in response.json()] == names
     assert all("text" not in item for item in response.json())
+
+
+def test_list_and_upload_responses_have_no_lines(client: TestClient) -> None:
+    uploaded = upload(client, b"one\ntwo\n").json()
+
+    assert "lines" not in uploaded
+    assert all("lines" not in item for item in client.get(URL).json())
+
+
+def test_read_returns_the_document_with_its_lines(client: TestClient) -> None:
+    uploaded = upload(client, "Příliš žluťoučký\nkůň\n".encode(), "poznámky.txt").json()
+
+    response = client.get(f"{URL}/{uploaded['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": uploaded["id"],
+        "filename": "poznámky.txt",
+        "line_count": 2,
+        "lines": ["Příliš žluťoučký", "kůň"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("text", "lines"),
+    [
+        ("a\n\nb\n", ["a", "", "b"]),
+        ("\n\na", ["", "", "a"]),
+        ("a\n\n", ["a", ""]),
+        ("  two spaces\n\ttab\ntrailing  \n", ["  two spaces", "\ttab", "trailing  "]),
+        ("a\r\nb\rc", ["a", "b", "c"]),
+        ("a\x0cb\nc\u2028d", ["a\x0cb", "c\u2028d"]),
+        ('<b>tučně</b> & "víc"', ['<b>tučně</b> & "víc"']),
+    ],
+)
+def test_read_keeps_every_line_as_it_is_in_the_document(
+    client: TestClient, text: str, lines: list[str]
+) -> None:
+    uploaded = upload(client, text.encode())
+
+    body = client.get(f"{URL}/{uploaded.json()['id']}").json()
+
+    assert body["lines"] == lines
+    assert body["line_count"] == len(lines)
+    assert body["lines"] == stored_document(client, uploaded).lines
+
+
+def test_read_of_an_unknown_id_is_a_404(client: TestClient) -> None:
+    upload(client)
+
+    response = client.get(f"{URL}/unknown")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Document not found."}
+
+
+# A form feed and a Unicode line separator are where str.splitlines() would number
+# differently, and a blank line is where a filter on empty lines would.
+NUMBERING_TEXT = "První\n\nform\x0cfeed\nline\u2028separator\n  žluťoučký kůň\n"
+
+
+def test_read_lines_are_the_lines_the_prompt_numbers(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    document_id = upload(client, NUMBERING_TEXT.encode()).json()["id"]
+
+    client.post("/api/ask", json={"document_id": document_id, "question": "Proč?"})
+    lines = client.get(f"{URL}/{document_id}").json()["lines"]
+
+    numbered = "\n".join(f"{i}: {line}" for i, line in enumerate(lines, start=1))
+    assert len(lines) == 5
+    assert f"<document>\n{numbered}\n</document>" in fake_gemini.prompts[0]
+
+
+def test_a_citation_points_at_the_same_line_in_the_read_response(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    fake_gemini.answer = ModelAnswer(
+        status="answered",
+        answer="Kůň je žluťoučký.",
+        citations=[Citation(start_line=5, end_line=5, quote="žluťoučký kůň")],
+    )
+    document_id = upload(client, NUMBERING_TEXT.encode()).json()["id"]
+
+    answer = client.post(
+        "/api/ask", json={"document_id": document_id, "question": "Jaký je kůň?"}
+    ).json()
+    lines = client.get(f"{URL}/{document_id}").json()["lines"]
+
+    citation = answer["citations"][0]
+    assert answer["status"] == "answered"
+    assert citation["quote"] in lines[citation["start_line"] - 1]
 
 
 def test_store_get_finds_known_ids_and_returns_none_for_unknown_ones() -> None:
