@@ -1,0 +1,25 @@
+import { useEffect, useState } from 'react'
+import { type DocumentSummary, listDocuments } from '../api/documents.ts'
+
+export function useDocuments() {
+  // null until the first load finishes, so "No documents yet." can't show before we know.
+  const [documents, setDocuments] = useState<DocumentSummary[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // Adding 1 re-runs the effect below: it aborts any request still running and loads the list again.
+  const [reloadCount, setReloadCount] = useState(0)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    listDocuments(controller.signal)
+      .then((loaded) => {
+        setDocuments(loaded)
+        setError(null)
+      })
+      .catch((err: Error) => {
+        if (!controller.signal.aborted) setError(err.message)
+      })
+    return () => controller.abort()
+  }, [reloadCount])
+
+  return { documents, error, reload: () => setReloadCount((count) => count + 1) }
+}
