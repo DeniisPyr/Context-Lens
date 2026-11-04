@@ -27,6 +27,25 @@ h2 {
   color: light-dark(#b3261e, #ff8a80);
 }
 
+.upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.upload-form label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.upload-form [role='alert'] {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .document-list {
   margin: 1rem 0 0;
   padding: 0;
