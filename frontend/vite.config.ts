@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: 'jsdom',
+      // Keep the CSS in tests, so src/test/setup.ts can apply it to the page.
+      css: true,
       setupFiles: './src/test/setup.ts',
     },
   }

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useDocuments } from '../hooks/useDocuments.ts'
 import Documents from './Documents.tsx'
 
 type Route = (init?: RequestInit) => Response | Promise<Response>
@@ -11,6 +12,12 @@ function stubRoutes(routes: Record<string, Route>) {
   const fetchStub = vi.fn<typeof fetch>(async (url, init) => routes[`${init?.method ?? 'GET'} ${url}`](init))
   vi.stubGlobal('fetch', fetchStub)
   return fetchStub
+}
+
+// Documents gets its list as props, so this loads it with the real hook, the way App does.
+function LoadedDocuments() {
+  const { documents, error, reload } = useDocuments()
+  return <Documents documents={documents} error={error} onUploaded={reload} />
 }
 
 const notes = { id: '1', filename: 'notes.txt', line_count: 2 }
@@ -38,7 +45,7 @@ describe('the document list', () => {
   it('says so when there are no documents', async () => {
     stubRoutes({ 'GET /api/documents': () => Response.json([]) })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
 
     expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
   })
@@ -46,7 +53,7 @@ describe('the document list', () => {
   it('does not say it is empty while still loading', () => {
     stubRoutes({ 'GET /api/documents': rejectsOnAbort })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
 
     expect(screen.queryByText('No documents yet.')).not.toBeInTheDocument()
   })
@@ -55,7 +62,7 @@ describe('the document list', () => {
     const short = { id: '2', filename: 'short.md', line_count: 1 }
     stubRoutes({ 'GET /api/documents': () => Response.json([notes, short]) })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
 
     const rows = await screen.findAllByRole('listitem')
     expect(rows[0]).toHaveTextContent('notes.txt')
@@ -69,7 +76,7 @@ describe('the document list', () => {
     const consoleError = vi.spyOn(console, 'error')
     stubRoutes({ 'GET /api/documents': () => Response.json([notes, { ...notes, id: '2' }]) })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
 
     expect(await screen.findAllByText('notes.txt')).toHaveLength(2)
     expect(consoleError).not.toHaveBeenCalled()
@@ -78,7 +85,7 @@ describe('the document list', () => {
   it('shows an alert when loading fails', async () => {
     stubRoutes({ 'GET /api/documents': () => new Response('Bad Gateway', { status: 502 }) })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the documents.')
     expect(screen.queryByText('No documents yet.')).not.toBeInTheDocument()
@@ -87,7 +94,7 @@ describe('the document list', () => {
   it('aborts the request on unmount', () => {
     const fetchStub = stubRoutes({ 'GET /api/documents': rejectsOnAbort })
 
-    const { unmount } = render(<Documents />)
+    const { unmount } = render(<LoadedDocuments />)
     const signal = fetchStub.mock.calls[0][1]?.signal
     expect(signal?.aborted).toBe(false)
 
@@ -101,7 +108,7 @@ describe('the document list', () => {
 
     render(
       <StrictMode>
-        <Documents />
+        <LoadedDocuments />
       </StrictMode>,
     )
     await act(async () => {})
@@ -125,7 +132,7 @@ describe('uploading', () => {
       'POST /api/documents': () => Response.json(notes, { status: 201 }),
     })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
     await upload(user)
 
@@ -141,7 +148,7 @@ describe('uploading', () => {
       'POST /api/documents': () => Response.json({ detail: 'Only .txt and .md are allowed.' }, { status: 415 }),
     })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await upload(user, new File(['%PDF'], 'report.pdf'))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Only .txt and .md are allowed.')
@@ -157,7 +164,7 @@ describe('uploading', () => {
     const user = userEvent.setup()
     stubRoutes({ 'GET /api/documents': () => Response.json([]), 'POST /api/documents': post })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await upload(user)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not upload the file.')
@@ -172,7 +179,7 @@ describe('uploading', () => {
     const get = vi.fn<Route>().mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(Response.json([notes]))
     stubRoutes({ 'GET /api/documents': get, 'POST /api/documents': post })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await upload(user)
     await screen.findByRole('alert')
     await upload(user)
@@ -192,7 +199,7 @@ describe('uploading', () => {
       'POST /api/documents': () => Response.json(notes, { status: 201 }),
     })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await screen.findByRole('alert')
     await upload(user)
 
@@ -204,7 +211,7 @@ describe('uploading', () => {
     const user = userEvent.setup()
     const fetchStub = stubRoutes({ 'GET /api/documents': () => Response.json([]) })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
     await user.click(uploadButton())
 
@@ -215,7 +222,7 @@ describe('uploading', () => {
   it('stops the browser from submitting the form itself', async () => {
     stubRoutes({ 'GET /api/documents': () => Response.json([]) })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
 
     // fireEvent returns false when the handler called preventDefault.
@@ -226,7 +233,7 @@ describe('uploading', () => {
     const user = userEvent.setup()
     stubRoutes({ 'GET /api/documents': () => Response.json([]) })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
     await user.upload(fileInput(), new File(['%PDF'], 'report.pdf'))
 
@@ -241,7 +248,7 @@ describe('uploading', () => {
       'POST /api/documents': () => new Promise((resolve) => (answer = resolve)),
     })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await upload(user)
 
     expect(screen.getByRole('button', { name: 'Uploading…' })).toBeDisabled()
@@ -266,7 +273,7 @@ describe('uploading', () => {
       'POST /api/documents': () => Response.json(notes, { status: 201 }),
     })
 
-    render(<Documents />)
+    render(<LoadedDocuments />)
     await upload(user)
 
     expect(await screen.findByText('notes.txt')).toBeInTheDocument()
