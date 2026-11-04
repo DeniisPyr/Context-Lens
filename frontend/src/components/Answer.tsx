@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { Answer as AnswerResult, Citation } from '../api/ask.ts'
+import LineViewer from './LineViewer.tsx'
 
 function lineLabel({ start_line, end_line }: Citation) {
   return start_line === end_line ? `Line ${start_line}` : `Lines ${start_line}–${end_line}`
@@ -11,6 +13,9 @@ type Props = {
 }
 
 export default function Answer({ filename, question, result }: Props) {
+  // One at a time. Ask removes this component while a new question is sent, so a new answer starts closed.
+  const [openIndex, setOpenIndex] = useState<number | null>(null)
+
   return (
     <article className="answer">
       <p className="answer-asked">
@@ -28,9 +33,17 @@ export default function Answer({ filename, question, result }: Props) {
               <li key={index}>
                 <div className="citation-source">
                   <span>{citation.filename}</span>
-                  <span className="line-count">{lineLabel(citation)}</span>
+                  <button
+                    type="button"
+                    className="link-button citation-lines"
+                    aria-expanded={openIndex === index}
+                    onClick={() => setOpenIndex(openIndex === index ? null : index)}
+                  >
+                    {lineLabel(citation)}
+                  </button>
                 </div>
                 <blockquote>{citation.quote}</blockquote>
+                {openIndex === index && <LineViewer citation={citation} />}
               </li>
             ))}
           </ul>

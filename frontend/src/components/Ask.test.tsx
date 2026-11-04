@@ -382,6 +382,81 @@ describe('asking', () => {
   })
 })
 
+describe('an open citation', () => {
+  const lines = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`)
+  const documentRoute: Route = () => Response.json({ ...notes, lines })
+
+  const openViewers = () => screen.queryAllByRole('list', { name: /^Lines of/ })
+  const expanded = () => screen.getAllByRole('button', { expanded: true })
+  const documentRequests = (fetchStub: ReturnType<typeof stubRoutes>) =>
+    fetchStub.mock.calls.filter(([url]) => url === '/api/documents/1')
+
+  async function openFirstCitation(user: UserEvent) {
+    await user.click(await screen.findByRole('button', { name: 'Line 3' }))
+    await screen.findByRole('list', { name: 'Lines of notes.txt' })
+  }
+
+  it('is closed in the next answer, even when that answer has the same citations', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([notes], { 'GET /api/documents/1': documentRoute })
+
+    await renderPage()
+    await ask(user, 'Why?')
+    await openFirstCitation(user)
+    expect(expanded()).toHaveLength(1)
+
+    await ask(user, 'How?')
+    await screen.findByText('You asked about notes.txt: How?')
+
+    expect(screen.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Lines 4–6' })).toHaveAttribute('aria-expanded', 'false')
+    expect(openViewers()).toHaveLength(0)
+    expect(documentRequests(fetchStub)).toHaveLength(1)
+  })
+
+  it('is cancelled and removed as soon as a new question is sent', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute(Response.json(answered))
+    const fetchStub = stubPage([notes], { 'POST /api/ask': route, 'GET /api/documents/1': rejectsOnAbort })
+
+    await renderPage()
+    await ask(user, 'Why?')
+    await user.click(await screen.findByRole('button', { name: 'Line 3' }))
+    await ask(user, 'How?')
+
+    expect(documentRequests(fetchStub)[0][1]?.signal?.aborted).toBe(true)
+    expect(screen.queryByRole('article')).not.toBeInTheDocument()
+
+    answer(Response.json(answered))
+    await screen.findByText('You asked about notes.txt: How?')
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(openViewers()).toHaveLength(0)
+  })
+
+  it('stays open, without a new request, when the list reloads or an empty question is sent', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([], {
+      'GET /api/documents': listThatChanges([notes], [notes, latest]),
+      'POST /api/documents': postUpload,
+      'GET /api/documents/1': documentRoute,
+    })
+
+    await renderPage()
+    await ask(user, 'Why?')
+    await openFirstCitation(user)
+    await upload(user, latest.filename)
+
+    expect(openViewers()).toHaveLength(1)
+
+    await user.clear(questionBox())
+    await user.click(askButton())
+
+    expect(openViewers()).toHaveLength(1)
+    expect(documentRequests(fetchStub)).toHaveLength(1)
+  })
+})
+
 describe('a question with no text', () => {
   it.each([
     ['empty', ''],

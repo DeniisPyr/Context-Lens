@@ -131,7 +131,8 @@ h2 {
   list-style: none;
 }
 
-.citation-list li {
+/* Only the citations: the lines of an open viewer are list items inside these. */
+.citation-list > li {
   padding: 0.5rem 0;
   border-top: 1px solid light-dark(#ddd, #444);
 }
@@ -162,6 +163,13 @@ h2 {
 .line-list:focus-visible {
   outline: 2px solid currentColor;
   outline-offset: 2px;
+}
+
+/* A long filename next to it wraps instead, and the button stays level with the first line of it. */
+.citation-lines {
+  flex-shrink: 0;
+  align-self: flex-start;
+  white-space: nowrap;
 }
 
 .line-viewer {
