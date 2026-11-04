@@ -65,3 +65,62 @@ h2 {
   flex-shrink: 0;
   opacity: 0.7;
 }
+
+.answer {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid light-dark(#ddd, #444);
+  overflow-wrap: anywhere;
+}
+
+.answer h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.answer-asked,
+.answer-text,
+.answer blockquote {
+  white-space: pre-wrap;
+}
+
+.answer-asked {
+  margin: 0 0 0.75rem;
+  opacity: 0.7;
+}
+
+.answer-text {
+  margin: 0;
+}
+
+.answer-not-found {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  background: light-dark(#f2f2f2, #2a2a2a);
+  color: light-dark(#555, #aaa);
+  font-style: italic;
+}
+
+.citation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.citation-list li {
+  padding: 0.5rem 0;
+  border-top: 1px solid light-dark(#ddd, #444);
+}
+
+.citation-source {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.answer blockquote {
+  margin: 0.25rem 0 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid light-dark(#ccc, #555);
+}
