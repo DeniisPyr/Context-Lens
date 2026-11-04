@@ -2,11 +2,11 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
 
-> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. The React frontend is next.
+> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. The React frontend only shows whether the API is reachable so far, so uploading and asking still go through the API directly.
 
 ## Run locally
 
-Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), and a [Gemini API key](https://aistudio.google.com/apikey).
+Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), a [Gemini API key](https://aistudio.google.com/apikey), and [Node 26](https://nodejs.org/).
 
 ```bash
 cd backend
@@ -34,6 +34,16 @@ List your uploads:
 curl http://localhost:8000/api/documents
 ```
 
+To run the frontend, keep the backend running and use another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then open http://localhost:5173. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+
 ## Project structure
 
 The backend lives in `backend/src/context_lens/`, and each file has one job:
@@ -54,6 +64,18 @@ context_lens/
     └── documents.py         # validates uploads and stores documents
 ```
 
+The frontend lives in `frontend/src/`:
+
+```
+src/
+├── main.tsx         # starts React
+├── App.tsx          # the page: state and rendering
+├── App.test.tsx     # tests for the page
+├── index.css        # page styles
+├── api/health.ts    # asks the backend whether it's healthy
+└── test/setup.ts    # test setup
+```
+
 ## Code quality
 
 ```bash
@@ -61,4 +83,11 @@ cd backend
 uv run pytest
 uv run ruff check .
 uv run ruff format .
+```
+
+```bash
+cd frontend
+npm run lint
+npm test
+npm run build
 ```

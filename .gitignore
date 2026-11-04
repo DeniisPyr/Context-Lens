@@ -6,6 +6,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
+# Node
+node_modules/
+dist/
+*.local
+
 # Secrets (step 2: Gemini API key)
 .env
 
