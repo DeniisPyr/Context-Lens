@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { listDocuments, uploadDocument } from './documents.ts'
+import { getDocument, listDocuments, uploadDocument } from './documents.ts'
 
 const summary = { id: '1', filename: 'notes.txt', line_count: 2 }
 
@@ -38,5 +38,33 @@ describe('listDocuments', () => {
     await expect(listDocuments(signal)).resolves.toEqual([summary])
 
     expect(fetchStub).toHaveBeenCalledWith('/api/documents', { signal })
+  })
+})
+
+describe('getDocument', () => {
+  const detail = { ...summary, lines: ['one', 'two'] }
+  const { signal } = new AbortController()
+
+  it('asks for the document by id, passes the signal on and returns its lines', async () => {
+    const fetchStub = vi.fn<typeof fetch>(async () => Response.json(detail))
+    vi.stubGlobal('fetch', fetchStub)
+
+    await expect(getDocument('1', signal)).resolves.toEqual(detail)
+
+    expect(fetchStub).toHaveBeenCalledWith('/api/documents/1', { signal })
+  })
+
+  it('uses the message from the backend when there is one', async () => {
+    const notFound = Response.json({ detail: 'Document not found.' }, { status: 404 })
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => notFound))
+
+    await expect(getDocument('1', signal)).rejects.toThrow('Document not found.')
+  })
+
+  it('falls back when a failed response is not JSON', async () => {
+    const badGateway = new Response('Bad Gateway', { status: 502 })
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => badGateway))
+
+    await expect(getDocument('1', signal)).rejects.toThrow('Could not load the document.')
   })
 })
