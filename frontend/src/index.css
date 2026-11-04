@@ -66,6 +66,29 @@ h2 {
   opacity: 0.7;
 }
 
+.ask-form label {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+/* width: 100% stops a long filename from widening the select past the page. */
+.ask-form select,
+.ask-form textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 0.25rem;
+  font: inherit;
+}
+
+.ask-form textarea {
+  resize: vertical;
+}
+
+.ask-form [role='alert'] {
+  margin: 0.5rem 0 0;
+}
+
 .answer {
   margin-top: 1.5rem;
   padding-top: 1rem;

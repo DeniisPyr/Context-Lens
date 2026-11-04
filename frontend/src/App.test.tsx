@@ -6,7 +6,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it('shows the title, the API status and the documents', async () => {
+it('shows the title, the API status, the documents and the ask section', async () => {
   vi.stubGlobal(
     'fetch',
     vi.fn<typeof fetch>(async (url) => Response.json(url === '/api/documents' ? [] : { status: 'ok' })),
@@ -17,4 +17,5 @@ it('shows the title, the API status and the documents', async () => {
   expect(screen.getByRole('heading', { name: 'Context-Lens' })).toBeInTheDocument()
   expect(await screen.findByText('API: online')).toBeInTheDocument()
   expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Ask a question' })).toBeInTheDocument()
 })
