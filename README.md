@@ -2,7 +2,7 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
 
-> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. The React frontend only shows whether the API is reachable so far, so uploading and asking still go through the API directly.
+> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. The React frontend can upload documents and list them, and shows whether the API is reachable. Asking questions still goes through the API directly.
 
 ## Run locally
 
@@ -42,7 +42,7 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+Then open http://localhost:5173 to upload `.txt` and `.md` files and see the list. To ask about a document you uploaded there, get its `id` from `curl http://localhost:8000/api/documents`. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 
 ## Project structure
 
@@ -68,13 +68,21 @@ The frontend lives in `frontend/src/`:
 
 ```
 src/
-├── main.tsx         # starts React
-├── App.tsx          # the page: state and rendering
-├── App.test.tsx     # tests for the page
-├── index.css        # page styles
-├── api/health.ts    # asks the backend whether it's healthy
-└── test/setup.ts    # test setup
+├── main.tsx             # starts React
+├── App.tsx              # the page: puts the parts below together
+├── index.css            # page styles
+├── api/                 # every HTTP call lives here
+│   ├── documents.ts     # lists and uploads documents
+│   ├── errors.ts        # turns a failed response into a readable message
+│   └── health.ts        # asks the backend whether it's healthy
+├── components/
+│   ├── ApiStatus.tsx    # shows whether the API is reachable
+│   ├── Documents.tsx    # loads and shows the document list
+│   └── UploadForm.tsx   # chooses and uploads a file
+└── test/setup.ts        # test setup
 ```
+
+Tests sit next to the code they cover, as `*.test.ts` or `*.test.tsx`.
 
 ## Code quality
 
