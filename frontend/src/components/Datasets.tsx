@@ -5,11 +5,13 @@ type Props = {
   datasets: Dataset[] | null
   error: string | null
   selectedId: string | undefined
+  busy: boolean
+  onBusyChange: (busy: boolean) => void
   onChoose: (id: string) => void
   onCreated: (dataset: Dataset) => void
 }
 
-export default function Datasets({ datasets, error, selectedId, onChoose, onCreated }: Props) {
+export default function Datasets({ datasets, error, selectedId, busy, onBusyChange, onChoose, onCreated }: Props) {
   return (
     <section>
       <h2>Datasets</h2>
@@ -18,7 +20,7 @@ export default function Datasets({ datasets, error, selectedId, onChoose, onCrea
       {selectedId && (
         <label className="dataset-choice">
           Dataset
-          <select value={selectedId} onChange={(event) => onChoose(event.target.value)}>
+          <select value={selectedId} disabled={busy} onChange={(event) => onChoose(event.target.value)}>
             {datasets?.map((dataset) => (
               <option key={dataset.id} value={dataset.id}>
                 {dataset.name}
@@ -27,7 +29,7 @@ export default function Datasets({ datasets, error, selectedId, onChoose, onCrea
           </select>
         </label>
       )}
-      <CreateDatasetForm onCreated={onCreated} />
+      <CreateDatasetForm busy={busy} onBusyChange={onBusyChange} onCreated={onCreated} />
     </section>
   )
 }

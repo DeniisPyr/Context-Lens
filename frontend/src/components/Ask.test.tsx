@@ -74,7 +74,7 @@ async function ask(user: UserEvent, question = 'Why?') {
 }
 
 async function sendFile(user: UserEvent, filename: string) {
-  await user.upload(screen.getByLabelText('Choose a .txt or .md file'), new File(['text'], filename))
+  await user.upload(screen.getByLabelText('Choose .txt or .md files'), new File(['text'], filename))
   await user.click(screen.getByRole('button', { name: 'Upload' }))
 }
 

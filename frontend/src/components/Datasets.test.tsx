@@ -654,3 +654,131 @@ describe('switching to another dataset', () => {
     expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
   })
 })
+
+describe('during an upload run', () => {
+  const uploaded = () => Response.json({ id: '1', filename: 'a.txt', line_count: 1 }, { status: 201 })
+
+  async function startRun(user: UserEvent, ...filenames: string[]) {
+    await user.upload(
+      await screen.findByLabelText(/^Choose/),
+      filenames.map((filename) => new File(['text'], filename)),
+    )
+    await user.click(screen.getByRole('button', { name: 'Upload' }))
+  }
+
+  function postsAnsweredByTheTest() {
+    const pending: ((response: Response) => void)[] = []
+    const route: Route = () => new Promise((resolve) => pending.push(resolve))
+    return { route, answer: (position: number, response: Response) => act(async () => pending[position](response)) }
+  }
+
+  it('disables the select and the Create button until the run ends', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = postsAnsweredByTheTest()
+    stubPage([reports, invoices], { [`POST ${documentsPath(invoices.id)}`]: route })
+
+    render(<App />)
+    await startRun(user, 'a.txt', 'b.txt')
+
+    expect(datasetSelect()).toBeDisabled()
+    expect(createButton()).toBeDisabled()
+
+    await answer(0, uploaded())
+
+    expect(datasetSelect()).toBeDisabled()
+    expect(createButton()).toBeDisabled()
+
+    await answer(1, new Response('Bad Gateway', { status: 502 }))
+
+    expect(datasetSelect()).toBeEnabled()
+    expect(createButton()).toBeEnabled()
+  })
+
+  it('sends every file to the dataset selected when the run started', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([reports, invoices], { [`POST ${documentsPath(reports.id)}`]: uploaded })
+
+    render(<App />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Dataset' }), reports.id)
+    await screen.findByText('No documents yet.')
+    await startRun(user, 'a.txt', 'b.txt')
+
+    await vi.waitFor(() => expect(createButton()).toBeEnabled())
+    expect(requestsTo(fetchStub, documentsPath(reports.id), 'POST')).toHaveLength(2)
+    expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
+  })
+
+  it('keeps the rows after the run, until the user moves to another dataset', async () => {
+    const user = userEvent.setup()
+    stubPage([reports, invoices], { [`POST ${documentsPath(invoices.id)}`]: uploaded })
+
+    render(<App />)
+    await startRun(user, 'a.txt')
+    expect(await screen.findByText('Uploaded')).toBeInTheDocument()
+
+    await user.selectOptions(datasetSelect(), reports.id)
+
+    expect(screen.queryByText('Uploaded')).not.toBeInTheDocument()
+  })
+
+  it('offers the files uploaded so far to Ask while the run goes on', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = postsAnsweredByTheTest()
+    stubPage([reports], {
+      [listOf(reports.id)]: listThatChanges([], [{ id: '1', filename: 'a.txt', line_count: 1 }]),
+      [`POST ${documentsPath(reports.id)}`]: route,
+    })
+
+    render(<App />)
+    await startRun(user, 'a.txt', 'b.txt')
+    await answer(0, uploaded())
+
+    expect(await screen.findByRole('option', { name: 'a.txt' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
+    expect(datasetSelect()).toBeDisabled()
+  })
+})
+
+describe('while a dataset is being created', () => {
+  it('holds back the select and the upload, so the new dataset cannot pull the page away from a run', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    const fetchStub = stubPage([reports], {
+      'GET /api/datasets': listThatChanges([reports], [reports, invoices]),
+      'POST /api/datasets': route,
+      [listOf(invoices.id)]: () => Response.json([]),
+    })
+
+    render(<App />)
+    const fileInput = await screen.findByLabelText(/^Choose/)
+    await createNamed(user, 'Invoices')
+
+    expect(datasetSelect()).toBeDisabled()
+    expect(createButton()).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled()
+    expect(fileInput).toBeDisabled()
+
+    await answer(Response.json(invoices, { status: 201 }))
+
+    expect(datasetSelect()).toBeEnabled()
+    expect(datasetSelect()).toHaveValue(invoices.id)
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
+  })
+
+  it('lets go of them when creating fails', async () => {
+    const user = userEvent.setup()
+    stubPage([reports], {
+      'POST /api/datasets': () => Response.json({ detail: 'A dataset with this name already exists.' }, { status: 409 }),
+    })
+
+    render(<App />)
+    await screen.findByLabelText(/^Choose/)
+    await createNamed(user, 'Reports')
+    await screen.findByRole('alert')
+
+    expect(datasetSelect()).toBeEnabled()
+    expect(createButton()).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+  })
+})

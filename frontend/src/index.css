@@ -23,7 +23,8 @@ h2 {
   font-size: 1.25rem;
 }
 
-[role='alert'] {
+[role='alert'],
+.upload-failed {
   color: light-dark(#b3261e, #ff8a80);
 }
 
@@ -56,11 +57,43 @@ h2 {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem 1rem;
+  min-width: 0;
+}
+
+/* Otherwise a flex item stays as wide as its content, and a file input's can be wider than a phone. */
+.upload-form input {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .upload-form [role='alert'] {
   flex-basis: 100%;
   margin: 0;
+}
+
+.upload-summary {
+  margin: 0;
+}
+
+.upload-summary:not(:empty) {
+  margin-top: 1rem;
+}
+
+.upload-results {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Wraps, so that a long filename and a long message each get the whole width on a phone. */
+.upload-results li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid light-dark(#ddd, #444);
+  overflow-wrap: anywhere;
 }
 
 .document-list {
