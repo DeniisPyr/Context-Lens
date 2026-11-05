@@ -24,6 +24,9 @@ class EmptyDocumentError(InvalidDocumentError):
 class DocumentNotFoundError(Exception):
     """No stored document has the requested id."""
 
+    def __init__(self) -> None:
+        super().__init__("Document not found.")
+
 
 class DuplicateDocumentError(Exception):
     """The dataset already holds a document with this filename."""
@@ -115,5 +118,5 @@ async def add_upload(
 async def get_document(store: DocumentStorage, document_id: str) -> Document:
     document = await store.get(document_id)
     if document is None:
-        raise DocumentNotFoundError("Document not found.")
+        raise DocumentNotFoundError
     return document

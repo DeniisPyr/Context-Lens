@@ -1,11 +1,16 @@
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from context_lens.db.ids import parse_id
 from context_lens.db.models import DatasetRow
-from context_lens.services.datasets import Dataset, DatasetNameTakenError
+from context_lens.services.datasets import (
+    Dataset,
+    DatasetNameTakenError,
+    DatasetNotFoundError,
+)
 
 NAME_CONSTRAINT = "uq_datasets_name"
 
@@ -42,3 +47,18 @@ class DatasetStore:
         async with self._sessions.begin() as session:
             rows = await session.execute(statement)
             return [Dataset(id=str(row.id), name=row.name) for row in rows]
+
+    async def delete(self, dataset_id: str) -> None:
+        key = parse_id(dataset_id)
+        if key is None:
+            raise DatasetNotFoundError
+        # As in DocumentStore.delete, RETURNING tells a deleted row from a missing one.
+        statement = (
+            delete(DatasetRow).where(DatasetRow.id == key).returning(DatasetRow.id)
+        )
+        async with self._sessions.begin() as session:
+            # Postgres deletes the dataset's documents in the same transaction, through
+            # ON DELETE CASCADE on their foreign key, so none can be left behind.
+            deleted = (await session.execute(statement)).scalar_one_or_none()
+        if deleted is None:
+            raise DatasetNotFoundError

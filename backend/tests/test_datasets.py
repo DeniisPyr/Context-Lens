@@ -7,6 +7,8 @@ from conftest import StartApp, create_dataset, run_sql
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from sqlalchemy import URL as DatabaseURL
+from sqlalchemy import create_engine, text
+from sqlalchemy.pool import NullPool
 
 URL = "/api/datasets"
 TAKEN = {"detail": "A dataset with this name already exists."}
@@ -449,3 +451,134 @@ def test_the_old_document_routes_are_gone(
     response = client.request(method, "/api/documents", **request_parts)
 
     assert response.status_code in {404, 405}
+
+
+def delete(client: TestClient, dataset_id: str) -> Response:
+    return client.delete(f"{URL}/{dataset_id}")
+
+
+def rows_in(database: DatabaseURL, table: str) -> int:
+    with create_engine(database, poolclass=NullPool).connect() as connection:
+        return connection.scalar(text(f"SELECT count(*) FROM {table}"))
+
+
+def test_delete_answers_204_with_no_body(client: TestClient) -> None:
+    created = create(client).json()
+
+    response = delete(client, created["id"])
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_deleted_dataset_is_gone_from_the_list_and_its_documents_with_it(
+    client: TestClient,
+) -> None:
+    kept = create(client, "Kept").json()
+    deleted = create(client, "Deleted").json()
+
+    delete(client, deleted["id"])
+
+    assert client.get(URL).json() == [kept]
+    response = client.get(f"{URL}/{deleted['id']}/documents")
+    assert response.status_code == 404
+    assert response.json() == NOT_FOUND
+
+
+def test_deleting_a_dataset_deletes_exactly_its_documents(
+    client: TestClient, clean_database: DatabaseURL
+) -> None:
+    reports_url = create_dataset(client, "Reports")
+    invoices_url = create_dataset(client, "Invoices")
+    in_reports = [
+        upload(client, reports_url, name).json() for name in ["a.txt", "b.txt"]
+    ]
+    # The same filename in the other dataset, which must not go with the first one's.
+    in_invoices = upload(client, invoices_url, "a.txt", b"invoice\n").json()
+
+    delete(client, reports_url.split("/")[3])
+
+    for document in in_reports:
+        assert client.get(f"/api/documents/{document['id']}").status_code == 404
+    assert client.get(invoices_url).json() == [in_invoices]
+    assert client.get(f"/api/documents/{in_invoices['id']}").json()["lines"] == [
+        "invoice"
+    ]
+    # Counted in the database, so no row is left behind where no route would show it.
+    assert rows_in(clean_database, "documents") == 1
+    assert rows_in(clean_database, "datasets") == 1
+
+
+def test_deleting_twice_is_a_404_the_second_time(client: TestClient) -> None:
+    created = create(client).json()
+    delete(client, created["id"])
+
+    response = delete(client, created["id"])
+
+    assert response.status_code == 404
+    assert response.json() == NOT_FOUND
+
+
+@pytest.mark.parametrize("dataset_id", BAD_DATASET_IDS)
+def test_delete_of_a_bad_or_unknown_dataset_is_a_404_and_deletes_nothing(
+    client: TestClient, documents_url: str, dataset_id: str
+) -> None:
+    uploaded = upload(client, documents_url).json()
+
+    response = delete(client, dataset_id)
+
+    assert response.status_code == 404
+    assert response.json() == NOT_FOUND
+    assert len(client.get(URL).json()) == 1
+    assert client.get(documents_url).json() == [uploaded]
+
+
+def test_delete_of_a_document_id_is_a_404_and_deletes_nothing(
+    client: TestClient, documents_url: str
+) -> None:
+    uploaded = upload(client, documents_url).json()
+
+    response = delete(client, uploaded["id"])
+
+    assert response.status_code == 404
+    assert client.get(documents_url).json() == [uploaded]
+
+
+def test_name_and_filenames_can_be_used_again_after_a_delete(
+    client: TestClient,
+) -> None:
+    first = create(client, "Reports").json()
+    upload(client, f"{URL}/{first['id']}/documents", "notes.txt")
+    delete(client, first["id"])
+
+    second = create(client, "Reports")
+    second_url = f"{URL}/{second.json()['id']}/documents"
+
+    assert second.status_code == 201
+    assert second.json()["id"] != first["id"]
+    assert client.get(second_url).json() == []
+    assert upload(client, second_url, "notes.txt").status_code == 201
+
+
+def test_upload_into_a_deleted_dataset_is_a_404(client: TestClient) -> None:
+    created = create(client).json()
+    delete(client, created["id"])
+
+    response = upload(client, f"{URL}/{created['id']}/documents")
+
+    assert response.status_code == 404
+    assert response.json() == NOT_FOUND
+
+
+def test_only_one_of_many_requests_racing_to_delete_a_dataset_wins(
+    client: TestClient,
+) -> None:
+    created = create(client).json()
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        responses = list(
+            executor.map(lambda _: delete(client, created["id"]), range(8))
+        )
+
+    assert sorted(response.status_code for response in responses) == [204] + [404] * 7
+    assert client.get(URL).json() == []

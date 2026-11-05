@@ -21,6 +21,11 @@ async def list_datasets(store: DatasetStoreDep) -> list[DatasetResponse]:
     return [DatasetResponse.from_dataset(dataset) for dataset in datasets]
 
 
+@router.delete("/{dataset_id}", status_code=204)
+async def delete_dataset(dataset_id: str, store: DatasetStoreDep) -> None:
+    await store.delete(dataset_id)
+
+
 @router.post("/{dataset_id}/documents", status_code=201)
 async def upload_document(
     dataset_id: str, file: UploadFile, store: DocumentStoreDep, settings: SettingsDep

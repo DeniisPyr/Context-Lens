@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from traceback import format_exception
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from conftest import apply_migrations, run_sql, wait_for_a_blocked_query
@@ -17,6 +17,7 @@ from context_lens.services.datasets import DatasetNotFoundError
 from context_lens.services.documents import (
     Document,
     DocumentInfo,
+    DocumentNotFoundError,
     DuplicateDocumentError,
 )
 from context_lens.settings import DatabaseSettings
@@ -179,6 +180,13 @@ async def test_every_method_gives_its_connection_back(
         await store.list_in_dataset(str(uuid4()))
     assert engine.pool.checkedout() == 0
 
+    await store.delete(document.id)
+    assert engine.pool.checkedout() == 0
+
+    with pytest.raises(DocumentNotFoundError):
+        await store.delete(document.id)
+    assert engine.pool.checkedout() == 0
+
     assert engine.pool.checkedin() == 1
 
 
@@ -333,3 +341,100 @@ async def test_store_does_not_change_the_text(
         id=document.id, filename="notes.txt", text=text_with_oddities
     )
     assert await store.get(document.id) == document
+
+
+async def test_delete_removes_only_that_document(
+    store: DocumentStore, dataset_id: str
+) -> None:
+    kept = await store.add(dataset_id, "kept.txt", "kept\n")
+    deleted = await store.add(dataset_id, "gone.txt", "gone\n")
+
+    await store.delete(deleted.id)
+
+    assert await store.get(deleted.id) is None
+    assert await store.get(kept.id) == kept
+
+
+@pytest.mark.parametrize(
+    "unknown", ["00000000-0000-0000-0000-000000000000", "not-a-uuid"]
+)
+async def test_delete_refuses_an_unknown_document(
+    store: DocumentStore, dataset_id: str, unknown: str
+) -> None:
+    document = await store.add(dataset_id, "a.txt", "one\n")
+
+    with pytest.raises(DocumentNotFoundError) as error:
+        await store.delete(unknown)
+
+    assert str(error.value) == "Document not found."
+    assert await store.get(document.id) == document
+
+
+async def test_delete_refuses_a_document_it_has_already_deleted(
+    store: DocumentStore, dataset_id: str
+) -> None:
+    document = await store.add(dataset_id, "a.txt", "one\n")
+    await store.delete(document.id)
+
+    with pytest.raises(DocumentNotFoundError):
+        await store.delete(document.id)
+
+
+async def test_exactly_one_of_two_concurrent_deletes_wins(
+    store: DocumentStore, dataset_id: str
+) -> None:
+    document = await store.add(dataset_id, "a.txt", "one\n")
+
+    results = await asyncio.gather(
+        store.delete(document.id), store.delete(document.id), return_exceptions=True
+    )
+
+    errors = [result for result in results if isinstance(result, Exception)]
+    assert [type(error) for error in errors] == [DocumentNotFoundError]
+    assert await store.get(document.id) is None
+
+
+async def test_delete_waits_for_a_rival_delete_and_then_finds_nothing(
+    store: DocumentStore, dataset_id: str, clean_database: URL
+) -> None:
+    # A SELECT made before deleting would still find the row the rival is deleting, so
+    # only the delete's own result can tell that it was already gone.
+    document = await store.add(dataset_id, "a.txt", "one\n")
+    engine = create_engine(clean_database, poolclass=NullPool)
+    with engine.connect() as rival:
+        rival.execute(
+            text("DELETE FROM documents WHERE id = :id"), {"id": UUID(document.id)}
+        )
+        deletion = asyncio.create_task(store.delete(document.id))
+        await wait_for_a_blocked_query(clean_database)
+
+        rival.commit()
+
+    with pytest.raises(DocumentNotFoundError):
+        await deletion
+
+
+async def test_delete_does_not_read_the_text(
+    store: DocumentStore, engine: AsyncEngine, dataset_id: str
+) -> None:
+    document = await store.add(dataset_id, "a.txt", PRIVATE_TEXT)
+    statements = []
+
+    def record(connection, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", record)
+    await store.delete(document.id)
+
+    [statement] = [s for s in statements if "documents" in s]
+    assert statement.startswith("DELETE FROM documents")
+    assert "documents.text" not in statement
+
+
+async def test_delete_of_a_bad_id_does_not_need_a_connection(
+    store: DocumentStore, engine: AsyncEngine
+) -> None:
+    with pytest.raises(DocumentNotFoundError):
+        await store.delete("not-a-uuid")
+
+    assert engine.pool.checkedin() == 0

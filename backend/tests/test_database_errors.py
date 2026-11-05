@@ -15,7 +15,7 @@ from conftest import (
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import URL, create_engine, text
-from sqlalchemy.exc import InterfaceError, ProgrammingError
+from sqlalchemy.exc import IntegrityError, InterfaceError, ProgrammingError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -47,6 +47,13 @@ EVERY_ROUTE = [
         {"json": {"document_id": NO_SUCH_ID, "question": "Hi"}},
         id="ask",
     ),
+    pytest.param("DELETE", f"/api/documents/{NO_SUCH_ID}", {}, id="delete_document"),
+    pytest.param("DELETE", f"/api/datasets/{NO_SUCH_ID}", {}, id="delete_dataset"),
+]
+# Deleting a document needs only its id column, which 0001 already has, so that route
+# works before the later migrations and answers 404 for an unknown id.
+ROUTES_THAT_NEED_THE_LATER_MIGRATIONS = [
+    route for route in EVERY_ROUTE if route.id != "delete_document"
 ]
 
 
@@ -104,8 +111,10 @@ def test_postgres_keeps_refused_rows_out_of_its_own_log(database: URL) -> None:
         ("GET", "/api/documents/not-a-uuid", {}, "Document not found."),
         ("GET", "/api/datasets/not-a-uuid/documents", {}, "Dataset not found."),
         ("POST", "/api/datasets/not-a-uuid/documents", UPLOAD, "Dataset not found."),
+        ("DELETE", "/api/documents/not-a-uuid", {}, "Document not found."),
+        ("DELETE", "/api/datasets/not-a-uuid", {}, "Dataset not found."),
     ],
-    ids=["read", "list_documents", "upload"],
+    ids=["read", "list_documents", "upload", "delete_document", "delete_dataset"],
 )
 def test_bad_id_is_a_404_even_with_the_database_down(
     client_without_database: TestClient,
@@ -138,7 +147,9 @@ def test_missing_table_asks_for_the_migrations(
 
 
 @pytest.mark.parametrize("revision", ["0001", "0002"])
-@pytest.mark.parametrize(("method", "path", "request_parts"), EVERY_ROUTE)
+@pytest.mark.parametrize(
+    ("method", "path", "request_parts"), ROUTES_THAT_NEED_THE_LATER_MIGRATIONS
+)
 def test_missing_column_or_table_asks_for_the_migrations(
     database: URL,
     start_app: StartApp,
@@ -200,6 +211,41 @@ def test_refused_write_is_logged_without_the_text(
         with pytest.raises(DocumentRejectedError, match="violates") as error:
             client.post(documents_url, **UPLOAD)
         assert client.get(documents_url).json() == []
+
+    assert PRIVATE_TEXT not in "".join(format_exception(error.value))
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def refuse_deleting_documents(database: URL) -> None:
+    # Another table that points at documents without ON DELETE CASCADE, as a later one
+    # could by mistake, and a row in it for every document.
+    run_sql(
+        database,
+        "CREATE TABLE pins (document_id uuid NOT NULL REFERENCES documents (id))",
+    )
+    run_sql(database, "INSERT INTO pins SELECT id FROM documents")
+
+
+@pytest.mark.parametrize("target", ["document", "dataset"])
+def test_refused_delete_keeps_everything_and_is_logged_without_the_text(
+    database: URL, start_app: StartApp, caplog: pytest.LogCaptureFixture, target: str
+) -> None:
+    apply_migrations(database)
+
+    with start_app() as client:
+        documents_url = create_dataset(client)
+        uploaded = client.post(documents_url, **UPLOAD).json()
+        refuse_deleting_documents(database)
+        path = {
+            "document": f"/api/documents/{uploaded['id']}",
+            "dataset": documents_url.removesuffix("/documents"),
+        }[target]
+        # Nothing handles this one, so the server logs the exception as it is.
+        with pytest.raises(IntegrityError, match="still referenced") as error:
+            client.delete(path)
+        # One transaction: a dataset whose documents can't go stays as well.
+        assert client.get(documents_url).json() == [uploaded]
+        assert client.get(f"/api/documents/{uploaded['id']}").status_code == 200
 
     assert PRIVATE_TEXT not in "".join(format_exception(error.value))
     assert PRIVATE_TEXT not in caplog.text

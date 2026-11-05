@@ -1,14 +1,16 @@
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from context_lens.db.ids import parse_id
 from context_lens.db.models import DatasetRow, DocumentRow
 from context_lens.services.datasets import DatasetNotFoundError
 from context_lens.services.documents import (
     Document,
     DocumentInfo,
+    DocumentNotFoundError,
     DuplicateDocumentError,
 )
 
@@ -20,14 +22,6 @@ class DocumentRejectedError(Exception):
     """A constraint refused the document, so the schema and this code disagree."""
 
 
-def _parse_id(value: str) -> UUID | None:
-    try:
-        return UUID(value)
-    except ValueError:
-        # Ids come straight from the API, and this one can't belong to anything.
-        return None
-
-
 class DocumentStore:
     # Each method holds a connection only for its own short transaction. /api/ask waits
     # up to a minute for Gemini, and must not keep a connection busy all that time.
@@ -35,7 +29,7 @@ class DocumentStore:
         self._sessions = async_sessionmaker(engine)
 
     async def add(self, dataset_id: str, filename: str, text: str) -> Document:
-        key = _parse_id(dataset_id)
+        key = parse_id(dataset_id)
         if key is None:
             raise DatasetNotFoundError
         document = Document(id=str(uuid4()), filename=filename, text=text)
@@ -63,7 +57,7 @@ class DocumentStore:
         return document
 
     async def get(self, document_id: str) -> Document | None:
-        key = _parse_id(document_id)
+        key = parse_id(document_id)
         if key is None:
             return None
         async with self._sessions.begin() as session:
@@ -72,8 +66,22 @@ class DocumentStore:
                 return None
             return Document(id=str(row.id), filename=row.filename, text=row.text)
 
+    async def delete(self, document_id: str) -> None:
+        key = parse_id(document_id)
+        if key is None:
+            raise DocumentNotFoundError
+        # RETURNING tells a deleted row from a missing one in the same statement, so a
+        # SELECT beforehand isn't needed, and two requests racing can't both succeed.
+        statement = (
+            delete(DocumentRow).where(DocumentRow.id == key).returning(DocumentRow.id)
+        )
+        async with self._sessions.begin() as session:
+            deleted = (await session.execute(statement)).scalar_one_or_none()
+        if deleted is None:
+            raise DocumentNotFoundError
+
     async def list_in_dataset(self, dataset_id: str) -> list[DocumentInfo]:
-        key = _parse_id(dataset_id)
+        key = parse_id(dataset_id)
         if key is None:
             raise DatasetNotFoundError
         statement = (
