@@ -1,5 +1,5 @@
 import pytest
-from conftest import StartApp
+from conftest import StartApp, create_dataset
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -35,7 +35,7 @@ def test_starting_the_app_does_not_connect(client_without_database: TestClient) 
 @pytest.mark.usefixtures("clean_database")
 def test_stopping_the_app_closes_the_database_connections(start_app: StartApp) -> None:
     with start_app() as client:
-        client.post("/api/documents", files={"file": ("a.txt", b"hello")})
+        create_dataset(client)
         engine = client.app.state.engine
         assert engine.pool.checkedin() == 1
 

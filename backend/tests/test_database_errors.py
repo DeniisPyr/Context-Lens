@@ -9,6 +9,7 @@ from conftest import (
     StartApp,
     apply_migrations,
     as_setting,
+    create_dataset,
     drop_connections,
     run_sql,
 )
@@ -18,6 +19,7 @@ from sqlalchemy.exc import InterfaceError, ProgrammingError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from context_lens.db.dataset_store import DatasetRejectedError, DatasetStore
 from context_lens.db.document_store import DocumentRejectedError, DocumentStore
 
 UNAVAILABLE = {"detail": "The database is unavailable right now. Please try again."}
@@ -28,18 +30,21 @@ NOT_READY = {
     )
 }
 
-NO_SUCH_DOCUMENT = "00000000-0000-0000-0000-000000000000"
+NO_SUCH_ID = "00000000-0000-0000-0000-000000000000"
+NO_SUCH_DATASET_DOCUMENTS = f"/api/datasets/{NO_SUCH_ID}/documents"
 PRIVATE_TEXT = "private document text"
 UPLOAD = {"files": {"file": ("notes.txt", PRIVATE_TEXT.encode())}}
 
 EVERY_ROUTE = [
-    pytest.param("GET", "/api/documents", {}, id="list"),
-    pytest.param("POST", "/api/documents", UPLOAD, id="upload"),
-    pytest.param("GET", f"/api/documents/{NO_SUCH_DOCUMENT}", {}, id="read"),
+    pytest.param("GET", "/api/datasets", {}, id="list_datasets"),
+    pytest.param("POST", "/api/datasets", {"json": {"name": "A"}}, id="create_dataset"),
+    pytest.param("GET", NO_SUCH_DATASET_DOCUMENTS, {}, id="list_documents"),
+    pytest.param("POST", NO_SUCH_DATASET_DOCUMENTS, UPLOAD, id="upload"),
+    pytest.param("GET", f"/api/documents/{NO_SUCH_ID}", {}, id="read"),
     pytest.param(
         "POST",
         "/api/ask",
-        {"json": {"document_id": NO_SUCH_DOCUMENT, "question": "Hi"}},
+        {"json": {"document_id": NO_SUCH_ID, "question": "Hi"}},
         id="ask",
     ),
 ]
@@ -76,7 +81,7 @@ def test_unreachable_server_is_a_503(
 def test_unreachable_server_is_logged_in_one_line_without_the_text_or_password(
     client_without_database: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:
-    client_without_database.post("/api/documents", **UPLOAD)
+    client_without_database.post(NO_SUCH_DATASET_DOCUMENTS, **UPLOAD)
 
     record = unavailable_log(caplog)
     assert record.exc_info is None
@@ -93,13 +98,26 @@ def test_postgres_keeps_refused_rows_out_of_its_own_log(database: URL) -> None:
     assert verbosity == "terse"
 
 
+@pytest.mark.parametrize(
+    ("method", "path", "request_parts", "detail"),
+    [
+        ("GET", "/api/documents/not-a-uuid", {}, "Document not found."),
+        ("GET", "/api/datasets/not-a-uuid/documents", {}, "Dataset not found."),
+        ("POST", "/api/datasets/not-a-uuid/documents", UPLOAD, "Dataset not found."),
+    ],
+    ids=["read", "list_documents", "upload"],
+)
 def test_bad_id_is_a_404_even_with_the_database_down(
     client_without_database: TestClient,
+    method: str,
+    path: str,
+    request_parts: dict,
+    detail: str,
 ) -> None:
-    response = client_without_database.get("/api/documents/not-a-uuid")
+    response = client_without_database.request(method, path, **request_parts)
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Document not found."}
+    assert response.json() == {"detail": detail}
 
 
 @pytest.mark.parametrize(("method", "path", "request_parts"), EVERY_ROUTE)
@@ -119,12 +137,18 @@ def test_missing_table_asks_for_the_migrations(
     assert fake_gemini.prompts == []
 
 
+@pytest.mark.parametrize("revision", ["0001", "0002"])
 @pytest.mark.parametrize(("method", "path", "request_parts"), EVERY_ROUTE)
-def test_missing_column_asks_for_the_migrations(
-    database: URL, start_app: StartApp, method: str, path: str, request_parts: dict
+def test_missing_column_or_table_asks_for_the_migrations(
+    database: URL,
+    start_app: StartApp,
+    revision: str,
+    method: str,
+    path: str,
+    request_parts: dict,
 ) -> None:
-    # Someone who applied 0001 before this code existed, and hasn't applied 0002.
-    apply_migrations(database, "0001")
+    # Someone who applied an earlier migration before this code existed.
+    apply_migrations(database, revision)
 
     with start_app() as client:
         response = client.request(method, path, **request_parts)
@@ -133,11 +157,30 @@ def test_missing_column_asks_for_the_migrations(
     assert response.json() == NOT_READY
 
 
+def test_documents_without_their_dataset_column_ask_for_the_migrations(
+    database: URL, start_app: StartApp
+) -> None:
+    # The datasets table is already there at this revision, so only these routes fail.
+    apply_migrations(database, "0003")
+
+    with start_app() as client:
+        documents_url = create_dataset(client)
+        responses = [
+            client.get(documents_url),
+            client.post(documents_url, **UPLOAD),
+            client.get(f"/api/documents/{NO_SUCH_ID}"),
+            client.post("/api/ask", json={"document_id": NO_SUCH_ID, "question": "Hi"}),
+        ]
+
+    assert [response.status_code for response in responses] == [503] * 4
+    assert all(response.json() == NOT_READY for response in responses)
+
+
 def test_missing_migrations_are_logged_without_the_text(
     database: URL, start_app: StartApp, caplog: pytest.LogCaptureFixture
 ) -> None:
     with start_app() as client:
-        client.post("/api/documents", **UPLOAD)
+        client.post(NO_SUCH_DATASET_DOCUMENTS, **UPLOAD)
 
     [error] = logged_errors(caplog, "The database isn't ready.")
     assert isinstance(error, ProgrammingError)
@@ -152,26 +195,98 @@ def test_refused_write_is_logged_without_the_text(
     run_sql(database, "ALTER TABLE documents ADD CONSTRAINT refuse_all CHECK (false)")
 
     with start_app() as client:
+        documents_url = create_dataset(client)
         # Nothing handles this one, so the server logs the exception as it is.
         with pytest.raises(DocumentRejectedError, match="violates") as error:
-            client.post("/api/documents", **UPLOAD)
-        assert client.get("/api/documents").json() == []
+            client.post(documents_url, **UPLOAD)
+        assert client.get(documents_url).json() == []
 
     assert PRIVATE_TEXT not in "".join(format_exception(error.value))
     assert PRIVATE_TEXT not in caplog.text
 
 
+def test_duplicate_file_is_answered_without_the_text_anywhere(
+    client: TestClient, documents_url: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    client.post(documents_url, **UPLOAD)
+
+    response = client.post(documents_url, **UPLOAD)
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "notes.txt is already in this dataset."}
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def test_unknown_dataset_is_answered_without_the_text_anywhere(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    response = client.post(NO_SUCH_DATASET_DOCUMENTS, **UPLOAD)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Dataset not found."}
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def test_refused_dataset_is_logged_without_the_name(
+    database: URL, start_app: StartApp, caplog: pytest.LogCaptureFixture
+) -> None:
+    apply_migrations(database)
+    run_sql(database, "ALTER TABLE datasets ADD CONSTRAINT refuse_all CHECK (false)")
+
+    with start_app() as client:
+        with pytest.raises(DatasetRejectedError, match="violates") as error:
+            client.post("/api/datasets", json={"name": PRIVATE_TEXT})
+        assert client.get("/api/datasets").json() == []
+
+    assert PRIVATE_TEXT not in "".join(format_exception(error.value))
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def test_duplicate_dataset_name_is_answered_without_logging_the_name(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    client.post("/api/datasets", json={"name": PRIVATE_TEXT})
+
+    response = client.post("/api/datasets", json={"name": PRIVATE_TEXT})
+
+    assert response.status_code == 409
+    assert PRIVATE_TEXT not in response.text
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def test_unreachable_server_while_creating_a_dataset_is_logged_without_the_name(
+    client_without_database: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    client_without_database.post("/api/datasets", json={"name": PRIVATE_TEXT})
+
+    assert "Connection refused" in unavailable_log(caplog).getMessage()
+    assert PRIVATE_TEXT not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("store_type", "attribute", "path"),
+    [
+        (DocumentStore, "document_store", NO_SUCH_DATASET_DOCUMENTS),
+        (DatasetStore, "dataset_store", "/api/datasets"),
+    ],
+    ids=["documents", "datasets"],
+)
 def test_busy_connection_pool_is_a_503(
-    client: TestClient, clean_database: URL, caplog: pytest.LogCaptureFixture
+    client: TestClient,
+    clean_database: URL,
+    caplog: pytest.LogCaptureFixture,
+    store_type: type,
+    attribute: str,
+    path: str,
 ) -> None:
     # A real pool with room for one connection, which this test keeps busy.
     engine = create_async_engine(
         as_setting(clean_database), pool_size=1, max_overflow=0, pool_timeout=0.1
     )
-    client.app.state.document_store = DocumentStore(engine)
+    setattr(client.app.state, attribute, store_type(engine))
     busy = client.portal.call(engine.connect)
     try:
-        response = client.get("/api/documents")
+        response = client.get(path)
     finally:
         client.portal.call(busy.close)
         client.portal.call(engine.dispose)
@@ -187,9 +302,9 @@ def test_interface_error_is_a_503(client_without_database: TestClient) -> None:
         async def list_all(self) -> None:
             raise InterfaceError("SELECT 1", {}, Exception("the connection is closed"))
 
-    client_without_database.app.state.document_store = BrokenStore()
+    client_without_database.app.state.dataset_store = BrokenStore()
 
-    response = client_without_database.get("/api/documents")
+    response = client_without_database.get("/api/datasets")
 
     assert response.status_code == 503
     assert response.json() == UNAVAILABLE
@@ -209,13 +324,16 @@ def drop_the_blocked_connection(url: URL) -> None:
 
 
 def test_connection_lost_during_a_write_is_a_503(
-    client: TestClient, clean_database: URL, caplog: pytest.LogCaptureFixture
+    client: TestClient,
+    documents_url: str,
+    clean_database: URL,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # The lock keeps the upload waiting inside its INSERT until its connection is gone.
     engine = create_engine(clean_database, poolclass=NullPool)
     with ThreadPoolExecutor() as executor, engine.connect() as locker:
         locker.execute(text("LOCK TABLE documents"))
-        upload = executor.submit(client.post, "/api/documents", **UPLOAD)
+        upload = executor.submit(client.post, documents_url, **UPLOAD)
 
         drop_the_blocked_connection(clean_database)
 
@@ -228,12 +346,12 @@ def test_connection_lost_during_a_write_is_a_503(
 
 
 def test_app_recovers_by_itself_once_the_server_is_back(
-    client: TestClient, clean_database: URL
+    client: TestClient, documents_url: str, clean_database: URL
 ) -> None:
-    uploaded = client.post("/api/documents", **UPLOAD).json()
+    uploaded = client.post(documents_url, **UPLOAD).json()
     assert client.app.state.engine.pool.checkedin() == 1
 
     # What the pool sees after a restart: every connection it kept is dead.
     drop_connections(clean_database)
 
-    assert client.get("/api/documents").json() == [uploaded]
+    assert client.get(documents_url).json() == [uploaded]

@@ -16,6 +16,9 @@ function stubRoutes(routes: Record<string, Route>) {
   return fetchStub
 }
 
+const GET_LIST = 'GET /api/datasets/d1/documents'
+const POST_FILE = 'POST /api/datasets/d1/documents'
+
 const notes = { id: '1', filename: 'notes.txt', line_count: 9 }
 const report = { id: '2', filename: 'report.md', line_count: 9 }
 const latest = { id: '3', filename: 'latest.txt', line_count: 9 }
@@ -38,7 +41,8 @@ const notFound = {
 function stubPage(documents: (typeof notes)[], routes: Record<string, Route> = {}) {
   return stubRoutes({
     'GET /api/health': () => Response.json({ status: 'ok' }),
-    'GET /api/documents': () => Response.json(documents),
+    'GET /api/datasets': () => Response.json([{ id: 'd1', name: 'Reports' }]),
+    [GET_LIST]: () => Response.json(documents),
     'POST /api/ask': () => Response.json(answered),
     ...routes,
   })
@@ -70,7 +74,7 @@ async function ask(user: UserEvent, question = 'Why?') {
 }
 
 async function sendFile(user: UserEvent, filename: string) {
-  await user.upload(screen.getByLabelText('Choose a .txt or .md file'), new File(['text'], filename))
+  await user.upload(screen.getByLabelText('Choose .txt or .md files'), new File(['text'], filename))
   await user.click(screen.getByRole('button', { name: 'Upload' }))
 }
 
@@ -117,16 +121,17 @@ describe('without a document to ask about', () => {
     expectPromptAndNoForm()
   })
 
-  it('shows the prompt before the first load finishes', () => {
-    stubPage([], { 'GET /api/documents': rejectsOnAbort })
+  it('shows the prompt before the first load finishes', async () => {
+    stubPage([], { [GET_LIST]: rejectsOnAbort })
 
     render(<App />)
+    await screen.findByRole('heading', { name: 'Ask a question' })
 
     expectPromptAndNoForm()
   })
 
   it('shows the prompt when the first load fails', async () => {
-    stubPage([], { 'GET /api/documents': () => new Response('Bad Gateway', { status: 502 }) })
+    stubPage([], { [GET_LIST]: () => new Response('Bad Gateway', { status: 502 }) })
 
     render(<App />)
     await screen.findByRole('alert')
@@ -137,8 +142,8 @@ describe('without a document to ask about', () => {
   it('shows the form once the first document is uploaded', async () => {
     const user = userEvent.setup()
     stubPage([], {
-      'GET /api/documents': listThatChanges([], [latest]),
-      'POST /api/documents': postUpload,
+      [GET_LIST]: listThatChanges([], [latest]),
+      [POST_FILE]: postUpload,
     })
 
     render(<App />)
@@ -164,8 +169,8 @@ describe('choosing a document', () => {
   it('keeps an explicit choice when the list reloads', async () => {
     const user = userEvent.setup()
     stubPage([], {
-      'GET /api/documents': listThatChanges([notes, report], [notes, report, latest]),
-      'POST /api/documents': postUpload,
+      [GET_LIST]: listThatChanges([notes, report], [notes, report, latest]),
+      [POST_FILE]: postUpload,
     })
 
     await renderPage()
@@ -178,8 +183,8 @@ describe('choosing a document', () => {
   it('goes back to the newest when the chosen document is gone', async () => {
     const user = userEvent.setup()
     stubPage([], {
-      'GET /api/documents': listThatChanges([notes, report], [report, latest]),
-      'POST /api/documents': postUpload,
+      [GET_LIST]: listThatChanges([notes, report], [report, latest]),
+      [POST_FILE]: postUpload,
     })
 
     await renderPage()
@@ -192,8 +197,8 @@ describe('choosing a document', () => {
   it('moves to the newest after an upload when nothing was chosen', async () => {
     const user = userEvent.setup()
     stubPage([], {
-      'GET /api/documents': listThatChanges([notes, report], [notes, report, latest]),
-      'POST /api/documents': postUpload,
+      [GET_LIST]: listThatChanges([notes, report], [notes, report, latest]),
+      [POST_FILE]: postUpload,
     })
 
     await renderPage()
@@ -208,7 +213,7 @@ describe('choosing a document', () => {
       .fn<Route>()
       .mockResolvedValueOnce(Response.json([notes, report]))
       .mockResolvedValueOnce(new Response('Bad Gateway', { status: 502 }))
-    stubPage([], { 'GET /api/documents': get, 'POST /api/documents': postUpload })
+    stubPage([], { [GET_LIST]: get, [POST_FILE]: postUpload })
 
     await renderPage()
     await user.selectOptions(documentSelect(), notes.id)
@@ -222,8 +227,8 @@ describe('choosing a document', () => {
     const user = userEvent.setup()
     const newer = { id: '4', filename: 'newer.txt', line_count: 9 }
     stubPage([], {
-      'GET /api/documents': listThatChanges([notes, report], [report, latest], [report, latest, newer]),
-      'POST /api/documents': postUpload,
+      [GET_LIST]: listThatChanges([notes, report], [report, latest], [report, latest, newer]),
+      [POST_FILE]: postUpload,
     })
 
     await renderPage()
@@ -437,8 +442,8 @@ describe('an open citation', () => {
   it('stays open, without a new request, when the list reloads or an empty question is sent', async () => {
     const user = userEvent.setup()
     const fetchStub = stubPage([], {
-      'GET /api/documents': listThatChanges([notes], [notes, latest]),
-      'POST /api/documents': postUpload,
+      [GET_LIST]: listThatChanges([notes], [notes, latest]),
+      [POST_FILE]: postUpload,
       'GET /api/documents/1': documentRoute,
     })
 

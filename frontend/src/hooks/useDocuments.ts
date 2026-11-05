@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { type DocumentSummary, listDocuments } from '../api/documents.ts'
 
-export function useDocuments() {
+export function useDocuments(datasetId: string) {
   // null until the first load finishes, so "No documents yet." can't show before we know.
   const [documents, setDocuments] = useState<DocumentSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -10,7 +10,7 @@ export function useDocuments() {
 
   useEffect(() => {
     const controller = new AbortController()
-    listDocuments(controller.signal)
+    listDocuments(datasetId, controller.signal)
       .then((loaded) => {
         setDocuments(loaded)
         setError(null)
@@ -19,7 +19,7 @@ export function useDocuments() {
         if (!controller.signal.aborted) setError(err.message)
       })
     return () => controller.abort()
-  }, [reloadCount])
+  }, [datasetId, reloadCount])
 
   return { documents, error, reload: () => setReloadCount((count) => count + 1) }
 }

@@ -4,12 +4,28 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from context_lens.db.models import DocumentRow
-from context_lens.services.documents import Document, DocumentInfo
+from context_lens.db.models import DatasetRow, DocumentRow
+from context_lens.services.datasets import DatasetNotFoundError
+from context_lens.services.documents import (
+    Document,
+    DocumentInfo,
+    DuplicateDocumentError,
+)
+
+FILENAME_CONSTRAINT = "uq_documents_dataset_id_filename"
+DATASET_CONSTRAINT = "fk_documents_dataset_id_datasets"
 
 
 class DocumentRejectedError(Exception):
     """A constraint refused the document, so the schema and this code disagree."""
+
+
+def _parse_id(value: str) -> UUID | None:
+    try:
+        return UUID(value)
+    except ValueError:
+        # Ids come straight from the API, and this one can't belong to anything.
+        return None
 
 
 class DocumentStore:
@@ -18,10 +34,14 @@ class DocumentStore:
     def __init__(self, engine: AsyncEngine) -> None:
         self._sessions = async_sessionmaker(engine)
 
-    async def add(self, filename: str, text: str) -> Document:
+    async def add(self, dataset_id: str, filename: str, text: str) -> Document:
+        key = _parse_id(dataset_id)
+        if key is None:
+            raise DatasetNotFoundError
         document = Document(id=str(uuid4()), filename=filename, text=text)
         row = DocumentRow(
             id=UUID(document.id),
+            dataset_id=key,
             filename=filename,
             text=text,
             line_count=document.line_count,
@@ -30,16 +50,21 @@ class DocumentStore:
             async with self._sessions.begin() as session:
                 session.add(row)
         except IntegrityError as error:
-            # hide_parameters doesn't cover this: Postgres itself quotes the failing row
-            # in its message, and the traceback would carry that text into the logs.
-            raise DocumentRejectedError(error.orig.diag.message_primary) from None
+            # The constraints decide rather than a SELECT beforehand, so a race can't get
+            # past them. hide_parameters doesn't cover this: Postgres itself quotes the
+            # failing row in its message, and the traceback would carry that text into
+            # the logs.
+            diagnostics = error.orig.diag
+            if diagnostics.constraint_name == FILENAME_CONSTRAINT:
+                raise DuplicateDocumentError(filename) from None
+            if diagnostics.constraint_name == DATASET_CONSTRAINT:
+                raise DatasetNotFoundError from None
+            raise DocumentRejectedError(diagnostics.message_primary) from None
         return document
 
     async def get(self, document_id: str) -> Document | None:
-        try:
-            key = UUID(document_id)
-        except ValueError:
-            # Ids come straight from the API, and this one can't belong to a document.
+        key = _parse_id(document_id)
+        if key is None:
             return None
         async with self._sessions.begin() as session:
             row = await session.get(DocumentRow, key)
@@ -47,11 +72,19 @@ class DocumentStore:
                 return None
             return Document(id=str(row.id), filename=row.filename, text=row.text)
 
-    async def list_all(self) -> list[DocumentInfo]:
-        statement = select(
-            DocumentRow.id, DocumentRow.filename, DocumentRow.line_count
-        ).order_by(DocumentRow.created_at, DocumentRow.id)
+    async def list_in_dataset(self, dataset_id: str) -> list[DocumentInfo]:
+        key = _parse_id(dataset_id)
+        if key is None:
+            raise DatasetNotFoundError
+        statement = (
+            select(DocumentRow.id, DocumentRow.filename, DocumentRow.line_count)
+            .where(DocumentRow.dataset_id == key)
+            .order_by(DocumentRow.created_at, DocumentRow.id)
+        )
         async with self._sessions.begin() as session:
+            # An empty dataset and a missing one both have no rows to list.
+            if await session.get(DatasetRow, key) is None:
+                raise DatasetNotFoundError
             rows = await session.execute(statement)
             return [
                 DocumentInfo(

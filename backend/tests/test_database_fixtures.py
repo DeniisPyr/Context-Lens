@@ -1,13 +1,13 @@
 from uuid import uuid4
 
 import pytest
-from conftest import UNREACHABLE_SERVER
+from conftest import UNREACHABLE_SERVER, create_dataset
 from fastapi.testclient import TestClient
 from sqlalchemy import URL, create_engine, inspect, make_url, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from context_lens.db.models import DocumentRow
+from context_lens.db.models import DatasetRow, DocumentRow
 from context_lens.settings import DatabaseSettings
 
 
@@ -52,7 +52,7 @@ def test_uploads_reach_the_throwaway_database_and_not_the_developers(
 ) -> None:
     before = documents_in(postgres_server)
 
-    response = client.post("/api/documents", files={"file": ("a.txt", b"hello")})
+    response = client.post(create_dataset(client), files={"file": ("a.txt", b"hello")})
 
     assert response.status_code == 201
     assert documents_in(clean_database) == 1
@@ -72,13 +72,26 @@ def test_database_for_one_test_has_no_tables(database: URL) -> None:
 
 
 @pytest.mark.parametrize("attempt", ["first", "second"])
-def test_each_test_starts_without_documents(clean_database: URL, attempt: str) -> None:
-    # Whichever runs second would see the row the other one left.
+def test_each_test_starts_without_datasets_or_documents(
+    clean_database: URL, attempt: str
+) -> None:
+    # Whichever runs second would see the rows the other one left.
     with Session(create_engine(clean_database, poolclass=NullPool)) as session:
-        count = session.scalar(text("SELECT count(*) FROM documents"))
+        datasets = session.scalar(text("SELECT count(*) FROM datasets"))
+        documents = session.scalar(text("SELECT count(*) FROM documents"))
+        dataset_id = uuid4()
+        session.add(DatasetRow(id=dataset_id, name="Reports"))
+        session.flush()
         session.add(
-            DocumentRow(id=uuid4(), filename="notes.txt", text="Hello", line_count=1)
+            DocumentRow(
+                id=uuid4(),
+                dataset_id=dataset_id,
+                filename="notes.txt",
+                text="Hello",
+                line_count=1,
+            )
         )
         session.commit()
 
-    assert count == 0
+    assert datasets == 0
+    assert documents == 0

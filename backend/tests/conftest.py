@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import time
@@ -115,6 +116,28 @@ def run_sql(url: URL, statement: str) -> None:
         connection.execute(text(statement))
 
 
+async def wait_for_a_blocked_query(url: URL) -> None:
+    # Gives the query being waited for the event loop while this polls for it.
+    query = text(
+        "SELECT count(*) FROM pg_stat_activity "
+        "WHERE datname = :name AND wait_event_type = 'Lock'"
+    )
+    admin = create_engine(url, isolation_level="AUTOCOMMIT", poolclass=NullPool)
+    with admin.connect() as connection:
+        for _ in range(500):
+            if connection.scalar(query, {"name": url.database}):
+                return
+            await asyncio.sleep(0.01)
+    pytest.fail("Nothing ever waited for the lock.", pytrace=False)
+
+
+def create_dataset(client: TestClient, name: str = "Reports") -> str:
+    """Creates a dataset and returns the address of its documents."""
+    response = client.post("/api/datasets", json={"name": name})
+    assert response.status_code == 201
+    return f"/api/datasets/{response.json()['id']}/documents"
+
+
 def drop_connections(url: URL) -> None:
     # Waits, because a connection the server hasn't closed yet would still pass a ping.
     others = "FROM pg_stat_activity WHERE datname = :name AND pid <> pg_backend_pid()"
@@ -175,7 +198,7 @@ def clean_database(shared_database: URL, monkeypatch: pytest.MonkeyPatch) -> URL
     with create_engine(shared_database, poolclass=NullPool).begin() as connection:
         # A transaction left open by a broken test should fail this, not hang the run.
         connection.execute(text("SET LOCAL lock_timeout = '5s'"))
-        connection.execute(text("TRUNCATE documents"))
+        connection.execute(text("TRUNCATE documents, datasets"))
     monkeypatch.setenv("DATABASE_URL", as_setting(shared_database))
     return shared_database
 
@@ -216,3 +239,8 @@ def client(clean_database: URL, start_app: StartApp) -> Iterator[TestClient]:
 def client_without_database(start_app: StartApp) -> Iterator[TestClient]:
     with start_app() as test_client:
         yield test_client
+
+
+@pytest.fixture
+def documents_url(client: TestClient) -> str:
+    return create_dataset(client)
