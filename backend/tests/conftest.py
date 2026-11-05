@@ -1,8 +1,8 @@
 import logging
 import os
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from uuid import uuid4
 
@@ -28,6 +28,8 @@ UNREACHABLE_SERVER = make_url(
     "postgresql+psycopg://someone:hunter2@127.0.0.1:1/postgres"
 )
 
+type StartApp = Callable[[], AbstractContextManager[TestClient]]
+
 
 class FakeGemini:
     def __init__(self) -> None:
@@ -38,6 +40,7 @@ class FakeGemini:
             citations=[Citation(start_line=1, end_line=1, quote="The cat is orange.")],
         )
         self.error: Exception | None = None
+        self.during_call: Callable[[], None] = lambda: None
         self.prompts: list[str] = []
         self.system_instructions: list[str] = []
         self.response_models: list[type[BaseModel]] = []
@@ -48,6 +51,7 @@ class FakeGemini:
         self.prompts.append(prompt)
         self.system_instructions.append(system_instruction)
         self.response_models.append(response_model)
+        self.during_call()
         if self.error is not None:
             raise self.error
         return self.answer
@@ -104,6 +108,11 @@ def apply_migrations(url: URL, revision: str = "head") -> None:
     with pytest.MonkeyPatch.context() as patch, root_logger_restored():
         patch.setenv("DATABASE_URL", as_setting(url))
         command.upgrade(Config(ALEMBIC_INI), revision)
+
+
+def run_sql(url: URL, statement: str) -> None:
+    with create_engine(url, poolclass=NullPool).begin() as connection:
+        connection.execute(text(statement))
 
 
 def drop_connections(url: URL) -> None:
@@ -182,11 +191,28 @@ def fake_gemini() -> FakeGemini:
 
 
 @pytest.fixture
-def client(
-    monkeypatch: pytest.MonkeyPatch, fake_gemini: FakeGemini
-) -> Iterator[TestClient]:
+def start_app(monkeypatch: pytest.MonkeyPatch, fake_gemini: FakeGemini) -> StartApp:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    app = create_app()
-    app.dependency_overrides[get_gemini_client] = lambda: fake_gemini
-    with TestClient(app, follow_redirects=False) as test_client:
+
+    @contextmanager
+    def start() -> Iterator[TestClient]:
+        app = create_app()
+        app.dependency_overrides[get_gemini_client] = lambda: fake_gemini
+        # As a context manager, so that the lifespan and the requests share the one
+        # event loop that the engine's connections belong to.
+        with TestClient(app, follow_redirects=False) as test_client:
+            yield test_client
+
+    return start
+
+
+@pytest.fixture
+def client(clean_database: URL, start_app: StartApp) -> Iterator[TestClient]:
+    with start_app() as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def client_without_database(start_app: StartApp) -> Iterator[TestClient]:
+    with start_app() as test_client:
         yield test_client

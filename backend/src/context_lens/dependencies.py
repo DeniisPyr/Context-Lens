@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from context_lens.clients.gemini import GeminiClient
-from context_lens.services.documents import DocumentStore
+from context_lens.db.document_store import DocumentStore
 from context_lens.settings import Settings
 
 

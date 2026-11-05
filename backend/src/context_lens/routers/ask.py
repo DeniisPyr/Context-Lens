@@ -12,6 +12,6 @@ router = APIRouter(prefix="/ask", tags=["ask"])
 async def ask_question(
     body: AskRequest, gemini: GeminiDep, store: DocumentStoreDep
 ) -> AskResponse:
-    document = get_document(store, body.document_id)
+    document = await get_document(store, body.document_id)
     answer = await answer_question(body.question, document, gemini)
     return AskResponse.from_answer(answer, document)

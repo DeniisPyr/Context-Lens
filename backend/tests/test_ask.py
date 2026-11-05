@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from conftest import FakeGemini
@@ -179,6 +180,40 @@ def test_unknown_document_returns_404_without_calling_gemini(
     assert response.status_code == 404
     assert response.json() == {"detail": "Document not found."}
     assert fake_gemini.prompts == []
+
+
+@pytest.mark.parametrize("document_id", ["not-a-uuid", "", "\x00", str(uuid4())])
+def test_bad_or_unknown_document_id_returns_404_without_calling_gemini(
+    client: TestClient, fake_gemini: FakeGemini, document_id: str
+) -> None:
+    upload_document(client)
+
+    response = client.post(
+        "/api/ask", json={"document_id": document_id, "question": "Hi"}
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Document not found."}
+    assert fake_gemini.prompts == []
+
+
+def test_no_database_connection_is_held_while_gemini_answers(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    document_id = upload_document(client)
+    pool = client.app.state.engine.pool
+    during_the_call = []
+    fake_gemini.during_call = lambda: during_the_call.append(
+        (pool.checkedout(), pool.checkedin())
+    )
+
+    response = client.post(
+        "/api/ask", json={"document_id": document_id, "question": "Hi"}
+    )
+
+    assert response.status_code == 200
+    # None in use, and the one the store used is back in the pool.
+    assert during_the_call == [(0, 1)]
 
 
 def test_missing_document_id_returns_422_without_calling_gemini(
