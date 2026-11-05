@@ -79,6 +79,14 @@ def test_unreachable_server_is_logged_without_the_text_or_password(
     assert "hunter2" not in caplog.text
 
 
+def test_postgres_keeps_refused_rows_out_of_its_own_log(postgres_server: URL) -> None:
+    engine = create_engine(postgres_server.set(database="postgres"), poolclass=NullPool)
+    with engine.connect() as connection:
+        verbosity = connection.execute(text("SHOW log_error_verbosity")).scalar()
+
+    assert verbosity == "terse"
+
+
 def test_bad_id_is_a_404_even_with_the_database_down(
     client_without_database: TestClient,
 ) -> None:

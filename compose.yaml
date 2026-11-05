@@ -2,6 +2,8 @@ services:
   db:
     # pgvector rather than plain Postgres, because document search will need it.
     image: pgvector/pgvector:0.8.7-pg18@sha256:c29f30688a9ad961691bdf0ec1650717cc132a5814619d80f80463d6e4c42e47
+    # By default a refused write logs the whole row, which would be document text.
+    command: ["postgres", "-c", "log_error_verbosity=terse"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-context_lens}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-context_lens}
