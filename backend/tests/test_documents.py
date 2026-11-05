@@ -1,15 +1,18 @@
 from unittest.mock import ANY
+from uuid import uuid4
 
 import pytest
-from conftest import FakeGemini
+from conftest import FakeGemini, StartApp, apply_migrations, as_setting, run_sql
 from fastapi import Request
 from fastapi.testclient import TestClient
 from httpx2 import Response
+from sqlalchemy import URL as DatabaseURL
 
 from context_lens.dependencies import get_document_store
 from context_lens.main import create_app
+from context_lens.schemas.documents import DocumentSummary
 from context_lens.services.answering import Citation, ModelAnswer
-from context_lens.services.documents import Document, DocumentStore
+from context_lens.services.documents import Document, DocumentInfo
 
 URL = "/api/documents"
 LIMIT = 1_000_000
@@ -24,7 +27,8 @@ def upload(
 
 def stored_document(client: TestClient, response: Response) -> Document:
     store = get_document_store(Request({"type": "http", "app": client.app}))
-    document = store.get(response.json()["id"])
+    # On the app's event loop, because the store's connections belong to it.
+    document = client.portal.call(store.get, response.json()["id"])
     assert document is not None
     return document
 
@@ -117,6 +121,7 @@ def test_file_type_is_checked_before_the_size(client: TestClient) -> None:
     assert response.status_code == 415
 
 
+@pytest.mark.usefixtures("clean_database")
 def test_upload_limit_comes_from_the_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("MAX_UPLOAD_BYTES", "10")
@@ -153,7 +158,59 @@ def test_lines_match_an_editor(client: TestClient, text: str, lines: list[str]) 
 
 
 def test_document_without_text_has_no_lines() -> None:
-    assert Document(id="1", filename="a.txt", text="").lines == []
+    document = Document(id="1", filename="a.txt", text="")
+
+    assert document.lines == []
+    assert document.line_count == 0
+
+
+# Every way of counting lines other than the one the citations use gets one of these
+# wrong: blank lines, trailing newlines, and the characters str.splitlines() splits on.
+TEXTS_WITH_THEIR_LINE_COUNTS = [
+    pytest.param("a\n\n\nb\n", 4, id="blank_lines"),
+    pytest.param("a\n\n\n", 3, id="trailing_newlines"),
+    pytest.param("a\nb", 2, id="no_final_newline"),
+    pytest.param("a\x0cb\n", 1, id="form_feed"),
+    pytest.param("a\x0bb\n", 1, id="vertical_tab"),
+    pytest.param("a\x1cb\x1dc\x1ed\n", 1, id="separators"),
+    pytest.param("a\x85b\n", 1, id="next_line"),
+    pytest.param("a\u2028b\u2029c\n", 1, id="unicode_separators"),
+    pytest.param("Příliš žluťoučký\nkůň\n", 2, id="czech"),
+]
+
+
+@pytest.mark.parametrize(("text", "line_count"), TEXTS_WITH_THEIR_LINE_COUNTS)
+def test_line_count_is_the_number_of_lines(text: str, line_count: int) -> None:
+    document = Document(id="1", filename="a.txt", text=text)
+
+    assert len(document.lines) == line_count
+    assert document.line_count == line_count
+
+
+@pytest.mark.parametrize(("text", "line_count"), TEXTS_WITH_THEIR_LINE_COUNTS)
+def test_stored_line_count_matches_the_lines_of_the_stored_text(
+    client: TestClient, text: str, line_count: int
+) -> None:
+    uploaded = upload(client, text.encode()).json()
+
+    # The list reads the stored column, and the read counts the lines of the text.
+    [listed] = client.get(URL).json()
+    read = client.get(f"{URL}/{uploaded['id']}").json()
+
+    assert uploaded["line_count"] == line_count
+    assert listed["line_count"] == line_count
+    assert read["line_count"] == line_count
+    assert len(read["lines"]) == line_count
+
+
+def test_summary_can_be_built_without_the_text() -> None:
+    info = DocumentInfo(id="1", filename="a.txt", line_count=7)
+
+    assert DocumentSummary.from_document(info).model_dump() == {
+        "id": "1",
+        "filename": "a.txt",
+        "line_count": 7,
+    }
 
 
 def test_stored_text_has_no_bom_or_carriage_returns(client: TestClient) -> None:
@@ -201,6 +258,46 @@ def test_list_is_in_upload_order_without_the_text(client: TestClient) -> None:
     assert all("text" not in item for item in response.json())
 
 
+def test_list_order_does_not_depend_on_where_the_rows_are_stored(
+    client: TestClient, clean_database: DatabaseURL
+) -> None:
+    uploads = [upload(client, filename=f"{name}.txt").json() for name in "abc"]
+
+    # Rewrites the first row, so Postgres now finds it last when it scans the table.
+    run_sql(
+        clean_database,
+        "UPDATE documents SET filename = filename WHERE filename = 'a.txt'",
+    )
+
+    assert client.get(URL).json() == uploads
+
+
+def test_list_order_follows_the_upload_time(
+    client: TestClient, clean_database: DatabaseURL
+) -> None:
+    uploads = [upload(client, filename=f"{name}.txt").json() for name in "abc"]
+
+    # The last row stays last on disk, so only the sort can move it to the front.
+    run_sql(
+        clean_database,
+        "UPDATE documents SET created_at = created_at - interval '1 day' "
+        "WHERE filename = 'c.txt'",
+    )
+
+    assert client.get(URL).json() == [uploads[2], uploads[0], uploads[1]]
+
+
+def test_list_order_of_uploads_at_the_same_moment_is_by_id(
+    client: TestClient, clean_database: DatabaseURL
+) -> None:
+    uploads = [upload(client).json() for _ in range(5)]
+
+    run_sql(clean_database, "UPDATE documents SET created_at = '2026-01-01'")
+
+    ids = [item["id"] for item in client.get(URL).json()]
+    assert ids == sorted(item["id"] for item in uploads)
+
+
 def test_list_and_upload_responses_have_no_lines(client: TestClient) -> None:
     uploaded = upload(client, b"one\ntwo\n").json()
 
@@ -246,10 +343,24 @@ def test_read_keeps_every_line_as_it_is_in_the_document(
     assert body["lines"] == stored_document(client, uploaded).lines
 
 
-def test_read_of_an_unknown_id_is_a_404(client: TestClient) -> None:
+@pytest.mark.parametrize(
+    "document_id",
+    [
+        "unknown",
+        "not-a-uuid",
+        "123",
+        "00000000-0000-0000-0000-00000000000g",
+        "0" * 33,
+        "%00",
+        "%20",
+        "é",
+        str(uuid4()),
+    ],
+)
+def test_read_of_an_unknown_id_is_a_404(client: TestClient, document_id: str) -> None:
     upload(client)
 
-    response = client.get(f"{URL}/unknown")
+    response = client.get(f"{URL}/{document_id}")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Document not found."}
@@ -293,19 +404,139 @@ def test_a_citation_points_at_the_same_line_in_the_read_response(
     assert citation["quote"] in lines[citation["start_line"] - 1]
 
 
-def test_store_get_finds_known_ids_and_returns_none_for_unknown_ones() -> None:
-    store = DocumentStore()
-    document = store.add("notes.txt", "hello\n")
+@pytest.mark.parametrize(
+    ("sent", "stored", "lines", "cited_line", "quote"),
+    [
+        pytest.param(
+            "První\n\n\nposlední\n",
+            "První\n\n\nposlední\n",
+            ["První", "", "", "poslední"],
+            4,
+            "poslední",
+            id="blank_lines",
+        ),
+        pytest.param(
+            "a\nkůň\n\n\n",
+            "a\nkůň\n\n\n",
+            ["a", "kůň", "", ""],
+            2,
+            "kůň",
+            id="trailing_newlines",
+        ),
+        pytest.param(
+            "one\x0cstill one\ntwo\n",
+            "one\x0cstill one\ntwo\n",
+            ["one\x0cstill one", "two"],
+            2,
+            "two",
+            id="form_feed",
+        ),
+        pytest.param(
+            "a\u2028b\u2029c\x85d\nnext\n",
+            "a\u2028b\u2029c\x85d\nnext\n",
+            ["a\u2028b\u2029c\x85d", "next"],
+            2,
+            "next",
+            id="unicode_line_separators",
+        ),
+        pytest.param(
+            "Příliš žluťoučký\nkůň úpěl ďábelské ódy\n",
+            "Příliš žluťoučký\nkůň úpěl ďábelské ódy\n",
+            ["Příliš žluťoučký", "kůň úpěl ďábelské ódy"],
+            2,
+            "kůň úpěl ďábelské ódy",
+            id="czech",
+        ),
+        pytest.param(
+            "first\r\n\r\nthird\r\nfourth\rfifth\r\n",
+            "first\n\nthird\nfourth\nfifth\n",
+            ["first", "", "third", "fourth", "fifth"],
+            5,
+            "fifth",
+            id="crlf_and_cr",
+        ),
+        pytest.param(
+            "  indented\n\ttab\ntrailing  \n",
+            "  indented\n\ttab\ntrailing  \n",
+            ["  indented", "\ttab", "trailing  "],
+            3,
+            "trailing",
+            id="spaces_and_tabs",
+        ),
+        pytest.param(
+            "50% 'quoted' \"double\" \\ %(id)s :text $1 ;--\nnext\n",
+            "50% 'quoted' \"double\" \\ %(id)s :text $1 ;--\nnext\n",
+            ["50% 'quoted' \"double\" \\ %(id)s :text $1 ;--", "next"],
+            1,
+            "%(id)s :text $1",
+            id="characters_sql_cares_about",
+        ),
+    ],
+)
+def test_text_comes_back_exact_so_citations_still_verify(
+    client: TestClient,
+    fake_gemini: FakeGemini,
+    sent: str,
+    stored: str,
+    lines: list[str],
+    cited_line: int,
+    quote: str,
+) -> None:
+    fake_gemini.answer = ModelAnswer(
+        status="answered",
+        answer="An answer.",
+        citations=[Citation(start_line=cited_line, end_line=cited_line, quote=quote)],
+    )
 
-    assert store.get(document.id) is document
-    assert store.get("unknown") is None
+    uploaded = upload(client, sent.encode())
+    read = client.get(f"{URL}/{uploaded.json()['id']}").json()
+    answer = client.post(
+        "/api/ask", json={"document_id": read["id"], "question": "Hi"}
+    ).json()
+
+    assert stored_document(client, uploaded).text == stored
+    assert read["lines"] == lines
+    assert answer["status"] == "answered"
+    assert answer["citations"][0]["start_line"] == cited_line
+    assert f"{cited_line}: {lines[cited_line - 1]}\n" in fake_gemini.prompts[0]
 
 
-def test_two_apps_do_not_share_documents(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+def test_document_survives_an_app_restart(
+    clean_database: DatabaseURL,
+    start_app: StartApp,
+    fake_gemini: FakeGemini,
+) -> None:
+    with start_app() as before_restart:
+        uploaded = upload(before_restart, b"The cat is orange.\n", "cat.txt").json()
 
-    with TestClient(create_app()) as first, TestClient(create_app()) as second:
-        upload(first)
+    with start_app() as after_restart:
+        listed = after_restart.get(URL).json()
+        read = after_restart.get(f"{URL}/{uploaded['id']}").json()
+        answer = after_restart.post(
+            "/api/ask",
+            json={"document_id": uploaded["id"], "question": "Which colour?"},
+        ).json()
 
-        assert len(first.get(URL).json()) == 1
-        assert second.get(URL).json() == []
+    assert listed == [uploaded]
+    assert read == {**uploaded, "lines": ["The cat is orange."]}
+    assert answer["status"] == "answered"
+    assert answer["citations"][0]["filename"] == "cat.txt"
+    assert "1: The cat is orange." in fake_gemini.prompts[0]
+
+
+def test_apps_on_different_databases_do_not_share_documents(
+    clean_database: DatabaseURL,
+    database: DatabaseURL,
+    start_app: StartApp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    apply_migrations(database)
+    monkeypatch.setenv("DATABASE_URL", as_setting(clean_database))
+
+    with start_app() as first:
+        monkeypatch.setenv("DATABASE_URL", as_setting(database))
+        with start_app() as second:
+            upload(first)
+
+            assert len(first.get(URL).json()) == 1
+            assert second.get(URL).json() == []

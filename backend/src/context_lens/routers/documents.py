@@ -12,15 +12,16 @@ async def upload_document(
     file: UploadFile, store: DocumentStoreDep, settings: SettingsDep
 ) -> DocumentSummary:
     data = await file.read(settings.max_upload_bytes + 1)
-    document = add_upload(store, file.filename, data, settings.max_upload_bytes)
+    document = await add_upload(store, file.filename, data, settings.max_upload_bytes)
     return DocumentSummary.from_document(document)
 
 
 @router.get("")
 async def list_documents(store: DocumentStoreDep) -> list[DocumentSummary]:
-    return [DocumentSummary.from_document(document) for document in store.list_all()]
+    documents = await store.list_all()
+    return [DocumentSummary.from_document(document) for document in documents]
 
 
 @router.get("/{document_id}")
 async def read_document(document_id: str, store: DocumentStoreDep) -> DocumentDetail:
-    return DocumentDetail.from_document(get_document(store, document_id))
+    return DocumentDetail.from_document(await get_document(store, document_id))

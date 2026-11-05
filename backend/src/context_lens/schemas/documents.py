@@ -2,7 +2,7 @@ from typing import Self
 
 from pydantic import BaseModel
 
-from context_lens.services.documents import Document
+from context_lens.services.documents import Document, DocumentInfo
 
 
 class DocumentSummary(BaseModel):
@@ -11,9 +11,9 @@ class DocumentSummary(BaseModel):
     line_count: int
 
     @classmethod
-    def from_document(cls, document: Document) -> Self:
+    def from_document(cls, document: Document | DocumentInfo) -> Self:
         return cls(
-            id=document.id, filename=document.filename, line_count=len(document.lines)
+            id=document.id, filename=document.filename, line_count=document.line_count
         )
 
 

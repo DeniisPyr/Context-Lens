@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import PureWindowsPath
-from uuid import uuid4
+from typing import Protocol
 
 ALLOWED_EXTENSIONS = {".txt", ".md"}
 
@@ -25,6 +25,23 @@ class DocumentNotFoundError(Exception):
     """No stored document has the requested id."""
 
 
+def split_lines(text: str) -> list[str]:
+    if not text:
+        return []
+    # Not str.splitlines(): it also splits on form feeds and Unicode separators,
+    # so its numbering would disagree with a text editor and break citations.
+    return text.removesuffix("\n").split("\n")
+
+
+@dataclass(frozen=True)
+class DocumentInfo:
+    """A document without its text, for listing many without reading them all."""
+
+    id: str
+    filename: str
+    line_count: int
+
+
 @dataclass(frozen=True)
 class Document:
     id: str
@@ -33,28 +50,19 @@ class Document:
 
     @property
     def lines(self) -> list[str]:
-        if not self.text:
-            return []
-        # Not str.splitlines(): it also splits on form feeds and Unicode separators,
-        # so its numbering would disagree with a text editor and break citations.
-        return self.text.removesuffix("\n").split("\n")
+        return split_lines(self.text)
+
+    @property
+    def line_count(self) -> int:
+        return len(self.lines)
 
 
-class DocumentStore:
-    def __init__(self) -> None:
-        self._documents: dict[str, Document] = {}
+class DocumentStorage(Protocol):
+    """What these functions need from the store in db/, which they don't import."""
 
-    def add(self, filename: str, text: str) -> Document:
-        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-        document = Document(id=str(uuid4()), filename=filename, text=normalized)
-        self._documents[document.id] = document
-        return document
+    async def add(self, filename: str, text: str) -> Document: ...
 
-    def get(self, document_id: str) -> Document | None:
-        return self._documents.get(document_id)
-
-    def list_all(self) -> list[Document]:
-        return list(self._documents.values())
+    async def get(self, document_id: str) -> Document | None: ...
 
 
 def _clean_filename(filename: str | None) -> str:
@@ -78,8 +86,8 @@ def _decode_text(data: bytes) -> str:
     return text
 
 
-def add_upload(
-    store: DocumentStore, filename: str | None, data: bytes, max_bytes: int
+async def add_upload(
+    store: DocumentStorage, filename: str | None, data: bytes, max_bytes: int
 ) -> Document:
     clean_name = _clean_filename(filename)
     if len(data) > max_bytes:
@@ -89,11 +97,12 @@ def add_upload(
     text = _decode_text(data)
     if not text.strip():
         raise EmptyDocumentError("The file must not be empty.")
-    return store.add(clean_name, text)
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return await store.add(clean_name, normalized)
 
 
-def get_document(store: DocumentStore, document_id: str) -> Document:
-    document = store.get(document_id)
+async def get_document(store: DocumentStorage, document_id: str) -> Document:
+    document = await store.get(document_id)
     if document is None:
         raise DocumentNotFoundError("Document not found.")
     return document
