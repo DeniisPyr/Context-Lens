@@ -1,7 +1,12 @@
 import { type SubmitEvent, useRef, useState } from 'react'
 import { uploadDocument } from '../api/documents.ts'
 
-export default function UploadForm({ onUploaded }: { onUploaded: () => void }) {
+type Props = {
+  datasetId: string
+  onUploaded: () => void
+}
+
+export default function UploadForm({ datasetId, onUploaded }: Props) {
   const input = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -17,7 +22,7 @@ export default function UploadForm({ onUploaded }: { onUploaded: () => void }) {
     setUploading(true)
     setError(null)
     try {
-      await uploadDocument(file)
+      await uploadDocument(datasetId, file)
       // Empty the input so the same file can be chosen again.
       if (input.current) input.current.value = ''
       onUploaded()

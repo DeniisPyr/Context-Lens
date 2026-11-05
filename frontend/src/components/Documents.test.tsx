@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,9 +16,12 @@ function stubRoutes(routes: Record<string, Route>) {
 
 // Documents gets its list as props, so this loads it with the real hook, the way App does.
 function LoadedDocuments() {
-  const { documents, error, reload } = useDocuments()
-  return <Documents documents={documents} error={error} onUploaded={reload} />
+  const { documents, error, reload } = useDocuments('d1')
+  return <Documents datasetId="d1" documents={documents} error={error} onUploaded={reload} />
 }
+
+const GET_LIST = 'GET /api/datasets/d1/documents'
+const POST_FILE = 'POST /api/datasets/d1/documents'
 
 const notes = { id: '1', filename: 'notes.txt', line_count: 2 }
 
@@ -43,7 +46,7 @@ afterEach(() => {
 
 describe('the document list', () => {
   it('says so when there are no documents', async () => {
-    stubRoutes({ 'GET /api/documents': () => Response.json([]) })
+    stubRoutes({ [GET_LIST]: () => Response.json([]) })
 
     render(<LoadedDocuments />)
 
@@ -51,7 +54,7 @@ describe('the document list', () => {
   })
 
   it('does not say it is empty while still loading', () => {
-    stubRoutes({ 'GET /api/documents': rejectsOnAbort })
+    stubRoutes({ [GET_LIST]: rejectsOnAbort })
 
     render(<LoadedDocuments />)
 
@@ -60,7 +63,7 @@ describe('the document list', () => {
 
   it('shows the filename and line count of each document, in order', async () => {
     const short = { id: '2', filename: 'short.md', line_count: 1 }
-    stubRoutes({ 'GET /api/documents': () => Response.json([notes, short]) })
+    stubRoutes({ [GET_LIST]: () => Response.json([notes, short]) })
 
     render(<LoadedDocuments />)
 
@@ -72,9 +75,32 @@ describe('the document list', () => {
     expect(screen.queryByText('No documents yet.')).not.toBeInTheDocument()
   })
 
+  it('asks for the documents of the dataset it was given', async () => {
+    const fetchStub = stubRoutes({ [GET_LIST]: () => Response.json([]) })
+
+    render(<LoadedDocuments />)
+    await screen.findByText('No documents yet.')
+
+    expect(fetchStub.mock.calls[0][0]).toBe('/api/datasets/d1/documents')
+  })
+
+  it('loads the list of the new dataset when the id changes', async () => {
+    const fetchStub = stubRoutes({
+      [GET_LIST]: () => Response.json([]),
+      'GET /api/datasets/d2/documents': () => Response.json([notes]),
+    })
+
+    const { result, rerender } = renderHook(({ id }) => useDocuments(id), { initialProps: { id: 'd1' } })
+    await vi.waitFor(() => expect(result.current.documents).toEqual([]))
+    rerender({ id: 'd2' })
+
+    await vi.waitFor(() => expect(result.current.documents).toEqual([notes]))
+    expect(fetchStub).toHaveBeenCalledTimes(2)
+  })
+
   it('shows two documents with the same filename without a key warning', async () => {
     const consoleError = vi.spyOn(console, 'error')
-    stubRoutes({ 'GET /api/documents': () => Response.json([notes, { ...notes, id: '2' }]) })
+    stubRoutes({ [GET_LIST]: () => Response.json([notes, { ...notes, id: '2' }]) })
 
     render(<LoadedDocuments />)
 
@@ -83,7 +109,7 @@ describe('the document list', () => {
   })
 
   it('shows an alert when loading fails', async () => {
-    stubRoutes({ 'GET /api/documents': () => new Response('Bad Gateway', { status: 502 }) })
+    stubRoutes({ [GET_LIST]: () => new Response('Bad Gateway', { status: 502 }) })
 
     render(<LoadedDocuments />)
 
@@ -92,7 +118,7 @@ describe('the document list', () => {
   })
 
   it('aborts the request on unmount', () => {
-    const fetchStub = stubRoutes({ 'GET /api/documents': rejectsOnAbort })
+    const fetchStub = stubRoutes({ [GET_LIST]: rejectsOnAbort })
 
     const { unmount } = render(<LoadedDocuments />)
     const signal = fetchStub.mock.calls[0][1]?.signal
@@ -104,7 +130,7 @@ describe('the document list', () => {
   })
 
   it('does not show an error when strict mode cancels the first request', async () => {
-    const fetchStub = stubRoutes({ 'GET /api/documents': rejectsOnAbort })
+    const fetchStub = stubRoutes({ [GET_LIST]: rejectsOnAbort })
 
     render(
       <StrictMode>
@@ -128,8 +154,8 @@ describe('uploading', () => {
       .mockResolvedValueOnce(Response.json([]))
       .mockResolvedValueOnce(Response.json([other, notes]))
     stubRoutes({
-      'GET /api/documents': get,
-      'POST /api/documents': () => Response.json(notes, { status: 201 }),
+      [GET_LIST]: get,
+      [POST_FILE]: () => Response.json(notes, { status: 201 }),
     })
 
     render(<LoadedDocuments />)
@@ -144,8 +170,8 @@ describe('uploading', () => {
   it('shows the message from the backend and keeps the chosen file', async () => {
     const user = userEvent.setup({ applyAccept: false })
     stubRoutes({
-      'GET /api/documents': () => Response.json([]),
-      'POST /api/documents': () => Response.json({ detail: 'Only .txt and .md are allowed.' }, { status: 415 }),
+      [GET_LIST]: () => Response.json([]),
+      [POST_FILE]: () => Response.json({ detail: 'Only .txt and .md are allowed.' }, { status: 415 }),
     })
 
     render(<LoadedDocuments />)
@@ -162,7 +188,7 @@ describe('uploading', () => {
     ['a validation error whose detail is an array', () => Response.json({ detail: [{ msg: 'x' }] }, { status: 422 })],
   ])('shows the fallback on %s', async (_name, post) => {
     const user = userEvent.setup()
-    stubRoutes({ 'GET /api/documents': () => Response.json([]), 'POST /api/documents': post })
+    stubRoutes({ [GET_LIST]: () => Response.json([]), [POST_FILE]: post })
 
     render(<LoadedDocuments />)
     await upload(user)
@@ -177,7 +203,7 @@ describe('uploading', () => {
       .mockResolvedValueOnce(Response.json({ detail: 'Too large.' }, { status: 413 }))
       .mockResolvedValueOnce(Response.json(notes, { status: 201 }))
     const get = vi.fn<Route>().mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(Response.json([notes]))
-    stubRoutes({ 'GET /api/documents': get, 'POST /api/documents': post })
+    stubRoutes({ [GET_LIST]: get, [POST_FILE]: post })
 
     render(<LoadedDocuments />)
     await upload(user)
@@ -195,8 +221,8 @@ describe('uploading', () => {
       .mockResolvedValueOnce(new Response('Bad Gateway', { status: 502 }))
       .mockResolvedValueOnce(Response.json([notes]))
     stubRoutes({
-      'GET /api/documents': get,
-      'POST /api/documents': () => Response.json(notes, { status: 201 }),
+      [GET_LIST]: get,
+      [POST_FILE]: () => Response.json(notes, { status: 201 }),
     })
 
     render(<LoadedDocuments />)
@@ -209,7 +235,7 @@ describe('uploading', () => {
 
   it('asks for a file and sends nothing when no file is chosen', async () => {
     const user = userEvent.setup()
-    const fetchStub = stubRoutes({ 'GET /api/documents': () => Response.json([]) })
+    const fetchStub = stubRoutes({ [GET_LIST]: () => Response.json([]) })
 
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
@@ -220,7 +246,7 @@ describe('uploading', () => {
   })
 
   it('stops the browser from submitting the form itself', async () => {
-    stubRoutes({ 'GET /api/documents': () => Response.json([]) })
+    stubRoutes({ [GET_LIST]: () => Response.json([]) })
 
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
@@ -231,7 +257,7 @@ describe('uploading', () => {
 
   it('does not accept other file types in the file chooser', async () => {
     const user = userEvent.setup()
-    stubRoutes({ 'GET /api/documents': () => Response.json([]) })
+    stubRoutes({ [GET_LIST]: () => Response.json([]) })
 
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
@@ -244,8 +270,8 @@ describe('uploading', () => {
     const user = userEvent.setup()
     let answer!: (response: Response) => void
     stubRoutes({
-      'GET /api/documents': () => Response.json([]),
-      'POST /api/documents': () => new Promise((resolve) => (answer = resolve)),
+      [GET_LIST]: () => Response.json([]),
+      [POST_FILE]: () => new Promise((resolve) => (answer = resolve)),
     })
 
     render(<LoadedDocuments />)
@@ -269,8 +295,8 @@ describe('uploading', () => {
       })
     const get = vi.fn<Route>().mockImplementationOnce(slowFirstLoad).mockImplementation(() => Response.json([notes]))
     const fetchStub = stubRoutes({
-      'GET /api/documents': get,
-      'POST /api/documents': () => Response.json(notes, { status: 201 }),
+      [GET_LIST]: get,
+      [POST_FILE]: () => Response.json(notes, { status: 201 }),
     })
 
     render(<LoadedDocuments />)

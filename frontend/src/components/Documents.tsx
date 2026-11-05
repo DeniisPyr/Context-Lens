@@ -2,16 +2,17 @@ import type { DocumentSummary } from '../api/documents.ts'
 import UploadForm from './UploadForm.tsx'
 
 type Props = {
+  datasetId: string
   documents: DocumentSummary[] | null
   error: string | null
   onUploaded: () => void
 }
 
-export default function Documents({ documents, error, onUploaded }: Props) {
+export default function Documents({ datasetId, documents, error, onUploaded }: Props) {
   return (
     <section>
       <h2>Documents</h2>
-      <UploadForm onUploaded={onUploaded} />
+      <UploadForm datasetId={datasetId} onUploaded={onUploaded} />
       {error && <p role="alert">{error}</p>}
       {documents?.length === 0 && <p>No documents yet.</p>}
       {documents && documents.length > 0 && (

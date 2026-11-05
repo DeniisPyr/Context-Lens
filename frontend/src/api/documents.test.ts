@@ -13,10 +13,10 @@ describe('uploadDocument', () => {
     vi.stubGlobal('fetch', fetchStub)
     const file = new File(['one\ntwo\n'], 'notes.txt', { type: 'text/plain' })
 
-    await expect(uploadDocument(file)).resolves.toEqual(summary)
+    await expect(uploadDocument('d1', file)).resolves.toEqual(summary)
 
     const [url, init = {}] = fetchStub.mock.calls[0]
-    expect(url).toBe('/api/documents')
+    expect(url).toBe('/api/datasets/d1/documents')
     expect(init.method).toBe('POST')
     expect((init.body as FormData).get('file')).toBe(file)
     expect(new Headers(init.headers).has('Content-Type')).toBe(false)
@@ -25,7 +25,7 @@ describe('uploadDocument', () => {
   it('falls back when a successful response is not JSON', async () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response('<html>')))
 
-    await expect(uploadDocument(new File(['x'], 'notes.txt'))).rejects.toThrow('Could not upload the file.')
+    await expect(uploadDocument('d1', new File(['x'], 'notes.txt'))).rejects.toThrow('Could not upload the file.')
   })
 })
 
@@ -35,9 +35,15 @@ describe('listDocuments', () => {
     vi.stubGlobal('fetch', fetchStub)
     const { signal } = new AbortController()
 
-    await expect(listDocuments(signal)).resolves.toEqual([summary])
+    await expect(listDocuments('d1', signal)).resolves.toEqual([summary])
 
-    expect(fetchStub).toHaveBeenCalledWith('/api/documents', { signal })
+    expect(fetchStub).toHaveBeenCalledWith('/api/datasets/d1/documents', { signal })
+  })
+
+  it('falls back when a failed response is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response('Bad Gateway', { status: 502 })))
+
+    await expect(listDocuments('d1', new AbortController().signal)).rejects.toThrow('Could not load the documents.')
   })
 })
 
