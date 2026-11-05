@@ -1,3 +1,4 @@
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from time import monotonic, sleep
 from traceback import format_exception
@@ -13,8 +14,7 @@ from conftest import (
 )
 from fastapi.testclient import TestClient
 from sqlalchemy import URL, create_engine, text
-from sqlalchemy.exc import InterfaceError, OperationalError, ProgrammingError
-from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+from sqlalchemy.exc import InterfaceError, ProgrammingError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -52,6 +52,12 @@ def logged_errors(
     return [record.exc_info[1] for record in records if record.exc_info]
 
 
+def unavailable_log(caplog: pytest.LogCaptureFixture) -> logging.LogRecord:
+    prefix = "The database is unavailable: "
+    [record] = [r for r in caplog.records if r.getMessage().startswith(prefix)]
+    return record
+
+
 @pytest.mark.parametrize(("method", "path", "request_parts"), EVERY_ROUTE)
 def test_unreachable_server_is_a_503(
     client_without_database: TestClient,
@@ -67,14 +73,15 @@ def test_unreachable_server_is_a_503(
     assert fake_gemini.prompts == []
 
 
-def test_unreachable_server_is_logged_without_the_text_or_password(
+def test_unreachable_server_is_logged_in_one_line_without_the_text_or_password(
     client_without_database: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:
     client_without_database.post("/api/documents", **UPLOAD)
 
-    [error] = logged_errors(caplog, "The database is unavailable.")
-    assert isinstance(error, OperationalError)
-    assert "Connection refused" in caplog.text  # The traceback is in there.
+    record = unavailable_log(caplog)
+    assert record.exc_info is None
+    assert "\n" not in record.getMessage()
+    assert "Connection refused" in record.getMessage()
     assert PRIVATE_TEXT not in caplog.text
     assert "hunter2" not in caplog.text
 
@@ -172,8 +179,7 @@ def test_busy_connection_pool_is_a_503(
 
     assert response.status_code == 503
     assert response.json() == UNAVAILABLE
-    [error] = logged_errors(caplog, "The database is unavailable.")
-    assert isinstance(error, PoolTimeoutError)
+    assert "QueuePool limit" in unavailable_log(caplog).getMessage()
 
 
 def test_interface_error_is_a_503(client_without_database: TestClient) -> None:
@@ -218,8 +224,7 @@ def test_connection_lost_during_a_write_is_a_503(
 
     assert response.status_code == 503
     assert response.json() == UNAVAILABLE
-    [error] = logged_errors(caplog, "The database is unavailable.")
-    assert isinstance(error, OperationalError)
+    assert "terminating connection" in unavailable_log(caplog).getMessage()
     assert PRIVATE_TEXT not in caplog.text
 
 

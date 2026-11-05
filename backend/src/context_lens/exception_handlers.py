@@ -46,7 +46,10 @@ async def _handle_document_error(request: Request, exc: Exception) -> JSONRespon
 async def _handle_database_unavailable(
     request: Request, exc: Exception
 ) -> JSONResponse:
-    logger.error("The database is unavailable.", exc_info=exc)
+    # One line and no traceback: in an outage every request ends up here, and a traceback
+    # runs to 200 lines. The first line is only the reason, without any statement.
+    reason = str(exc).partition("\n")[0]
+    logger.error("The database is unavailable: %s", reason)
     return _error_response(
         503, "The database is unavailable right now. Please try again."
     )
