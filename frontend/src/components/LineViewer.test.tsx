@@ -288,6 +288,23 @@ describe('scrolling to the citation', () => {
     expect(scroll).toHaveBeenCalledTimes(1)
   })
 
+  it('has already scrolled when the lines reach the page', async () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+    stubFetch(() => Response.json(detail(numberedLines(100))))
+    // Runs right after React changes the page, before React gets to its ordinary effects or the browser can paint.
+    let scrollsWhenAdded: number | undefined
+    const observer = new MutationObserver(() => {
+      if (screen.queryByRole('list')) scrollsWhenAdded ??= scroll.mock.calls.length
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+
+    render(<LineViewer citation={citation} />)
+    await screen.findByRole('list')
+    observer.disconnect()
+
+    expect(scrollsWhenAdded).toBe(1)
+  })
+
   it('scrolls once under StrictMode', async () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
     let requests = 0

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Citation } from '../api/ask.ts'
 import { type DocumentDetail, getDocument } from '../api/documents.ts'
 
@@ -23,8 +23,9 @@ export default function LineViewer({ citation }: { citation: Citation }) {
     return () => controller.abort()
   }, [document_id])
 
+  // A layout effect, so the reader never sees the top of the list before it jumps to the citation.
   // Depends only on the document, so showing more lines later doesn't scroll again.
-  useEffect(() => {
+  useLayoutEffect(() => {
     firstCitedLine.current?.scrollIntoView({ block: 'center' })
   }, [doc])
 
