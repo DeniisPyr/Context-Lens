@@ -25,6 +25,23 @@ class DocumentNotFoundError(Exception):
     """No stored document has the requested id."""
 
 
+def split_lines(text: str) -> list[str]:
+    if not text:
+        return []
+    # Not str.splitlines(): it also splits on form feeds and Unicode separators,
+    # so its numbering would disagree with a text editor and break citations.
+    return text.removesuffix("\n").split("\n")
+
+
+@dataclass(frozen=True)
+class DocumentInfo:
+    """A document without its text, for listing many without reading them all."""
+
+    id: str
+    filename: str
+    line_count: int
+
+
 @dataclass(frozen=True)
 class Document:
     id: str
@@ -33,11 +50,11 @@ class Document:
 
     @property
     def lines(self) -> list[str]:
-        if not self.text:
-            return []
-        # Not str.splitlines(): it also splits on form feeds and Unicode separators,
-        # so its numbering would disagree with a text editor and break citations.
-        return self.text.removesuffix("\n").split("\n")
+        return split_lines(self.text)
+
+    @property
+    def line_count(self) -> int:
+        return len(self.lines)
 
 
 class DocumentStore:

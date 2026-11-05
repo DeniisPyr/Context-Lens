@@ -55,7 +55,9 @@ def test_each_test_starts_without_documents(clean_database: URL, attempt: str) -
     # Whichever runs second would see the row the other one left.
     with Session(create_engine(clean_database, poolclass=NullPool)) as session:
         count = session.scalar(text("SELECT count(*) FROM documents"))
-        session.add(DocumentRow(id=uuid4(), filename="notes.txt", text="Hello"))
+        session.add(
+            DocumentRow(id=uuid4(), filename="notes.txt", text="Hello", line_count=1)
+        )
         session.commit()
 
     assert count == 0

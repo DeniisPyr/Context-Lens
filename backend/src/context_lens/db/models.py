@@ -28,3 +28,5 @@ class DocumentRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Stored so that listing documents doesn't have to read and split every text.
+    line_count: Mapped[int]

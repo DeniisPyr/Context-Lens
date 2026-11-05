@@ -8,8 +8,9 @@ from httpx2 import Response
 
 from context_lens.dependencies import get_document_store
 from context_lens.main import create_app
+from context_lens.schemas.documents import DocumentSummary
 from context_lens.services.answering import Citation, ModelAnswer
-from context_lens.services.documents import Document, DocumentStore
+from context_lens.services.documents import Document, DocumentInfo, DocumentStore
 
 URL = "/api/documents"
 LIMIT = 1_000_000
@@ -153,7 +154,43 @@ def test_lines_match_an_editor(client: TestClient, text: str, lines: list[str]) 
 
 
 def test_document_without_text_has_no_lines() -> None:
-    assert Document(id="1", filename="a.txt", text="").lines == []
+    document = Document(id="1", filename="a.txt", text="")
+
+    assert document.lines == []
+    assert document.line_count == 0
+
+
+# Every way of counting lines other than the one the citations use gets one of these
+# wrong: blank lines, trailing newlines, and the characters str.splitlines() splits on.
+TEXTS_WITH_THEIR_LINE_COUNTS = [
+    pytest.param("a\n\n\nb\n", 4, id="blank_lines"),
+    pytest.param("a\n\n\n", 3, id="trailing_newlines"),
+    pytest.param("a\nb", 2, id="no_final_newline"),
+    pytest.param("a\x0cb\n", 1, id="form_feed"),
+    pytest.param("a\x0bb\n", 1, id="vertical_tab"),
+    pytest.param("a\x1cb\x1dc\x1ed\n", 1, id="separators"),
+    pytest.param("a\x85b\n", 1, id="next_line"),
+    pytest.param("a\u2028b\u2029c\n", 1, id="unicode_separators"),
+    pytest.param("Příliš žluťoučký\nkůň\n", 2, id="czech"),
+]
+
+
+@pytest.mark.parametrize(("text", "line_count"), TEXTS_WITH_THEIR_LINE_COUNTS)
+def test_line_count_is_the_number_of_lines(text: str, line_count: int) -> None:
+    document = Document(id="1", filename="a.txt", text=text)
+
+    assert len(document.lines) == line_count
+    assert document.line_count == line_count
+
+
+def test_summary_can_be_built_without_the_text() -> None:
+    info = DocumentInfo(id="1", filename="a.txt", line_count=7)
+
+    assert DocumentSummary.from_document(info).model_dump() == {
+        "id": "1",
+        "filename": "a.txt",
+        "line_count": 7,
+    }
 
 
 def test_stored_text_has_no_bom_or_carriage_returns(client: TestClient) -> None:
