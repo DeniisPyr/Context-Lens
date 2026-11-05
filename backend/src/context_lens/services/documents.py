@@ -25,6 +25,13 @@ class DocumentNotFoundError(Exception):
     """No stored document has the requested id."""
 
 
+class DuplicateDocumentError(Exception):
+    """The dataset already holds a document with this filename."""
+
+    def __init__(self, filename: str) -> None:
+        super().__init__(f"{filename} is already in this dataset.")
+
+
 def split_lines(text: str) -> list[str]:
     if not text:
         return []
@@ -60,7 +67,7 @@ class Document:
 class DocumentStorage(Protocol):
     """What these functions need from the store in db/, which they don't import."""
 
-    async def add(self, filename: str, text: str) -> Document: ...
+    async def add(self, dataset_id: str, filename: str, text: str) -> Document: ...
 
     async def get(self, document_id: str) -> Document | None: ...
 
@@ -87,7 +94,11 @@ def _decode_text(data: bytes) -> str:
 
 
 async def add_upload(
-    store: DocumentStorage, filename: str | None, data: bytes, max_bytes: int
+    store: DocumentStorage,
+    dataset_id: str,
+    filename: str | None,
+    data: bytes,
+    max_bytes: int,
 ) -> Document:
     clean_name = _clean_filename(filename)
     if len(data) > max_bytes:
@@ -98,7 +109,7 @@ async def add_upload(
     if not text.strip():
         raise EmptyDocumentError("The file must not be empty.")
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    return await store.add(clean_name, normalized)
+    return await store.add(dataset_id, clean_name, normalized)
 
 
 async def get_document(store: DocumentStorage, document_id: str) -> Document:

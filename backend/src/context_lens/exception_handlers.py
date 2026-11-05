@@ -6,10 +6,11 @@ from sqlalchemy.exc import InterfaceError, OperationalError, ProgrammingError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from context_lens.clients.gemini import GeminiError, GeminiUnavailableError
-from context_lens.services.datasets import DatasetNameTakenError
+from context_lens.services.datasets import DatasetNameTakenError, DatasetNotFoundError
 from context_lens.services.documents import (
     DocumentNotFoundError,
     DocumentTooLargeError,
+    DuplicateDocumentError,
     EmptyDocumentError,
     UnsupportedDocumentError,
 )
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 DOMAIN_ERROR_STATUS_CODES = {
     DatasetNameTakenError: 409,
+    DatasetNotFoundError: 404,
+    DuplicateDocumentError: 409,
     DocumentNotFoundError: 404,
     UnsupportedDocumentError: 415,
     DocumentTooLargeError: 413,

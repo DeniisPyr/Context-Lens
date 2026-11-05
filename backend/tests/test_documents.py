@@ -2,7 +2,14 @@ from unittest.mock import ANY
 from uuid import uuid4
 
 import pytest
-from conftest import FakeGemini, StartApp, apply_migrations, as_setting, run_sql
+from conftest import (
+    FakeGemini,
+    StartApp,
+    apply_migrations,
+    as_setting,
+    create_dataset,
+    run_sql,
+)
 from fastapi import Request
 from fastapi.testclient import TestClient
 from httpx2 import Response
@@ -20,9 +27,12 @@ BOM = b"\xef\xbb\xbf"
 
 
 def upload(
-    client: TestClient, content: bytes = b"hello", filename: str = "notes.txt"
+    client: TestClient,
+    documents_url: str,
+    content: bytes = b"hello",
+    filename: str = "notes.txt",
 ) -> Response:
-    return client.post(URL, files={"file": (filename, content)})
+    return client.post(documents_url, files={"file": (filename, content)})
 
 
 def stored_document(client: TestClient, response: Response) -> Document:
@@ -33,10 +43,12 @@ def stored_document(client: TestClient, response: Response) -> Document:
     return document
 
 
-def test_upload_returns_the_document_summary(client: TestClient) -> None:
+def test_upload_returns_the_document_summary(
+    client: TestClient, documents_url: str
+) -> None:
     text = "Příliš žluťoučký\nkůň\n"
 
-    response = upload(client, text.encode(), "poznámky.txt")
+    response = upload(client, documents_url, text.encode(), "poznámky.txt")
 
     assert response.status_code == 201
     assert response.json() == {"id": ANY, "filename": "poznámky.txt", "line_count": 2}
@@ -44,8 +56,10 @@ def test_upload_returns_the_document_summary(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize("filename", ["notes.txt", "notes.md", "NOTES.TXT", "Notes.Md"])
-def test_extensions_are_case_insensitive(client: TestClient, filename: str) -> None:
-    response = upload(client, filename=filename)
+def test_extensions_are_case_insensitive(
+    client: TestClient, documents_url: str, filename: str
+) -> None:
+    response = upload(client, documents_url, filename=filename)
 
     assert response.status_code == 201
     assert response.json()["filename"] == filename
@@ -66,24 +80,33 @@ def test_extensions_are_case_insensitive(client: TestClient, filename: str) -> N
     ],
 )
 def test_rejected_upload_stores_nothing(
-    client: TestClient, filename: str, content: bytes, status: int, detail: str
+    client: TestClient,
+    documents_url: str,
+    filename: str,
+    content: bytes,
+    status: int,
+    detail: str,
 ) -> None:
-    response = upload(client, content, filename)
+    response = upload(client, documents_url, content, filename)
 
     assert response.status_code == status
     assert detail in response.json()["detail"]
-    assert client.get(URL).json() == []
+    assert client.get(documents_url).json() == []
 
 
-def test_part_without_a_filename_is_a_validation_error(client: TestClient) -> None:
+def test_part_without_a_filename_is_a_validation_error(
+    client: TestClient, documents_url: str
+) -> None:
     # The HTTP client leaves out an empty filename, so the part is a plain form field.
-    response = upload(client, filename="")
+    response = upload(client, documents_url, filename="")
 
     assert response.status_code == 422
-    assert client.get(URL).json() == []
+    assert client.get(documents_url).json() == []
 
 
-def test_nul_in_the_filename_is_rejected(client: TestClient) -> None:
+def test_nul_in_the_filename_is_rejected(
+    client: TestClient, documents_url: str
+) -> None:
     # The HTTP client would percent-encode the NUL, so this sends the exact bytes.
     body = (
         b'--x\r\nContent-Disposition: form-data; name="file"; filename="a\x00.txt"'
@@ -91,32 +114,40 @@ def test_nul_in_the_filename_is_rejected(client: TestClient) -> None:
     )
 
     response = client.post(
-        URL, content=body, headers={"Content-Type": "multipart/form-data; boundary=x"}
+        documents_url,
+        content=body,
+        headers={"Content-Type": "multipart/form-data; boundary=x"},
     )
 
     assert response.status_code == 415
     assert "NUL" in response.json()["detail"]
-    assert client.get(URL).json() == []
+    assert client.get(documents_url).json() == []
 
 
-def test_file_at_the_size_limit_is_accepted(client: TestClient) -> None:
-    response = upload(client, b"x" * LIMIT)
+def test_file_at_the_size_limit_is_accepted(
+    client: TestClient, documents_url: str
+) -> None:
+    response = upload(client, documents_url, b"x" * LIMIT)
 
     assert response.status_code == 201
-    assert len(client.get(URL).json()) == 1
+    assert len(client.get(documents_url).json()) == 1
 
 
-def test_file_over_the_size_limit_is_rejected(client: TestClient) -> None:
+def test_file_over_the_size_limit_is_rejected(
+    client: TestClient, documents_url: str
+) -> None:
     # Not valid UTF-8 either: the size is checked first, before any decoding.
-    response = upload(client, b"\xff" * (LIMIT + 1))
+    response = upload(client, documents_url, b"\xff" * (LIMIT + 1))
 
     assert response.status_code == 413
     assert "larger than" in response.json()["detail"]
-    assert client.get(URL).json() == []
+    assert client.get(documents_url).json() == []
 
 
-def test_file_type_is_checked_before_the_size(client: TestClient) -> None:
-    response = upload(client, b"x" * (LIMIT + 1), "notes.pdf")
+def test_file_type_is_checked_before_the_size(
+    client: TestClient, documents_url: str
+) -> None:
+    response = upload(client, documents_url, b"x" * (LIMIT + 1), "notes.pdf")
 
     assert response.status_code == 415
 
@@ -127,13 +158,15 @@ def test_upload_limit_comes_from_the_settings(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("MAX_UPLOAD_BYTES", "10")
 
     with TestClient(create_app()) as client:
-        response = upload(client, b"x" * 11)
+        documents_url = create_dataset(client)
+
+        response = upload(client, documents_url, b"x" * 11)
 
         assert response.status_code == 413
         assert response.json() == {
             "detail": "The file must not be larger than 10 bytes."
         }
-        assert client.get(URL).json() == []
+        assert client.get(documents_url).json() == []
 
 
 @pytest.mark.parametrize(
@@ -149,8 +182,10 @@ def test_upload_limit_comes_from_the_settings(monkeypatch: pytest.MonkeyPatch) -
         ("a\u2028b", ["a\u2028b"]),
     ],
 )
-def test_lines_match_an_editor(client: TestClient, text: str, lines: list[str]) -> None:
-    response = upload(client, text.encode())
+def test_lines_match_an_editor(
+    client: TestClient, documents_url: str, text: str, lines: list[str]
+) -> None:
+    response = upload(client, documents_url, text.encode())
 
     assert response.status_code == 201
     assert response.json()["line_count"] == len(lines)
@@ -189,12 +224,12 @@ def test_line_count_is_the_number_of_lines(text: str, line_count: int) -> None:
 
 @pytest.mark.parametrize(("text", "line_count"), TEXTS_WITH_THEIR_LINE_COUNTS)
 def test_stored_line_count_matches_the_lines_of_the_stored_text(
-    client: TestClient, text: str, line_count: int
+    client: TestClient, documents_url: str, text: str, line_count: int
 ) -> None:
-    uploaded = upload(client, text.encode()).json()
+    uploaded = upload(client, documents_url, text.encode()).json()
 
     # The list reads the stored column, and the read counts the lines of the text.
-    [listed] = client.get(URL).json()
+    [listed] = client.get(documents_url).json()
     read = client.get(f"{URL}/{uploaded['id']}").json()
 
     assert uploaded["line_count"] == line_count
@@ -213,8 +248,10 @@ def test_summary_can_be_built_without_the_text() -> None:
     }
 
 
-def test_stored_text_has_no_bom_or_carriage_returns(client: TestClient) -> None:
-    response = upload(client, BOM + b"first\r\nsecond\rthird\n")
+def test_stored_text_has_no_bom_or_carriage_returns(
+    client: TestClient, documents_url: str
+) -> None:
+    response = upload(client, documents_url, BOM + b"first\r\nsecond\rthird\n")
 
     document = stored_document(client, response)
     assert document.text == "first\nsecond\nthird\n"
@@ -231,26 +268,28 @@ def test_stored_text_has_no_bom_or_carriage_returns(client: TestClient) -> None:
     ],
 )
 def test_only_the_base_name_of_the_filename_is_stored(
-    client: TestClient, filename: str, base_name: str
+    client: TestClient, documents_url: str, filename: str, base_name: str
 ) -> None:
-    response = upload(client, filename=filename)
+    response = upload(client, documents_url, filename=filename)
 
     assert response.status_code == 201
     assert response.json()["filename"] == base_name
 
 
-def test_list_is_empty_without_uploads(client: TestClient) -> None:
-    response = client.get(URL)
+def test_list_is_empty_without_uploads(client: TestClient, documents_url: str) -> None:
+    response = client.get(documents_url)
 
     assert response.status_code == 200
     assert response.json() == []
 
 
-def test_list_is_in_upload_order_without_the_text(client: TestClient) -> None:
-    names = ["z.txt", "a.md", "z.txt"]
-    uploads = [upload(client, filename=name).json() for name in names]
+def test_list_is_in_upload_order_without_the_text(
+    client: TestClient, documents_url: str
+) -> None:
+    names = ["z.txt", "a.md", "m.txt"]
+    uploads = [upload(client, documents_url, filename=name).json() for name in names]
 
-    response = client.get(URL)
+    response = client.get(documents_url)
 
     assert response.status_code == 200
     assert response.json() == uploads
@@ -259,9 +298,11 @@ def test_list_is_in_upload_order_without_the_text(client: TestClient) -> None:
 
 
 def test_list_order_does_not_depend_on_where_the_rows_are_stored(
-    client: TestClient, clean_database: DatabaseURL
+    client: TestClient, documents_url: str, clean_database: DatabaseURL
 ) -> None:
-    uploads = [upload(client, filename=f"{name}.txt").json() for name in "abc"]
+    uploads = [
+        upload(client, documents_url, filename=f"{name}.txt").json() for name in "abc"
+    ]
 
     # Rewrites the first row, so Postgres now finds it last when it scans the table.
     run_sql(
@@ -269,13 +310,15 @@ def test_list_order_does_not_depend_on_where_the_rows_are_stored(
         "UPDATE documents SET filename = filename WHERE filename = 'a.txt'",
     )
 
-    assert client.get(URL).json() == uploads
+    assert client.get(documents_url).json() == uploads
 
 
 def test_list_order_follows_the_upload_time(
-    client: TestClient, clean_database: DatabaseURL
+    client: TestClient, documents_url: str, clean_database: DatabaseURL
 ) -> None:
-    uploads = [upload(client, filename=f"{name}.txt").json() for name in "abc"]
+    uploads = [
+        upload(client, documents_url, filename=f"{name}.txt").json() for name in "abc"
+    ]
 
     # The last row stays last on disk, so only the sort can move it to the front.
     run_sql(
@@ -284,29 +327,36 @@ def test_list_order_follows_the_upload_time(
         "WHERE filename = 'c.txt'",
     )
 
-    assert client.get(URL).json() == [uploads[2], uploads[0], uploads[1]]
+    assert client.get(documents_url).json() == [uploads[2], uploads[0], uploads[1]]
 
 
 def test_list_order_of_uploads_at_the_same_moment_is_by_id(
-    client: TestClient, clean_database: DatabaseURL
+    client: TestClient, documents_url: str, clean_database: DatabaseURL
 ) -> None:
-    uploads = [upload(client).json() for _ in range(5)]
+    names = [f"{name}.txt" for name in "abcde"]
+    uploads = [upload(client, documents_url, filename=name).json() for name in names]
 
     run_sql(clean_database, "UPDATE documents SET created_at = '2026-01-01'")
 
-    ids = [item["id"] for item in client.get(URL).json()]
+    ids = [item["id"] for item in client.get(documents_url).json()]
     assert ids == sorted(item["id"] for item in uploads)
 
 
-def test_list_and_upload_responses_have_no_lines(client: TestClient) -> None:
-    uploaded = upload(client, b"one\ntwo\n").json()
+def test_list_and_upload_responses_have_no_lines(
+    client: TestClient, documents_url: str
+) -> None:
+    uploaded = upload(client, documents_url, b"one\ntwo\n").json()
 
     assert "lines" not in uploaded
-    assert all("lines" not in item for item in client.get(URL).json())
+    assert all("lines" not in item for item in client.get(documents_url).json())
 
 
-def test_read_returns_the_document_with_its_lines(client: TestClient) -> None:
-    uploaded = upload(client, "Příliš žluťoučký\nkůň\n".encode(), "poznámky.txt").json()
+def test_read_returns_the_document_with_its_lines(
+    client: TestClient, documents_url: str
+) -> None:
+    uploaded = upload(
+        client, documents_url, "Příliš žluťoučký\nkůň\n".encode(), "poznámky.txt"
+    ).json()
 
     response = client.get(f"{URL}/{uploaded['id']}")
 
@@ -332,9 +382,9 @@ def test_read_returns_the_document_with_its_lines(client: TestClient) -> None:
     ],
 )
 def test_read_keeps_every_line_as_it_is_in_the_document(
-    client: TestClient, text: str, lines: list[str]
+    client: TestClient, documents_url: str, text: str, lines: list[str]
 ) -> None:
-    uploaded = upload(client, text.encode())
+    uploaded = upload(client, documents_url, text.encode())
 
     body = client.get(f"{URL}/{uploaded.json()['id']}").json()
 
@@ -357,8 +407,10 @@ def test_read_keeps_every_line_as_it_is_in_the_document(
         str(uuid4()),
     ],
 )
-def test_read_of_an_unknown_id_is_a_404(client: TestClient, document_id: str) -> None:
-    upload(client)
+def test_read_of_an_unknown_id_is_a_404(
+    client: TestClient, documents_url: str, document_id: str
+) -> None:
+    upload(client, documents_url)
 
     response = client.get(f"{URL}/{document_id}")
 
@@ -372,9 +424,9 @@ NUMBERING_TEXT = "První\n\nform\x0cfeed\nline\u2028separator\n  žluťoučký k
 
 
 def test_read_lines_are_the_lines_the_prompt_numbers(
-    client: TestClient, fake_gemini: FakeGemini
+    client: TestClient, documents_url: str, fake_gemini: FakeGemini
 ) -> None:
-    document_id = upload(client, NUMBERING_TEXT.encode()).json()["id"]
+    document_id = upload(client, documents_url, NUMBERING_TEXT.encode()).json()["id"]
 
     client.post("/api/ask", json={"document_id": document_id, "question": "Proč?"})
     lines = client.get(f"{URL}/{document_id}").json()["lines"]
@@ -385,14 +437,14 @@ def test_read_lines_are_the_lines_the_prompt_numbers(
 
 
 def test_a_citation_points_at_the_same_line_in_the_read_response(
-    client: TestClient, fake_gemini: FakeGemini
+    client: TestClient, documents_url: str, fake_gemini: FakeGemini
 ) -> None:
     fake_gemini.answer = ModelAnswer(
         status="answered",
         answer="Kůň je žluťoučký.",
         citations=[Citation(start_line=5, end_line=5, quote="žluťoučký kůň")],
     )
-    document_id = upload(client, NUMBERING_TEXT.encode()).json()["id"]
+    document_id = upload(client, documents_url, NUMBERING_TEXT.encode()).json()["id"]
 
     answer = client.post(
         "/api/ask", json={"document_id": document_id, "question": "Jaký je kůň?"}
@@ -475,6 +527,7 @@ def test_a_citation_points_at_the_same_line_in_the_read_response(
 )
 def test_text_comes_back_exact_so_citations_still_verify(
     client: TestClient,
+    documents_url: str,
     fake_gemini: FakeGemini,
     sent: str,
     stored: str,
@@ -488,7 +541,7 @@ def test_text_comes_back_exact_so_citations_still_verify(
         citations=[Citation(start_line=cited_line, end_line=cited_line, quote=quote)],
     )
 
-    uploaded = upload(client, sent.encode())
+    uploaded = upload(client, documents_url, sent.encode())
     read = client.get(f"{URL}/{uploaded.json()['id']}").json()
     answer = client.post(
         "/api/ask", json={"document_id": read["id"], "question": "Hi"}
@@ -507,10 +560,13 @@ def test_document_survives_an_app_restart(
     fake_gemini: FakeGemini,
 ) -> None:
     with start_app() as before_restart:
-        uploaded = upload(before_restart, b"The cat is orange.\n", "cat.txt").json()
+        documents_url = create_dataset(before_restart)
+        uploaded = upload(
+            before_restart, documents_url, b"The cat is orange.\n", "cat.txt"
+        ).json()
 
     with start_app() as after_restart:
-        listed = after_restart.get(URL).json()
+        listed = after_restart.get(documents_url).json()
         read = after_restart.get(f"{URL}/{uploaded['id']}").json()
         answer = after_restart.post(
             "/api/ask",
@@ -536,7 +592,9 @@ def test_apps_on_different_databases_do_not_share_documents(
     with start_app() as first:
         monkeypatch.setenv("DATABASE_URL", as_setting(database))
         with start_app() as second:
-            upload(first)
+            first_url = create_dataset(first)
+            upload(first, first_url)
 
-            assert len(first.get(URL).json()) == 1
-            assert second.get(URL).json() == []
+            assert len(first.get(first_url).json()) == 1
+            assert second.get(first_url).status_code == 404
+            assert second.get("/api/datasets").json() == []

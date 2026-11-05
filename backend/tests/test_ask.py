@@ -2,7 +2,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from conftest import FakeGemini
+from conftest import FakeGemini, create_dataset
 from fastapi import Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -23,9 +23,9 @@ from context_lens.services.answering import (
 
 
 def upload_document(client: TestClient, text: str = "The cat is orange.") -> str:
-    response = client.post(
-        "/api/documents", files={"file": ("notes.txt", text.encode())}
-    )
+    # A dataset of its own, so that a test can upload this filename more than once.
+    documents_url = create_dataset(client, uuid4().hex)
+    response = client.post(documents_url, files={"file": ("notes.txt", text.encode())})
     return response.json()["id"]
 
 
@@ -140,7 +140,8 @@ def test_prompt_numbering_matches_the_line_count_from_the_upload(
 ) -> None:
     # str.splitlines() would treat this form feed as a line break, making three lines.
     upload = client.post(
-        "/api/documents", files={"file": ("notes.txt", b"one\x0cstill one\ntwo\n")}
+        create_dataset(client),
+        files={"file": ("notes.txt", b"one\x0cstill one\ntwo\n")},
     )
 
     client.post("/api/ask", json={"document_id": upload.json()["id"], "question": "Hi"})
