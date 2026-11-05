@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -52,7 +52,14 @@ function waitingRoute() {
       resolve = res
       init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
     })
-  return { route, answer: (response: Response) => act(async () => resolve(response)) }
+  return {
+    route,
+    // Waits for the request first, because the page sends some requests from an effect.
+    answer: async (response: Response) => {
+      await waitFor(() => expect(resolve).toBeDefined())
+      await act(async () => resolve(response))
+    },
+  }
 }
 
 const datasetSelect = () => screen.getByRole<HTMLSelectElement>('combobox', { name: 'Dataset' })
@@ -314,7 +321,9 @@ describe('creating a dataset', () => {
     })
 
     render(<App />)
-    await user.selectOptions(await screen.findByRole('combobox', { name: 'Dataset' }), reports.id)
+    const select = await screen.findByRole('combobox', { name: 'Dataset' })
+    await waitFor(() => expect(requestsTo(fetchStub, documentsPath(invoices.id))).toHaveLength(1))
+    await user.selectOptions(select, reports.id)
     await createNamed(user, 'Contracts')
 
     // The reload is still running, and the page has already moved.
@@ -324,9 +333,9 @@ describe('creating a dataset', () => {
     await answer(Response.json([reports, invoices, contracts]))
 
     expect(datasetSelect()).toHaveValue(contracts.id)
+    await waitFor(() => expect(requestsTo(fetchStub, documentsPath(contracts.id))).toHaveLength(1))
     // One request for Invoices, from when it was the default. Passing through it again would make two.
     expect(requestsTo(fetchStub, documentsPath(invoices.id))).toHaveLength(1)
-    expect(requestsTo(fetchStub, documentsPath(contracts.id))).toHaveLength(1)
   })
 
   it('falls back to the newest dataset when the new one is gone after the reload', async () => {
