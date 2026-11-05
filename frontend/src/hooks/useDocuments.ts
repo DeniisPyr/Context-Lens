@@ -21,5 +21,15 @@ export function useDocuments(datasetId: string) {
     return () => controller.abort()
   }, [datasetId, reloadCount])
 
-  return { documents, error, reload: () => setReloadCount((count) => count + 1) }
+  function reload() {
+    setReloadCount((count) => count + 1)
+  }
+
+  // Takes a deleted document off the list at once, so it can't be chosen while the list reloads from the server.
+  function remove(id: string) {
+    setDocuments((current) => current?.filter((doc) => doc.id !== id) ?? null)
+    reload()
+  }
+
+  return { documents, error, reload, remove }
 }

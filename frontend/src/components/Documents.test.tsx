@@ -16,7 +16,7 @@ function stubRoutes(routes: Record<string, Route>) {
 
 // Documents gets its list as props, so this loads it with the real hook, the way DatasetContents does.
 function LoadedDocuments() {
-  const { documents, error, reload } = useDocuments('d1')
+  const { documents, error, reload, remove } = useDocuments('d1')
   const [busy, setBusy] = useState(false)
   return (
     <Documents
@@ -26,6 +26,7 @@ function LoadedDocuments() {
       busy={busy}
       onBusyChange={setBusy}
       onUploaded={reload}
+      onDeleted={remove}
     />
   )
 }
@@ -105,7 +106,7 @@ describe('the document list', () => {
     expect(rows[0]).toHaveTextContent('notes.txt')
     expect(rows[0]).toHaveTextContent('2 lines')
     expect(rows[1]).toHaveTextContent('short.md')
-    expect(rows[1]).toHaveTextContent(/1 line$/)
+    expect(within(rows[1]).getByText('1 line')).toBeInTheDocument()
     expect(screen.queryByText('No documents yet.')).not.toBeInTheDocument()
   })
 
@@ -696,5 +697,364 @@ describe('uploading several files', () => {
 
     expect(fileInput()).toHaveStyle({ minWidth: '0px', maxWidth: '100%' })
     expect(fileInput().closest('label')).toHaveStyle({ minWidth: '0px' })
+  })
+})
+
+describe('deleting a document', () => {
+  const short = { id: '2', filename: 'short.md', line_count: 1 }
+  const DELETE_NOTES = 'DELETE /api/documents/1'
+  const DELETE_SHORT = 'DELETE /api/documents/2'
+
+  const deleteButton = (filename: string) => screen.getByRole('button', { name: `Delete ${filename}` })
+  const question = (filename: string) => screen.queryByRole('group', { name: `Delete ${filename}?` })
+  const askedRow = (filename: string) => within(question(filename)!)
+  const confirmIn = (filename: string) => askedRow(filename).getByRole('button', { name: 'Delete' })
+  const cancelIn = (filename: string) => askedRow(filename).getByRole('button', { name: 'Cancel' })
+  const rowOf = (filename: string) => within(documentList().getByText(filename).closest('li')!)
+  const deletes = (fetchStub: ReturnType<typeof stubRoutes>) => requestsTo(fetchStub, 'DELETE').map(([url]) => url)
+  const gets = (fetchStub: ReturnType<typeof stubRoutes>) => requestsTo(fetchStub, 'GET')
+
+  // Answers one request only when the test says so.
+  function waitingRoute() {
+    let resolve: ((response: Response) => void) | undefined
+    const route: Route = () => new Promise((res) => (resolve = res))
+    return {
+      route,
+      answer: async (response: Response) => {
+        await vi.waitFor(() => expect(resolve).toBeDefined())
+        await act(async () => resolve!(response))
+      },
+    }
+  }
+
+  async function renderList(routes: Record<string, Route> = {}) {
+    const fetchStub = stubRoutes({ [GET_LIST]: () => Response.json([notes, short]), ...routes })
+    render(<LoadedDocuments />)
+    await screen.findByRole('list', { name: 'Documents' })
+    return fetchStub
+  }
+
+  it('gives each row a Delete button whose name says which file it deletes', async () => {
+    await renderList()
+
+    expect(rowOf('notes.txt').getByRole('button', { name: 'Delete notes.txt' })).toHaveTextContent('Delete')
+    expect(rowOf('short.md').getByRole('button', { name: 'Delete short.md' })).toBeEnabled()
+  })
+
+  it('asks in the row first and sends nothing until the user confirms', async () => {
+    const user = userEvent.setup()
+    const confirmDialog = vi.spyOn(window, 'confirm')
+    const fetchStub = await renderList()
+
+    await user.click(deleteButton('notes.txt'))
+
+    expect(question('notes.txt')).toBeInTheDocument()
+    expect(rowOf('notes.txt').getByRole('group')).toBe(question('notes.txt'))
+    expect(askedRow('notes.txt').getByText('Delete notes.txt?')).toBeInTheDocument()
+    expect(cancelIn('notes.txt')).toBeEnabled()
+    expect(question('short.md')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(confirmDialog).not.toHaveBeenCalled()
+    expect(deletes(fetchStub)).toEqual([])
+  })
+
+  it('moves the focus to the confirm button when it asks', async () => {
+    const user = userEvent.setup()
+    await renderList()
+
+    await user.click(deleteButton('notes.txt'))
+
+    expect(confirmIn('notes.txt')).toHaveFocus()
+  })
+
+  it('closes the question on Cancel, sends nothing and puts the focus back on the row button', async () => {
+    const user = userEvent.setup()
+    const fetchStub = await renderList()
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(cancelIn('notes.txt'))
+
+    expect(question('notes.txt')).not.toBeInTheDocument()
+    expect(deleteButton('notes.txt')).toHaveFocus()
+    expect(documentList().getByText('notes.txt')).toBeInTheDocument()
+    expect(deletes(fetchStub)).toEqual([])
+  })
+
+  it('works from the keyboard', async () => {
+    const user = userEvent.setup()
+    const fetchStub = await renderList({ [DELETE_NOTES]: () => new Response(null, { status: 204 }) })
+
+    deleteButton('notes.txt').focus()
+    await user.keyboard('{Enter}')
+    expect(confirmIn('notes.txt')).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    await vi.waitFor(() => expect(deletes(fetchStub)).toEqual(['/api/documents/1']))
+  })
+
+  it('sends a DELETE for that document once confirmed, then removes the row and reloads the list', async () => {
+    const user = userEvent.setup()
+    const get = vi
+      .fn<Route>()
+      .mockResolvedValueOnce(Response.json([notes, short]))
+      .mockResolvedValueOnce(Response.json([short]))
+    const fetchStub = await renderList({ [GET_LIST]: get, [DELETE_NOTES]: () => new Response(null, { status: 204 }) })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    expect(deletes(fetchStub)).toEqual(['/api/documents/1'])
+    expect(documentList().queryByText('notes.txt')).not.toBeInTheDocument()
+    expect(documentList().getByText('short.md')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('takes the row away as soon as the delete has worked, without waiting for the reload', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    const get = vi.fn<Route>().mockResolvedValueOnce(Response.json([notes, short])).mockImplementation(route)
+    const fetchStub = await renderList({ [GET_LIST]: get, [DELETE_NOTES]: () => new Response(null, { status: 204 }) })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+
+    await vi.waitFor(() => expect(gets(fetchStub)).toHaveLength(2))
+    expect(documentList().queryByText('notes.txt')).not.toBeInTheDocument()
+
+    await answer(Response.json([short]))
+
+    expect(documentList().queryByText('notes.txt')).not.toBeInTheDocument()
+    expect(documentList().getByText('short.md')).toBeInTheDocument()
+  })
+
+  it('treats a 404 as done, since the document is gone either way', async () => {
+    const user = userEvent.setup()
+    const get = vi
+      .fn<Route>()
+      .mockResolvedValueOnce(Response.json([notes, short]))
+      .mockResolvedValueOnce(Response.json([short]))
+    await renderList({
+      [GET_LIST]: get,
+      [DELETE_NOTES]: () => Response.json({ detail: 'Document not found.' }, { status: 404 }),
+    })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    expect(documentList().queryByText('notes.txt')).not.toBeInTheDocument()
+    expect(screen.queryByText('Document not found.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps the row and shows the message from the backend when deleting fails', async () => {
+    const user = userEvent.setup()
+    const detail = 'The database is unavailable right now. Please try again.'
+    const fetchStub = await renderList({ [DELETE_NOTES]: () => Response.json({ detail }, { status: 503 }) })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+
+    expect(await rowOf('notes.txt').findByRole('alert')).toHaveTextContent(detail)
+    expect(question('notes.txt')).not.toBeInTheDocument()
+    expect(deleteButton('notes.txt')).toBeEnabled()
+    expect(deleteButton('notes.txt')).toHaveFocus()
+    // Nothing changed, so there's nothing to reload.
+    expect(gets(fetchStub)).toHaveLength(1)
+  })
+
+  it.each<[string, Route]>([
+    ['a 502 with no JSON', () => new Response('Bad Gateway', { status: 502 })],
+    ['a dropped connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+  ])('shows the fallback on %s', async (_name, route) => {
+    const user = userEvent.setup()
+    await renderList({ [DELETE_NOTES]: route })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+
+    expect(await rowOf('notes.txt').findByRole('alert')).toHaveTextContent('Could not delete the document.')
+  })
+
+  it('removes the error when the user asks again', async () => {
+    const user = userEvent.setup()
+    await renderList({ [DELETE_NOTES]: () => new Response('Bad Gateway', { status: 502 }) })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+    await rowOf('notes.txt').findByRole('alert')
+    await user.click(deleteButton('notes.txt'))
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(question('notes.txt')).toBeInTheDocument()
+  })
+
+  it('disables only the buttons of that row while its request runs', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    await renderList({ [DELETE_NOTES]: route })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+
+    expect(confirmIn('notes.txt')).toBeDisabled()
+    expect(cancelIn('notes.txt')).toBeDisabled()
+    expect(deleteButton('short.md')).toBeEnabled()
+    expect(uploadButton()).toBeEnabled()
+    expect(fileInput()).toBeEnabled()
+
+    await user.click(confirmIn('notes.txt'))
+    await answer(new Response('Bad Gateway', { status: 502 }))
+
+    expect(deleteButton('notes.txt')).toBeEnabled()
+  })
+
+  it('sends one request however often the confirm button is clicked', async () => {
+    const user = userEvent.setup()
+    const { route } = waitingRoute()
+    const fetchStub = await renderList({ [DELETE_NOTES]: route })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.dblClick(confirmIn('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+
+    expect(deletes(fetchStub)).toEqual(['/api/documents/1'])
+  })
+
+  it('disables every Delete button during an upload run, and enables them once it ends', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = postsAnsweredByTheTest()
+    const fetchStub = await renderList({ [POST_FILE]: route })
+
+    await user.click(deleteButton('short.md'))
+    await upload(user)
+
+    expect(deleteButton('notes.txt')).toBeDisabled()
+    expect(confirmIn('short.md')).toBeDisabled()
+    expect(cancelIn('short.md')).toBeEnabled()
+    await user.click(confirmIn('short.md'))
+    expect(deletes(fetchStub)).toEqual([])
+
+    await answer(0, new Response('Bad Gateway', { status: 502 }))
+
+    expect(deleteButton('notes.txt')).toBeEnabled()
+    expect(confirmIn('short.md')).toBeEnabled()
+  })
+
+  it('keeps an open question with its own document when a reload moves the rows', async () => {
+    const user = userEvent.setup()
+    const another = { id: '3', filename: 'another.txt', line_count: 1 }
+    // notes.txt was deleted somewhere else, so short.md moves up to where notes.txt was.
+    const get = vi
+      .fn<Route>()
+      .mockResolvedValueOnce(Response.json([notes, short]))
+      .mockResolvedValueOnce(Response.json([short, another]))
+    const fetchStub = await renderList({
+      [GET_LIST]: get,
+      [POST_FILE]: () => Response.json(another, { status: 201 }),
+      [DELETE_SHORT]: () => new Response(null, { status: 204 }),
+    })
+
+    await user.click(deleteButton('short.md'))
+    await upload(user, new File(['text'], 'another.txt'))
+    await documentList().findByText('another.txt')
+
+    expect(question('short.md')).toBeInTheDocument()
+    expect(rowOf('short.md').getByRole('group')).toBe(question('short.md'))
+    expect(question('another.txt')).not.toBeInTheDocument()
+
+    await user.click(confirmIn('short.md'))
+
+    await vi.waitFor(() => expect(deletes(fetchStub)).toEqual(['/api/documents/2']))
+  })
+
+  it('keeps an open question with its own document when another row is deleted', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    const get = vi
+      .fn<Route>()
+      .mockResolvedValueOnce(Response.json([notes, short]))
+      .mockResolvedValueOnce(Response.json([short]))
+    const fetchStub = await renderList({
+      [GET_LIST]: get,
+      [DELETE_NOTES]: route,
+      [DELETE_SHORT]: () => new Response(null, { status: 204 }),
+    })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+    await user.click(deleteButton('short.md'))
+    await answer(new Response(null, { status: 204 }))
+    await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+
+    expect(documentList().queryByText('notes.txt')).not.toBeInTheDocument()
+    expect(question('short.md')).toBeInTheDocument()
+    expect(confirmIn('short.md')).toBeEnabled()
+
+    await user.click(confirmIn('short.md'))
+
+    await vi.waitFor(() => expect(deletes(fetchStub)).toEqual(['/api/documents/1', '/api/documents/2']))
+  })
+
+  it('closes an open question when its row leaves the list', async () => {
+    const user = userEvent.setup()
+    const another = { id: '3', filename: 'another.txt', line_count: 1 }
+    const get = vi
+      .fn<Route>()
+      .mockResolvedValueOnce(Response.json([notes, short]))
+      .mockResolvedValueOnce(Response.json([short, another]))
+    const fetchStub = await renderList({
+      [GET_LIST]: get,
+      [POST_FILE]: () => Response.json(another, { status: 201 }),
+    })
+
+    await user.click(deleteButton('notes.txt'))
+    await upload(user, new File(['text'], 'another.txt'))
+    await documentList().findByText('another.txt')
+
+    expect(question('notes.txt')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
+    expect(deletes(fetchStub)).toEqual([])
+  })
+
+  it('shows HTML in a filename as plain text in the question', async () => {
+    const user = userEvent.setup()
+    const html = '<img src=x onerror=alert(1)>.txt'
+    stubRoutes({ [GET_LIST]: () => Response.json([{ ...notes, filename: html }]) })
+
+    const { container } = render(<LoadedDocuments />)
+    await user.click(await screen.findByRole('button', { name: `Delete ${html}` }))
+
+    expect(question(html)).toHaveTextContent(`Delete ${html}?`)
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('wraps a long filename in the question instead of widening the page', async () => {
+    const user = userEvent.setup()
+    const long = `${'long'.repeat(100)}.txt`
+    stubRoutes({ [GET_LIST]: () => Response.json([{ ...notes, filename: long }]) })
+
+    render(<LoadedDocuments />)
+    await user.click(await screen.findByRole('button', { name: `Delete ${long}` }))
+
+    expect(question(long)).toHaveStyle({ overflowWrap: 'anywhere', flexWrap: 'wrap', minWidth: '0px' })
+    expect(question(long)?.closest('li')).toHaveStyle({ flexWrap: 'wrap' })
+    expect(documentList().getByText(long)).toHaveStyle({ minWidth: '0px' })
+  })
+
+  it('marks the confirm button with the alert colour, and only that button', async () => {
+    const user = userEvent.setup()
+    await renderList({ [DELETE_NOTES]: () => new Response('Bad Gateway', { status: 502 }) })
+
+    await user.click(deleteButton('notes.txt'))
+    await user.click(confirmIn('notes.txt'))
+    const alertColour = getComputedStyle(await screen.findByRole('alert')).color
+    await user.click(deleteButton('notes.txt'))
+
+    expect(getComputedStyle(confirmIn('notes.txt')).backgroundColor).toBe(alertColour)
+    expect(getComputedStyle(cancelIn('notes.txt')).backgroundColor).not.toBe(alertColour)
+    expect(getComputedStyle(deleteButton('short.md')).backgroundColor).not.toBe(alertColour)
   })
 })

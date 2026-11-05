@@ -646,6 +646,25 @@ describe('switching to another dataset', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('closes an open question about deleting a document, and does not bring it back', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubTwoDatasets()
+
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Delete old.txt' }))
+    expect(screen.getByRole('group', { name: 'Delete old.txt?' })).toBeInTheDocument()
+    await user.selectOptions(datasetSelect(), reports.id)
+    await screen.findByRole('option', { name: 'new.txt' })
+
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+
+    await user.selectOptions(datasetSelect(), invoices.id)
+    await screen.findByRole('button', { name: 'Delete old.txt' })
+
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(fetchStub.mock.calls.filter((call) => call[1]?.method === 'DELETE')).toHaveLength(0)
+  })
+
   it('uploads into the new dataset', async () => {
     const user = userEvent.setup()
     const fetchStub = stubTwoDatasets({

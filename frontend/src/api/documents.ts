@@ -1,4 +1,4 @@
-import { send } from './request.ts'
+import { send, sendDelete } from './request.ts'
 
 export type DocumentSummary = {
   id: string
@@ -23,4 +23,9 @@ export function uploadDocument(datasetId: string, file: File): Promise<DocumentS
   body.append('file', file)
   // No Content-Type header: the browser adds its own, with the multipart boundary.
   return send(`/api/datasets/${datasetId}/documents`, { method: 'POST', body }, 'Could not upload the file.')
+}
+
+// Resolves when the document is gone, including when it was gone already.
+export function deleteDocument(id: string): Promise<void> {
+  return sendDelete(`/api/documents/${id}`, 'Could not delete the document.')
 }

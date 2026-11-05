@@ -11,7 +11,7 @@ type Props = {
 // Everything that belongs to one dataset. App renders this with the dataset's id as its key, so switching
 // starts it over: the old list, question and answer can't show under the new dataset, and nothing resets them.
 export default function DatasetContents({ datasetId, busy, onBusyChange }: Props) {
-  const { documents, error, reload } = useDocuments(datasetId)
+  const { documents, error, reload, remove } = useDocuments(datasetId)
 
   return (
     <>
@@ -22,6 +22,7 @@ export default function DatasetContents({ datasetId, busy, onBusyChange }: Props
         busy={busy}
         onBusyChange={onBusyChange}
         onUploaded={reload}
+        onDeleted={remove}
       />
       <Ask documents={documents} />
     </>
