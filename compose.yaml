@@ -1,0 +1,24 @@
+services:
+  db:
+    # pgvector rather than plain Postgres, because document search will need it.
+    image: pgvector/pgvector:0.8.7-pg18@sha256:c29f30688a9ad961691bdf0ec1650717cc132a5814619d80f80463d6e4c42e47
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-context_lens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-context_lens}
+      POSTGRES_DB: ${POSTGRES_DB:-context_lens}
+    ports:
+      # This machine only, because the password is a development one.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Postgres 18 images keep their data in a folder below this path.
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      # -h forces TCP: during first-time setup the image runs a temporary server on
+      # the Unix socket only, so a socket check can pass before the real server is up.
+      test: ["CMD-SHELL", 'pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  db-data:

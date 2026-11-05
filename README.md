@@ -6,7 +6,7 @@ Ask questions about your own documents and get answers backed by exact quotes, e
 
 ## Run locally
 
-Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), a [Gemini API key](https://aistudio.google.com/apikey), and [Node 26](https://nodejs.org/).
+Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), a [Gemini API key](https://aistudio.google.com/apikey), [Node 26](https://nodejs.org/), and [Docker](https://docs.docker.com/get-docker/).
 
 ```bash
 cd backend
@@ -40,6 +40,25 @@ curl -X POST http://localhost:8000/api/ask \
   -d '{"document_id": "<id from the upload>", "question": "What do these notes say?"}'
 ```
 
+## Database
+
+The app still keeps documents in memory for now, so uploads don't survive a restart, and it doesn't need the database to run. Postgres and its schema are ready for when that changes.
+
+Start Postgres from the repo root. The command returns once it accepts connections:
+
+```bash
+docker compose up -d --wait
+```
+
+Then apply the migrations:
+
+```bash
+cd backend
+uv run alembic upgrade head
+```
+
+The data lives in a Docker volume, so it survives `docker compose down`. To wipe it, run `docker compose down -v`, which deletes everything in the database. The defaults work as they are. To change them, see `.env.example` in the repo root and `DATABASE_URL` in `backend/.env.example`.
+
 ## Project structure
 
 The backend lives in `backend/src/context_lens/`, and each file has one job:
@@ -51,6 +70,7 @@ context_lens/
 ├── dependencies.py          # what routes can ask for: GeminiDep, DocumentStoreDep, SettingsDep
 ├── exception_handlers.py    # maps domain errors to HTTP responses
 ├── clients/gemini.py        # talks to the Gemini API
+├── db/models.py             # the database tables, not used by the app yet
 ├── routers/                 # route functions only
 │   └── api.py, ask.py, documents.py, health.py
 ├── schemas/                 # API request and response models
@@ -58,6 +78,17 @@ context_lens/
 └── services/                # logic, no FastAPI imports
     ├── answering.py         # builds the prompt, asks Gemini, verifies citations
     └── documents.py         # validates uploads and stores documents
+```
+
+Postgres and the migrations live outside that folder:
+
+```
+compose.yaml                 # runs Postgres for development
+backend/
+├── alembic.ini              # Alembic's settings, without the database URL
+└── migrations/
+    ├── env.py               # runs migrations against DATABASE_URL
+    └── versions/            # one file for each schema change
 ```
 
 The frontend lives in `frontend/src/`:
@@ -95,6 +126,8 @@ uv run pytest
 uv run ruff check .
 uv run ruff format .
 ```
+
+The migration tests need Postgres running, and skip with a reminder if it isn't. They create a throwaway database and drop it afterwards, so they never touch your data.
 
 ```bash
 cd frontend
