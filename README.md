@@ -2,16 +2,25 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
 
-> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. The React frontend can upload documents, list them and ask about them, showing each answer with citations that open the document at the cited lines, and shows whether the API is reachable.
+> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document, with documents stored in Postgres. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. The React frontend can upload documents, list them and ask about them, showing each answer with citations that open the document at the cited lines, and shows whether the API is reachable.
 
 ## Run locally
 
 Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), a [Gemini API key](https://aistudio.google.com/apikey), [Node 26](https://nodejs.org/), and [Docker](https://docs.docker.com/get-docker/).
 
+Start Postgres from the repo root. The command returns once it accepts connections:
+
+```bash
+docker compose up -d --wait
+```
+
+Then set up and start the backend:
+
 ```bash
 cd backend
 uv sync
 cp .env.example .env  # then paste your key into .env
+uv run alembic upgrade head
 uv run uvicorn context_lens.main:app --reload
 ```
 
@@ -26,7 +35,7 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173, upload a `.txt` or `.md` file (up to 1 MB, kept in memory until the server restarts) and ask a question about it. Click a citation's lines to read them in the document. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+Then open http://localhost:5173, upload a `.txt` or `.md` file (up to 1 MB) and ask a question about it. Click a citation's lines to read them in the document. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 
 You can also call the API directly. Read a document or ask about it using the `id` from the upload response:
 
@@ -42,15 +51,9 @@ curl -X POST http://localhost:8000/api/ask \
 
 ## Database
 
-The app still keeps documents in memory for now, so uploads don't survive a restart, and it doesn't need the database to run. Postgres and its schema are ready for when that changes.
+Documents live in Postgres, so uploads survive a backend restart. Everything except the health check needs it. While Postgres is down those requests answer 503, and they work again once it's back, without restarting the backend. If the migrations haven't been applied, the 503 gives the command to run.
 
-Start Postgres from the repo root. The command returns once it accepts connections:
-
-```bash
-docker compose up -d --wait
-```
-
-Then apply the migrations:
+After pulling a change that adds a file to `backend/migrations/versions/`, apply the migrations again:
 
 ```bash
 cd backend
@@ -68,16 +71,19 @@ context_lens/
 ├── main.py                  # creates the app, registers routers and handlers
 ├── settings.py              # configuration, from the environment or .env
 ├── dependencies.py          # what routes can ask for: GeminiDep, DocumentStoreDep, SettingsDep
-├── exception_handlers.py    # maps domain errors to HTTP responses
+├── exception_handlers.py    # maps domain and database errors to HTTP responses
 ├── clients/gemini.py        # talks to the Gemini API
-├── db/models.py             # the database tables, not used by the app yet
+├── db/                      # everything that knows about Postgres
+│   ├── document_store.py    # reads and writes documents
+│   ├── engine.py            # builds the connection pool
+│   └── models.py            # the database tables
 ├── routers/                 # route functions only
 │   └── api.py, ask.py, documents.py, health.py
 ├── schemas/                 # API request and response models
 │   └── ask.py, documents.py, health.py
 └── services/                # logic, no FastAPI imports
     ├── answering.py         # builds the prompt, asks Gemini, verifies citations
-    └── documents.py         # validates uploads and stores documents
+    └── documents.py         # validates uploads and splits text into lines
 ```
 
 Postgres and the migrations live outside that folder:
@@ -127,7 +133,7 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-The migration tests need Postgres running, and skip with a reminder if it isn't. They create a throwaway database and drop it afterwards, so they never touch your data.
+Most backend tests need Postgres running, and skip with a reminder if it isn't. They create throwaway databases and drop them afterwards, so they never touch your data.
 
 ```bash
 cd frontend
