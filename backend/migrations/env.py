@@ -4,10 +4,11 @@ from alembic import context
 from sqlalchemy import create_engine
 from sqlalchemy.pool import NullPool
 
+from context_lens.db.models import Base
 from context_lens.settings import DatabaseSettings
 
 config = context.config
-target_metadata = None
+target_metadata = Base.metadata
 
 if config.config_file_name is not None:
     # The default disables every logger that already exists in this process.
