@@ -86,9 +86,8 @@ def test_unreachable_server_is_logged_in_one_line_without_the_text_or_password(
     assert "hunter2" not in caplog.text
 
 
-def test_postgres_keeps_refused_rows_out_of_its_own_log(postgres_server: URL) -> None:
-    engine = create_engine(postgres_server.set(database="postgres"), poolclass=NullPool)
-    with engine.connect() as connection:
+def test_postgres_keeps_refused_rows_out_of_its_own_log(database: URL) -> None:
+    with create_engine(database, poolclass=NullPool).connect() as connection:
         verbosity = connection.execute(text("SHOW log_error_verbosity")).scalar()
 
     assert verbosity == "terse"
