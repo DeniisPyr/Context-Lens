@@ -18,6 +18,7 @@ from sqlalchemy.exc import InterfaceError, ProgrammingError
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from context_lens.db.dataset_store import DatasetRejectedError
 from context_lens.db.document_store import DocumentRejectedError, DocumentStore
 
 UNAVAILABLE = {"detail": "The database is unavailable right now. Please try again."}
@@ -33,6 +34,8 @@ PRIVATE_TEXT = "private document text"
 UPLOAD = {"files": {"file": ("notes.txt", PRIVATE_TEXT.encode())}}
 
 EVERY_ROUTE = [
+    pytest.param("GET", "/api/datasets", {}, id="list_datasets"),
+    pytest.param("POST", "/api/datasets", {"json": {"name": "A"}}, id="create_dataset"),
     pytest.param("GET", "/api/documents", {}, id="list"),
     pytest.param("POST", "/api/documents", UPLOAD, id="upload"),
     pytest.param("GET", f"/api/documents/{NO_SUCH_DOCUMENT}", {}, id="read"),
@@ -158,6 +161,42 @@ def test_refused_write_is_logged_without_the_text(
         assert client.get("/api/documents").json() == []
 
     assert PRIVATE_TEXT not in "".join(format_exception(error.value))
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def test_refused_dataset_is_logged_without_the_name(
+    database: URL, start_app: StartApp, caplog: pytest.LogCaptureFixture
+) -> None:
+    apply_migrations(database)
+    run_sql(database, "ALTER TABLE datasets ADD CONSTRAINT refuse_all CHECK (false)")
+
+    with start_app() as client:
+        with pytest.raises(DatasetRejectedError, match="violates") as error:
+            client.post("/api/datasets", json={"name": PRIVATE_TEXT})
+        assert client.get("/api/datasets").json() == []
+
+    assert PRIVATE_TEXT not in "".join(format_exception(error.value))
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def test_duplicate_dataset_name_is_answered_without_logging_the_name(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    client.post("/api/datasets", json={"name": PRIVATE_TEXT})
+
+    response = client.post("/api/datasets", json={"name": PRIVATE_TEXT})
+
+    assert response.status_code == 409
+    assert PRIVATE_TEXT not in response.text
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def test_unreachable_server_while_creating_a_dataset_is_logged_without_the_name(
+    client_without_database: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    client_without_database.post("/api/datasets", json={"name": PRIVATE_TEXT})
+
+    assert "Connection refused" in unavailable_log(caplog).getMessage()
     assert PRIVATE_TEXT not in caplog.text
 
 

@@ -19,6 +19,16 @@ class Base(DeclarativeBase):
     )
 
 
+class DatasetRow(Base):
+    __tablename__ = "datasets"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class DocumentRow(Base):
     __tablename__ = "documents"
 

@@ -6,6 +6,7 @@ from sqlalchemy.exc import InterfaceError, OperationalError, ProgrammingError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from context_lens.clients.gemini import GeminiError, GeminiUnavailableError
+from context_lens.services.datasets import DatasetNameTakenError
 from context_lens.services.documents import (
     DocumentNotFoundError,
     DocumentTooLargeError,
@@ -15,7 +16,8 @@ from context_lens.services.documents import (
 
 logger = logging.getLogger(__name__)
 
-DOCUMENT_ERROR_STATUS_CODES = {
+DOMAIN_ERROR_STATUS_CODES = {
+    DatasetNameTakenError: 409,
     DocumentNotFoundError: 404,
     UnsupportedDocumentError: 415,
     DocumentTooLargeError: 413,
@@ -39,8 +41,8 @@ async def _handle_gemini_error(request: Request, exc: Exception) -> JSONResponse
     return _error_response(502, "Gemini could not answer this question.")
 
 
-async def _handle_document_error(request: Request, exc: Exception) -> JSONResponse:
-    return _error_response(DOCUMENT_ERROR_STATUS_CODES[type(exc)], str(exc))
+async def _handle_domain_error(request: Request, exc: Exception) -> JSONResponse:
+    return _error_response(DOMAIN_ERROR_STATUS_CODES[type(exc)], str(exc))
 
 
 async def _handle_database_unavailable(
@@ -69,8 +71,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     # The most specific handler wins, so GeminiUnavailableError gets its own 503.
     app.add_exception_handler(GeminiUnavailableError, _handle_gemini_unavailable)
     app.add_exception_handler(GeminiError, _handle_gemini_error)
-    for error_type in DOCUMENT_ERROR_STATUS_CODES:
-        app.add_exception_handler(error_type, _handle_document_error)
+    for error_type in DOMAIN_ERROR_STATUS_CODES:
+        app.add_exception_handler(error_type, _handle_domain_error)
     for error_type in DATABASE_UNAVAILABLE_ERRORS:
         app.add_exception_handler(error_type, _handle_database_unavailable)
     app.add_exception_handler(ProgrammingError, _handle_database_not_ready)
