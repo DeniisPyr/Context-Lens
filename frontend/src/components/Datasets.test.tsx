@@ -810,3 +810,312 @@ describe('while a dataset is being created', () => {
     expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
   })
 })
+
+describe('deleting a dataset', () => {
+  const deleteDatasetButton = () => screen.getByRole('button', { name: 'Delete dataset' })
+  const questionFor = (name: string) =>
+    screen.queryByRole('group', { name: `Delete ${name} and all its documents? This can't be undone.` })
+  const confirmButton = () => within(screen.getByRole('group')).getByRole('button', { name: 'Delete' })
+  const cancelButton = () => within(screen.getByRole('group')).getByRole('button', { name: 'Cancel' })
+  const deleted: Route = () => new Response(null, { status: 204 })
+  const deletesOf = (fetchStub: ReturnType<typeof stubRoutes>) =>
+    fetchStub.mock.calls.filter((call) => call[1]?.method === 'DELETE').map(([url]) => url)
+
+  async function deleteSelected(user: UserEvent) {
+    await user.click(deleteDatasetButton())
+    await user.click(confirmButton())
+  }
+
+  it('offers a Delete dataset button beside the select, and none before a dataset exists', async () => {
+    stubPage([reports])
+
+    const { unmount } = render(<App />)
+
+    const button = await screen.findByRole('button', { name: 'Delete dataset' })
+    expect(button.closest('.dataset-choice')).toBe(datasetSelect().closest('.dataset-choice'))
+    unmount()
+
+    stubPage([])
+    render(<App />)
+    await screen.findByText(startMessage)
+
+    expect(screen.queryByRole('button', { name: 'Delete dataset' })).not.toBeInTheDocument()
+  })
+
+  it('asks first, naming the selected dataset, and sends nothing until the user confirms', async () => {
+    const user = userEvent.setup()
+    const confirmDialog = vi.spyOn(window, 'confirm')
+    const fetchStub = stubPage([reports, invoices])
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await user.click(deleteDatasetButton())
+
+    expect(questionFor('Invoices')).toBeInTheDocument()
+    expect(screen.getByText("Delete Invoices and all its documents? This can't be undone.")).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(confirmDialog).not.toHaveBeenCalled()
+    expect(deletesOf(fetchStub)).toEqual([])
+    confirmDialog.mockRestore()
+  })
+
+  it('moves the focus to the confirm button, and back to Delete dataset after Cancel, sending nothing', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([reports])
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await user.click(deleteDatasetButton())
+
+    expect(confirmButton()).toHaveFocus()
+
+    await user.click(cancelButton())
+
+    expect(questionFor('Reports')).not.toBeInTheDocument()
+    expect(deleteDatasetButton()).toHaveFocus()
+    expect(datasetSelect()).toHaveValue(reports.id)
+    expect(deletesOf(fetchStub)).toEqual([])
+  })
+
+  it('deletes the selected dataset, reloads the list and falls back to the newest remaining one', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([reports, invoices, contracts], {
+      'GET /api/datasets': listThatChanges([reports, invoices, contracts], [invoices, contracts]),
+      'DELETE /api/datasets/r': deleted,
+    })
+
+    render(<App />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Dataset' }), reports.id)
+    await deleteSelected(user)
+
+    await vi.waitFor(() => expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2))
+    expect(deletesOf(fetchStub)).toEqual(['/api/datasets/r'])
+    expect(screen.queryByRole('option', { name: 'Reports' })).not.toBeInTheDocument()
+    expect(datasetSelect()).toHaveValue(contracts.id)
+    // Once when Contracts was the default at the start, and again now that the page has fallen back to it.
+    await waitFor(() => expect(requestsTo(fetchStub, documentsPath(contracts.id))).toHaveLength(2))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+  })
+
+  it('moves to the newest remaining dataset at once, without waiting for the reload', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([reports, invoices], {
+      'GET /api/datasets': vi
+        .fn<Route>()
+        .mockImplementationOnce(() => Response.json([reports, invoices]))
+        .mockImplementation(route),
+      'DELETE /api/datasets/i': deleted,
+    })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await deleteSelected(user)
+
+    await vi.waitFor(() => expect(datasetSelect()).toHaveValue(reports.id))
+    expect(screen.queryByRole('option', { name: 'Invoices' })).not.toBeInTheDocument()
+    expect(datasetSelect()).toBeEnabled()
+
+    await answer(Response.json([reports]))
+
+    expect(datasetSelect()).toHaveValue(reports.id)
+  })
+
+  it('shows the start prompt again once the last dataset is deleted', async () => {
+    const user = userEvent.setup()
+    stubPage([reports], {
+      'GET /api/datasets': listThatChanges([reports], []),
+      'DELETE /api/datasets/r': deleted,
+    })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await deleteSelected(user)
+
+    expect(await screen.findByText(startMessage)).toBeInTheDocument()
+    expectNoDocumentsOrAsk()
+    expect(screen.queryByRole('combobox', { name: 'Dataset' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete dataset' })).not.toBeInTheDocument()
+    expect(createButton()).toBeEnabled()
+  })
+
+  it('treats a 404 as done, since the dataset is gone either way', async () => {
+    const user = userEvent.setup()
+    stubPage([reports, invoices], {
+      'GET /api/datasets': listThatChanges([reports, invoices], [reports]),
+      'DELETE /api/datasets/i': () => Response.json({ detail: 'Dataset not found.' }, { status: 404 }),
+    })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await deleteSelected(user)
+
+    await vi.waitFor(() => expect(datasetSelect()).toHaveValue(reports.id))
+    expect(screen.queryByRole('option', { name: 'Invoices' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Dataset not found.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps the dataset and shows the message from the backend when deleting fails', async () => {
+    const user = userEvent.setup()
+    const detail = 'The database is unavailable right now. Please try again.'
+    const fetchStub = stubPage([reports, invoices], {
+      'DELETE /api/datasets/i': () => Response.json({ detail }, { status: 503 }),
+    })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await deleteSelected(user)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+    expect(datasetSelect()).toHaveValue(invoices.id)
+    expect(screen.getByRole('option', { name: 'Invoices' })).toBeInTheDocument()
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteDatasetButton()).toHaveFocus()
+    // The page lets go again.
+    expect(datasetSelect()).toBeEnabled()
+    expect(createButton()).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(1)
+  })
+
+  it.each<[string, Route]>([
+    ['a 502 with no JSON', () => new Response('Bad Gateway', { status: 502 })],
+    ['a dropped connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+  ])('shows the fallback on %s', async (_name, route) => {
+    const user = userEvent.setup()
+    stubPage([reports], { 'DELETE /api/datasets/r': route })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await deleteSelected(user)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not delete the dataset.')
+    expect(datasetSelect()).toHaveValue(reports.id)
+  })
+
+  it('makes the whole page busy while the request runs', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([reports, invoices], {
+      [listOf(invoices.id)]: () => Response.json([{ id: '1', filename: 'a.txt', line_count: 1 }]),
+      'GET /api/datasets': listThatChanges([reports, invoices], [reports]),
+      'DELETE /api/datasets/i': route,
+    })
+
+    render(<App />)
+    const fileInput = await screen.findByLabelText(/^Choose/)
+    await screen.findByRole('button', { name: 'Delete a.txt' })
+    await deleteSelected(user)
+
+    expect(confirmButton()).toBeDisabled()
+    expect(cancelButton()).toBeDisabled()
+    expect(datasetSelect()).toBeDisabled()
+    expect(createButton()).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled()
+    expect(fileInput).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Delete a.txt' })).toBeDisabled()
+
+    await answer(new Response(null, { status: 204 }))
+
+    expect(datasetSelect()).toHaveValue(reports.id)
+    expect(datasetSelect()).toBeEnabled()
+    expect(createButton()).toBeEnabled()
+  })
+
+  it('cannot be deleted during an upload run', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([reports], { [`POST ${documentsPath(reports.id)}`]: route })
+
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Delete dataset' }))
+    await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'a.txt'))
+    await user.click(screen.getByRole('button', { name: 'Upload' }))
+
+    expect(confirmButton()).toBeDisabled()
+    expect(cancelButton()).toBeEnabled()
+    await user.click(cancelButton())
+    expect(deleteDatasetButton()).toBeDisabled()
+
+    await answer(new Response('Bad Gateway', { status: 502 }))
+
+    expect(deleteDatasetButton()).toBeEnabled()
+  })
+
+  it('cannot be deleted while a dataset is being created', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([reports], { 'POST /api/datasets': route })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await createNamed(user, 'Invoices')
+
+    expect(deleteDatasetButton()).toBeDisabled()
+
+    await answer(Response.json({ detail: 'A dataset with this name already exists.' }, { status: 409 }))
+
+    expect(deleteDatasetButton()).toBeEnabled()
+  })
+
+  it('closes an open question when another dataset is chosen, so it cannot delete the wrong one', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([reports, invoices])
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await user.click(deleteDatasetButton())
+    await user.selectOptions(datasetSelect(), reports.id)
+
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteDatasetButton()).toBeEnabled()
+    expect(deletesOf(fetchStub)).toEqual([])
+  })
+
+  it('closes an open question when a new dataset is created and selected', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([reports], {
+      'GET /api/datasets': listThatChanges([reports], [reports, invoices]),
+      'POST /api/datasets': () => Response.json(invoices, { status: 201 }),
+    })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await user.click(deleteDatasetButton())
+    await createNamed(user, 'Invoices')
+    await vi.waitFor(() => expect(datasetSelect()).toHaveValue(invoices.id))
+
+    expect(questionFor('Invoices')).not.toBeInTheDocument()
+    expect(questionFor('Reports')).not.toBeInTheDocument()
+    expect(deletesOf(fetchStub)).toEqual([])
+  })
+
+  it('shows the name as plain text in the question', async () => {
+    const user = userEvent.setup()
+    const name = '<img src=x onerror=alert(1)>'
+    stubPage([{ id: 'x', name }])
+
+    const { container } = render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await user.click(deleteDatasetButton())
+
+    expect(questionFor(name)).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+  })
+
+  it('wraps a long name in the question, and lets the button go below the select on a phone', async () => {
+    const user = userEvent.setup()
+    const name = 'x'.repeat(100)
+    stubPage([{ id: 'x', name }])
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await user.click(deleteDatasetButton())
+
+    expect(questionFor(name)).toHaveStyle({ overflowWrap: 'anywhere', flexWrap: 'wrap', minWidth: '0px' })
+    expect(questionFor(name)?.parentElement).toHaveStyle({ flexWrap: 'wrap' })
+    expect(datasetSelect().closest('label')).toHaveStyle({ minWidth: '0px' })
+  })
+})

@@ -1,4 +1,4 @@
-import { send } from './request.ts'
+import { send, sendDelete } from './request.ts'
 
 export type Dataset = {
   id: string
@@ -22,4 +22,9 @@ export function createDataset(name: string): Promise<Dataset> {
     },
     'Could not create the dataset.',
   )
+}
+
+// Resolves when the dataset and its documents are gone, including when they were gone already.
+export function deleteDataset(id: string): Promise<void> {
+  return sendDelete(`/api/datasets/${id}`, 'Could not delete the dataset.')
 }
