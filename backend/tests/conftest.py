@@ -65,6 +65,7 @@ class FakeGemini:
         self.during_embed: Callable[[list[str]], None] = lambda texts: None
         # The texts of each call to embed.
         self.embedded: list[list[str]] = []
+        self.closed = False
 
     async def ask(
         self, prompt: str, system_instruction: str, response_model: type[BaseModel]
@@ -83,6 +84,9 @@ class FakeGemini:
         if self.embed_error is not None:
             raise self.embed_error
         return [fake_embedding(text) for text in texts]
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 def as_setting(url: URL) -> str:

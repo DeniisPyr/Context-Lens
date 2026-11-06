@@ -13,10 +13,12 @@ from context_lens.services.documents import (
     DocumentNotFoundError,
     DuplicateDocumentError,
 )
-from context_lens.services.indexing import EmbeddedChunk
+from context_lens.services.indexing import AlreadyIndexedError, EmbeddedChunk
 
 FILENAME_CONSTRAINT = "uq_documents_dataset_id_filename"
 DATASET_CONSTRAINT = "fk_documents_dataset_id_datasets"
+CHUNK_DOCUMENT_CONSTRAINT = "fk_chunks_document_id_documents"
+CHUNK_POSITION_CONSTRAINT = "pk_chunks"
 
 
 class DocumentRejectedError(Exception):
@@ -140,6 +142,35 @@ class DocumentStore:
             deleted = (await session.execute(statement)).scalar_one_or_none()
         if deleted is None:
             raise DocumentNotFoundError
+
+    async def ids_without_chunks(self) -> list[str]:
+        has_chunks = select(ChunkRow.document_id).where(
+            ChunkRow.document_id == DocumentRow.id
+        )
+        statement = (
+            select(DocumentRow.id)
+            .where(~has_chunks.exists())
+            .order_by(DocumentRow.created_at, DocumentRow.id)
+        )
+        async with self._sessions.begin() as session:
+            return [str(key) for key in await session.scalars(statement)]
+
+    async def add_chunks(self, document_id: str, chunks: list[EmbeddedChunk]) -> None:
+        key = parse_id(document_id)
+        if key is None:
+            raise DocumentNotFoundError
+        try:
+            async with self._sessions.begin() as session:
+                session.add_all(_chunk_rows(key, chunks))
+        except IntegrityError as error:
+            # As in add, the constraints decide, and Postgres's error stays out of the
+            # chain because it quotes the failing row.
+            diagnostics = error.orig.diag
+            if diagnostics.constraint_name == CHUNK_DOCUMENT_CONSTRAINT:
+                raise DocumentNotFoundError from None
+            if diagnostics.constraint_name == CHUNK_POSITION_CONSTRAINT:
+                raise AlreadyIndexedError from None
+            raise DocumentRejectedError(diagnostics.message_primary) from None
 
     async def list_in_dataset(self, dataset_id: str) -> list[DocumentInfo]:
         key = parse_id(dataset_id)

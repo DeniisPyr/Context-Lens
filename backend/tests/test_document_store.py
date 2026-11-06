@@ -28,7 +28,7 @@ from context_lens.services.documents import (
     DocumentNotFoundError,
     DuplicateDocumentError,
 )
-from context_lens.services.indexing import EmbeddedChunk
+from context_lens.services.indexing import AlreadyIndexedError, EmbeddedChunk
 from context_lens.settings import DatabaseSettings
 
 pytestmark = pytest.mark.anyio
@@ -772,3 +772,112 @@ async def test_concurrent_adds_into_a_dataset_with_room_for_one_store_exactly_on
     errors = [result for result in results if isinstance(result, Exception)]
     assert [type(error) for error in errors] == [DatasetFullError] * (racing - 1)
     assert len(await store.list_in_dataset(dataset_id)) == 3
+
+
+async def test_ids_without_chunks_are_the_documents_without_any_oldest_first(
+    store: DocumentStore, engine: AsyncEngine, dataset_id: str, clean_database: URL
+) -> None:
+    other = await DatasetStore(engine).add("Other")
+    newer = await store.add(dataset_id, "newer.txt", "a\n", NO_CHUNKS, MAX_DOCUMENTS)
+    await store.add(dataset_id, "indexed.txt", "b\n", chunks_of("b"), MAX_DOCUMENTS)
+    older = await store.add(other.id, "older.txt", "c\n", NO_CHUNKS, MAX_DOCUMENTS)
+    run_sql(
+        clean_database,
+        "UPDATE documents SET created_at = created_at - interval '1 day' "
+        f"WHERE id = '{older.id}'",
+    )
+
+    assert await store.ids_without_chunks() == [older.id, newer.id]
+
+
+async def test_ids_without_chunks_of_an_empty_database_are_none(
+    store: DocumentStore,
+) -> None:
+    assert await store.ids_without_chunks() == []
+
+
+async def test_add_chunks_gives_a_document_its_chunks(
+    store: DocumentStore, dataset_id: str, clean_database: URL
+) -> None:
+    document = await store.add(dataset_id, "a.txt", "a\nb\n", NO_CHUNKS, MAX_DOCUMENTS)
+
+    await store.add_chunks(document.id, chunks_of("a", "b"))
+
+    assert stored_chunks(clean_database, document.id) == chunks_of("a", "b")
+    assert positions_of(clean_database, document.id) == [0, 1]
+    assert await store.ids_without_chunks() == []
+
+
+@pytest.mark.parametrize(
+    "unknown", ["00000000-0000-0000-0000-000000000000", "not-a-uuid"]
+)
+async def test_add_chunks_refuses_an_unknown_document_without_the_text(
+    store: DocumentStore, unknown: str
+) -> None:
+    with pytest.raises(DocumentNotFoundError) as error:
+        await store.add_chunks(unknown, chunks_of(*PRIVATE_LINES))
+
+    assert_no_private_content(error.value)
+
+
+async def test_add_chunks_refuses_a_deleted_document(
+    store: DocumentStore, dataset_id: str, clean_database: URL
+) -> None:
+    document = await store.add(dataset_id, "a.txt", "a\n", NO_CHUNKS, MAX_DOCUMENTS)
+    await store.delete(document.id)
+
+    with pytest.raises(DocumentNotFoundError):
+        await store.add_chunks(document.id, chunks_of("a"))
+
+    assert stored_chunks(clean_database, document.id) == []
+
+
+async def test_add_chunks_refuses_a_document_that_has_chunks_already(
+    store: DocumentStore, dataset_id: str, clean_database: URL
+) -> None:
+    document = await store.add(
+        dataset_id, "a.txt", "a\n", chunks_of("first"), MAX_DOCUMENTS
+    )
+
+    with pytest.raises(AlreadyIndexedError) as error:
+        await store.add_chunks(document.id, chunks_of(*PRIVATE_LINES))
+
+    assert_no_text(error.value)
+    assert stored_chunks(clean_database, document.id) == chunks_of("first")
+
+
+async def test_add_chunks_waits_for_a_rival_run_and_then_loses_to_it(
+    store: DocumentStore, dataset_id: str, clean_database: URL
+) -> None:
+    document = await store.add(dataset_id, "a.txt", "a\n", NO_CHUNKS, MAX_DOCUMENTS)
+    engine = create_engine(clean_database, poolclass=NullPool)
+    with engine.connect() as rival:
+        rival.execute(
+            text("INSERT INTO chunks VALUES (:id, 0, 1, 1, 'rival', :embedding)"),
+            {"id": UUID(document.id), "embedding": str(fake_embedding("rival"))},
+        )
+        add = asyncio.create_task(store.add_chunks(document.id, chunks_of("mine")))
+        await wait_for_a_blocked_query(clean_database)
+        assert not add.done()
+
+        rival.commit()
+
+    with pytest.raises(AlreadyIndexedError):
+        await add
+    assert [chunk.text for chunk in stored_chunks(clean_database, document.id)] == [
+        "rival"
+    ]
+
+
+async def test_refused_chunks_keep_the_text_out_of_the_error(
+    broken_store: DocumentStore, broken_dataset_id: str, database: URL
+) -> None:
+    document = await broken_store.add(
+        broken_dataset_id, "a.txt", PRIVATE_TEXT, NO_CHUNKS, MAX_DOCUMENTS
+    )
+    run_sql(database, "ALTER TABLE chunks ADD CONSTRAINT refuse_all CHECK (false)")
+
+    with pytest.raises(DocumentRejectedError, match="violates") as error:
+        await broken_store.add_chunks(document.id, chunks_of(*PRIVATE_LINES))
+
+    assert_no_private_content(error.value)

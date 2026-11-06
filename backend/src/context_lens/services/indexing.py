@@ -17,6 +17,10 @@ class IndexingUnavailableError(IndexingError):
     """Gemini was unavailable while embedding the chunks, so trying again may work."""
 
 
+class AlreadyIndexedError(Exception):
+    """The document got its chunks meanwhile, from another run of the indexing."""
+
+
 @dataclass(frozen=True)
 class EmbeddedChunk:
     start_line: int
