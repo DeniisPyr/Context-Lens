@@ -159,7 +159,12 @@ def no_developer_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     # Settings reads .env from the working directory and then the environment, and a
     # developer's own values there must not change the results.
     monkeypatch.chdir(tmp_path)
-    for name in ("GEMINI_MODEL", "GEMINI_TIMEOUT_SECONDS", "MAX_UPLOAD_BYTES"):
+    for name in (
+        "GEMINI_MODEL",
+        "GEMINI_EMBEDDING_MODEL",
+        "GEMINI_TIMEOUT_SECONDS",
+        "MAX_UPLOAD_BYTES",
+    ):
         monkeypatch.delenv(name, raising=False)
     # Replaced rather than removed, because the default is the developer's own database.
     # A test that needs a database asks for one.

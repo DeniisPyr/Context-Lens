@@ -5,7 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 from context_lens.clients.gemini import GeminiUnavailableError, TokenUsage
-from context_lens.evaluation.__main__ import main
+from context_lens.evaluation.__main__ import connect_to_gemini, main
 from context_lens.services.answering import (
     SYSTEM_INSTRUCTION,
     Citation,
@@ -294,6 +294,22 @@ def test_missing_key_is_an_error_that_shows_no_settings_values(
     # conftest's DATABASE_URL has this password.
     assert "hunter2" not in output.err + output.out
     assert connections.models == []
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("api_key")
+async def test_gemini_gets_the_model_asked_for_and_the_rest_from_the_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_EMBEDDING_MODEL", "env-embedding-model")
+    monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "7.5")
+
+    gemini = connect_to_gemini(Settings(), "other-model")
+    await gemini.aclose()
+
+    assert gemini._model == "other-model"
+    assert gemini._embedding_model == "env-embedding-model"
+    assert gemini._timeout_seconds == 7.5
 
 
 @pytest.mark.parametrize(

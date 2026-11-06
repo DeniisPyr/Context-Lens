@@ -46,6 +46,7 @@ def connect_to_gemini(settings: Settings, model: str) -> GeminiClient:
     return GeminiClient(
         settings.gemini_api_key.get_secret_value(),
         model,
+        settings.gemini_embedding_model,
         settings.gemini_timeout_seconds,
     )
 
