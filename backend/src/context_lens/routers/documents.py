@@ -10,3 +10,8 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 @router.get("/{document_id}")
 async def read_document(document_id: str, store: DocumentStoreDep) -> DocumentDetail:
     return DocumentDetail.from_document(await get_document(store, document_id))
+
+
+@router.delete("/{document_id}", status_code=204)
+async def delete_document(document_id: str, store: DocumentStoreDep) -> None:
+    await store.delete(document_id)

@@ -610,3 +610,92 @@ describe('when asking fails', () => {
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
   })
 })
+
+describe('when a document is deleted', () => {
+  const deleted: Route = () => new Response(null, { status: 204 })
+
+  async function deleteFromTheList(user: UserEvent, filename: string) {
+    await user.click(screen.getByRole('button', { name: `Delete ${filename}` }))
+    const question = screen.getByRole('group', { name: `Delete ${filename}?` })
+    await user.click(within(question).getByRole('button', { name: 'Delete' }))
+  }
+
+  it('goes back to the newest when the chosen document is deleted', async () => {
+    const user = userEvent.setup()
+    stubPage([], {
+      [GET_LIST]: listThatChanges([notes, report, latest], [report, latest]),
+      'DELETE /api/documents/1': deleted,
+    })
+
+    await renderPage()
+    await user.selectOptions(documentSelect(), notes.id)
+    await deleteFromTheList(user, 'notes.txt')
+
+    await vi.waitFor(() => expect(screen.queryByRole('option', { name: 'notes.txt' })).not.toBeInTheDocument())
+    expect(documentSelect()).toHaveValue(latest.id)
+  })
+
+  it('takes it off the page at once, while the reloaded list is still on its way', async () => {
+    const user = userEvent.setup()
+    const { route } = waitingRoute(Response.json([notes, report]))
+    stubPage([], { [GET_LIST]: route, 'DELETE /api/documents/1': deleted })
+
+    await renderPage()
+    await deleteFromTheList(user, 'notes.txt')
+
+    await vi.waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('option', { name: 'notes.txt' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete notes.txt' })).not.toBeInTheDocument()
+    expect(documentSelect()).toHaveValue(report.id)
+  })
+
+  it('keeps an explicit choice when another document is deleted', async () => {
+    const user = userEvent.setup()
+    stubPage([], {
+      [GET_LIST]: listThatChanges([notes, report, latest], [notes, report]),
+      'DELETE /api/documents/3': deleted,
+    })
+
+    await renderPage()
+    await user.selectOptions(documentSelect(), notes.id)
+    await deleteFromTheList(user, 'latest.txt')
+
+    await vi.waitFor(() => expect(screen.queryByRole('option', { name: 'latest.txt' })).not.toBeInTheDocument())
+    expect(documentSelect()).toHaveValue(notes.id)
+  })
+
+  it('shows the prompt again when the last document is deleted', async () => {
+    const user = userEvent.setup()
+    stubPage([], { [GET_LIST]: listThatChanges([notes], []), 'DELETE /api/documents/1': deleted })
+
+    await renderPage()
+    await deleteFromTheList(user, 'notes.txt')
+
+    expect(await screen.findByText('Upload a document to ask about it.')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Document' })).not.toBeInTheDocument()
+  })
+
+  it('keeps an answer about it, whose citations then say the document is gone', async () => {
+    const user = userEvent.setup()
+    stubPage([], {
+      [GET_LIST]: listThatChanges([notes, report], [report]),
+      'DELETE /api/documents/1': deleted,
+      'GET /api/documents/1': () => Response.json({ detail: 'Document not found.' }, { status: 404 }),
+    })
+
+    await renderPage()
+    await user.selectOptions(documentSelect(), notes.id)
+    await ask(user)
+    await screen.findByText('The answer.')
+    await deleteFromTheList(user, 'notes.txt')
+    await vi.waitFor(() => expect(screen.queryByRole('option', { name: 'notes.txt' })).not.toBeInTheDocument())
+
+    expect(screen.getByText('The answer.')).toBeInTheDocument()
+    expect(screen.getByText('You asked about notes.txt: Why?')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Line 3' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Document not found.')
+    expect(screen.getByText('The answer.')).toBeInTheDocument()
+  })
+})

@@ -102,13 +102,21 @@ h2 {
   list-style: none;
 }
 
+/* Wraps, so that a row's question or error gets a line of its own below the filename. */
 .document-list li {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
   padding: 0.5rem 0;
   border-top: 1px solid light-dark(#ddd, #444);
   overflow-wrap: anywhere;
+}
+
+/* A basis of 0, so that a long filename wraps beside the line count instead of pushing it onto the next line. */
+.document-name {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .line-count {
@@ -116,7 +124,55 @@ h2 {
   opacity: 0.7;
 }
 
-.dataset-choice,
+.confirm-delete {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.delete-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* The alert colour marks the button that deletes, and its text says Delete, so it doesn't rely on the colour. */
+.danger-button {
+  padding: 0.125rem 0.75rem;
+  border: 1px solid light-dark(#b3261e, #ff8a80);
+  border-radius: 4px;
+  background: light-dark(#b3261e, #ff8a80);
+  color: light-dark(#fff, #1a1a1a);
+  cursor: pointer;
+}
+
+.danger-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.danger-button:focus-visible {
+  outline: 2px solid light-dark(#b3261e, #ff8a80);
+  outline-offset: 2px;
+}
+
+/* Like the create form: the button sits beside the select, and goes below it when there's no room. */
+.dataset-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.dataset-choice label {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
 .ask-form label {
   display: block;
   margin-bottom: 0.75rem;

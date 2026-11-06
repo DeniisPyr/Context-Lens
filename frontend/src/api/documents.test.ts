@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getDocument, listDocuments, uploadDocument } from './documents.ts'
+import { deleteDocument, getDocument, listDocuments, uploadDocument } from './documents.ts'
 
 const summary = { id: '1', filename: 'notes.txt', line_count: 2 }
 
@@ -72,5 +72,36 @@ describe('getDocument', () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => badGateway))
 
     await expect(getDocument('1', signal)).rejects.toThrow('Could not load the document.')
+  })
+})
+
+describe('deleteDocument', () => {
+  it('sends a DELETE for the document and resolves on a 204', async () => {
+    const fetchStub = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchStub)
+
+    await expect(deleteDocument('1')).resolves.toBeUndefined()
+
+    expect(fetchStub).toHaveBeenCalledWith('/api/documents/1', { method: 'DELETE' })
+  })
+
+  it('resolves when the document is already gone', async () => {
+    const notFound = Response.json({ detail: 'Document not found.' }, { status: 404 })
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => notFound))
+
+    await expect(deleteDocument('1')).resolves.toBeUndefined()
+  })
+
+  it('uses the message from the backend when there is one', async () => {
+    const detail = 'The database is unavailable right now. Please try again.'
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => Response.json({ detail }, { status: 503 })))
+
+    await expect(deleteDocument('1')).rejects.toThrow(detail)
+  })
+
+  it('falls back when a failed response is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response('Bad Gateway', { status: 502 })))
+
+    await expect(deleteDocument('1')).rejects.toThrow('Could not delete the document.')
   })
 })

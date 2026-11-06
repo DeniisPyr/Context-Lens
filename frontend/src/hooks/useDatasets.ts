@@ -27,5 +27,11 @@ export function useDatasets() {
     setReloadCount((count) => count + 1)
   }
 
-  return { datasets, error, add }
+  // Takes a deleted dataset off the list at once, so the page moves away from it without waiting, and then reloads.
+  function remove(id: string) {
+    setDatasets((current) => current?.filter((dataset) => dataset.id !== id) ?? null)
+    setReloadCount((count) => count + 1)
+  }
+
+  return { datasets, error, add, remove }
 }

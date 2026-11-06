@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import ANY
 from uuid import uuid4
 
@@ -598,3 +599,139 @@ def test_apps_on_different_databases_do_not_share_documents(
             assert len(first.get(first_url).json()) == 1
             assert second.get(first_url).status_code == 404
             assert second.get("/api/datasets").json() == []
+
+
+def delete(client: TestClient, document_id: str) -> Response:
+    return client.delete(f"{URL}/{document_id}")
+
+
+def test_delete_answers_204_with_no_body(
+    client: TestClient, documents_url: str
+) -> None:
+    uploaded = upload(client, documents_url).json()
+
+    response = delete(client, uploaded["id"])
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_deleted_document_can_no_longer_be_read_or_listed(
+    client: TestClient, documents_url: str
+) -> None:
+    kept = upload(client, documents_url, b"kept\n", "kept.txt").json()
+    deleted = upload(client, documents_url, b"gone\n", "gone.txt").json()
+
+    delete(client, deleted["id"])
+
+    response = client.get(f"{URL}/{deleted['id']}")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Document not found."}
+    assert client.get(documents_url).json() == [kept]
+    assert client.get(f"{URL}/{kept['id']}").json()["lines"] == ["kept"]
+
+
+def test_deleting_the_last_document_leaves_its_dataset_empty(
+    client: TestClient, documents_url: str
+) -> None:
+    uploaded = upload(client, documents_url).json()
+
+    delete(client, uploaded["id"])
+
+    assert client.get(documents_url).json() == []
+    assert len(client.get("/api/datasets").json()) == 1
+
+
+def test_deleting_twice_is_a_404_the_second_time(
+    client: TestClient, documents_url: str
+) -> None:
+    uploaded = upload(client, documents_url).json()
+    delete(client, uploaded["id"])
+
+    response = delete(client, uploaded["id"])
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Document not found."}
+
+
+@pytest.mark.parametrize(
+    "document_id",
+    [
+        "unknown",
+        "not-a-uuid",
+        "123",
+        "00000000-0000-0000-0000-00000000000g",
+        "0" * 33,
+        "%00",
+        "%20",
+        "é",
+        str(uuid4()),
+    ],
+)
+def test_delete_of_a_bad_or_unknown_id_is_a_404_and_deletes_nothing(
+    client: TestClient, documents_url: str, document_id: str
+) -> None:
+    uploaded = upload(client, documents_url).json()
+
+    response = delete(client, document_id)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Document not found."}
+    assert client.get(documents_url).json() == [uploaded]
+
+
+def test_delete_of_a_dataset_id_is_a_404_and_deletes_nothing(
+    client: TestClient, documents_url: str
+) -> None:
+    uploaded = upload(client, documents_url).json()
+    dataset_id = documents_url.split("/")[3]
+
+    response = delete(client, dataset_id)
+
+    assert response.status_code == 404
+    assert client.get(documents_url).json() == [uploaded]
+
+
+def test_filename_can_be_uploaded_again_after_its_document_is_deleted(
+    client: TestClient, documents_url: str
+) -> None:
+    first = upload(client, documents_url, b"first version\n").json()
+    delete(client, first["id"])
+
+    response = upload(client, documents_url, b"second version\n")
+
+    assert response.status_code == 201
+    assert response.json()["id"] != first["id"]
+    assert client.get(documents_url).json() == [response.json()]
+    assert client.get(f"{URL}/{response.json()['id']}").json()["lines"] == [
+        "second version"
+    ]
+
+
+def test_deleted_document_cannot_be_asked_about(
+    client: TestClient, documents_url: str, fake_gemini: FakeGemini
+) -> None:
+    uploaded = upload(client, documents_url, b"The cat is orange.\n").json()
+    delete(client, uploaded["id"])
+
+    response = client.post(
+        "/api/ask", json={"document_id": uploaded["id"], "question": "Which colour?"}
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Document not found."}
+    assert fake_gemini.prompts == []
+
+
+def test_only_one_of_many_requests_racing_to_delete_a_document_wins(
+    client: TestClient, documents_url: str
+) -> None:
+    uploaded = upload(client, documents_url).json()
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        responses = list(
+            executor.map(lambda _: delete(client, uploaded["id"]), range(8))
+        )
+
+    assert sorted(response.status_code for response in responses) == [204] + [404] * 7
+    assert client.get(documents_url).json() == []
