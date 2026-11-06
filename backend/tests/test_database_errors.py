@@ -83,6 +83,7 @@ def test_unreachable_server_is_a_503(
     assert response.status_code == 503
     assert response.json() == UNAVAILABLE
     assert fake_gemini.prompts == []
+    assert fake_gemini.embedded == []
 
 
 def test_unreachable_server_is_logged_in_one_line_without_the_text_or_password(
@@ -144,6 +145,7 @@ def test_missing_table_asks_for_the_migrations(
     assert response.status_code == 503
     assert response.json() == NOT_READY
     assert fake_gemini.prompts == []
+    assert fake_gemini.embedded == []
 
 
 @pytest.mark.parametrize("revision", ["0001", "0002"])
@@ -195,7 +197,29 @@ def test_missing_migrations_are_logged_without_the_text(
 
     [error] = logged_errors(caplog, "The database isn't ready.")
     assert isinstance(error, ProgrammingError)
-    assert "INSERT INTO documents" in caplog.text  # The traceback is in there.
+    assert "FROM datasets" in caplog.text  # The traceback is in there.
+    assert PRIVATE_TEXT not in caplog.text
+
+
+def test_uploads_without_the_chunks_table_ask_for_the_migrations(
+    database: URL, start_app: StartApp, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Someone who pulled this code without applying its migration. Only uploads write
+    # chunks, so everything else still works.
+    apply_migrations(database, "0004")
+
+    with start_app() as client:
+        documents_url = create_dataset(client)
+        response = client.post(documents_url, **UPLOAD)
+        listed = client.get(documents_url)
+
+    assert response.status_code == 503
+    assert response.json() == NOT_READY
+    assert listed.json() == []
+    [error] = logged_errors(caplog, "The database isn't ready.")
+    assert isinstance(error, ProgrammingError)
+    # The traceback is in there, with the insert that sent the text as a chunk's.
+    assert "INSERT INTO chunks" in caplog.text
     assert PRIVATE_TEXT not in caplog.text
 
 
@@ -376,9 +400,10 @@ def test_connection_lost_during_a_write_is_a_503(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # The lock keeps the upload waiting inside its INSERT until its connection is gone.
+    # It's on chunks, which the upload writes last, after reading documents.
     engine = create_engine(clean_database, poolclass=NullPool)
     with ThreadPoolExecutor() as executor, engine.connect() as locker:
-        locker.execute(text("LOCK TABLE documents"))
+        locker.execute(text("LOCK TABLE chunks"))
         upload = executor.submit(client.post, documents_url, **UPLOAD)
 
         drop_the_blocked_connection(clean_database)

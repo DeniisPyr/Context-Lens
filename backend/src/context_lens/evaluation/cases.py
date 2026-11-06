@@ -10,7 +10,7 @@ from typing import Annotated, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from context_lens.evaluation.matching import contains_phrase
-from context_lens.services.documents import Document, InvalidDocumentError, add_upload
+from context_lens.services.documents import Document, InvalidDocumentError, read_upload
 from context_lens.settings import Settings
 
 Category = Literal[
@@ -59,15 +59,6 @@ class QuestionSet:
     questions: list[Question]
     documents: dict[str, Document]
     fingerprint: str
-
-
-class _KeepNothing:
-    # add_upload checks a file and hands it to a store; this one just hands it back.
-    async def add(self, dataset_id: str, filename: str, text: str) -> Document:
-        return Document(id=filename, filename=filename, text=text)
-
-    async def get(self, document_id: str) -> Document | None:
-        return None
 
 
 def _problem(question: Question, problem: str) -> InvalidQuestionSetError:
@@ -146,15 +137,14 @@ def _parse_questions(data: bytes, path: Path) -> list[Question]:
     return questions
 
 
-async def _as_document(path: Path, data: bytes) -> Document:
+def _as_document(path: Path, data: bytes) -> Document:
     # Through the upload code, so eval documents follow the rules and line numbers of
     # a real upload.
     try:
-        return await add_upload(
-            _KeepNothing(), "evaluation", path.name, data, MAX_UPLOAD_BYTES
-        )
+        filename, text = read_upload(path.name, data, MAX_UPLOAD_BYTES)
     except InvalidDocumentError as exc:
         raise InvalidQuestionSetError(f"{path}: {exc}") from None
+    return Document(id=filename, filename=filename, text=text)
 
 
 def _check_evidence(question: Question, document: Document) -> None:
@@ -191,7 +181,7 @@ def _fingerprint(questions_file: bytes, document_files: dict[str, bytes]) -> str
     return f"sha256:{digest.hexdigest()}"
 
 
-async def load_question_set(folder: Path) -> QuestionSet:
+def load_question_set(folder: Path) -> QuestionSet:
     questions_path = folder / "questions.toml"
     questions_file = _read(questions_path)
     questions = _parse_questions(questions_file, questions_path)
@@ -208,7 +198,7 @@ async def load_question_set(folder: Path) -> QuestionSet:
     names = sorted({question.document for question in questions})
     files = {name: _read(available[name]) for name in names}
     documents = {
-        name: await _as_document(available[name], data) for name, data in files.items()
+        name: _as_document(available[name], data) for name, data in files.items()
     }
 
     for question in questions:

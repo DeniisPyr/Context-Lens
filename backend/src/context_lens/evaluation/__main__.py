@@ -182,7 +182,7 @@ def _write(report: Report, markdown: str, path: Path) -> None:
 
 async def _main(args: argparse.Namespace, connect: GeminiFactory) -> int:
     try:
-        question_set = await load_question_set(args.questions)
+        question_set = load_question_set(args.questions)
         if args.only:
             question_set = select_questions(question_set, args.only)
     except InvalidQuestionSetError as exc:

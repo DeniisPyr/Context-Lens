@@ -14,6 +14,7 @@ from context_lens.services.documents import (
     EmptyDocumentError,
     UnsupportedDocumentError,
 )
+from context_lens.services.indexing import IndexingError, IndexingUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,24 @@ async def _handle_gemini_error(request: Request, exc: Exception) -> JSONResponse
     return _error_response(502, "Gemini could not answer this question.")
 
 
+async def _handle_indexing_unavailable(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    logger.error("Gemini is unavailable, so a document wasn't saved.", exc_info=exc)
+    return _error_response(
+        503,
+        "Gemini is unavailable right now, so the document wasn't saved. "
+        "Please try again.",
+    )
+
+
+async def _handle_indexing_error(request: Request, exc: Exception) -> JSONResponse:
+    logger.error("Gemini could not index a document.", exc_info=exc)
+    return _error_response(
+        502, "Gemini could not index this document, so it wasn't saved."
+    )
+
+
 async def _handle_domain_error(request: Request, exc: Exception) -> JSONResponse:
     return _error_response(DOMAIN_ERROR_STATUS_CODES[type(exc)], str(exc))
 
@@ -71,9 +90,11 @@ async def _handle_database_not_ready(request: Request, exc: Exception) -> JSONRe
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    # The most specific handler wins, so GeminiUnavailableError gets its own 503.
+    # The most specific handler wins, so the unavailable errors get their own 503.
     app.add_exception_handler(GeminiUnavailableError, _handle_gemini_unavailable)
     app.add_exception_handler(GeminiError, _handle_gemini_error)
+    app.add_exception_handler(IndexingUnavailableError, _handle_indexing_unavailable)
+    app.add_exception_handler(IndexingError, _handle_indexing_error)
     for error_type in DOMAIN_ERROR_STATUS_CODES:
         app.add_exception_handler(error_type, _handle_domain_error)
     for error_type in DATABASE_UNAVAILABLE_ERRORS:

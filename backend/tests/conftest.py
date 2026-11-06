@@ -1,11 +1,13 @@
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from alembic import command
@@ -19,6 +21,8 @@ from sqlalchemy.pool import NullPool
 from context_lens.dependencies import get_gemini_client
 from context_lens.main import create_app
 from context_lens.services.answering import Citation, ModelAnswer
+from context_lens.services.embeddings import EMBEDDING_DIMENSIONS
+from context_lens.services.indexing import EmbeddedChunk
 from context_lens.settings import DatabaseSettings
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -30,6 +34,17 @@ UNREACHABLE_SERVER = make_url(
 )
 
 type StartApp = Callable[[], AbstractContextManager[TestClient]]
+
+# For tests about documents, where their chunks don't matter.
+NO_CHUNKS: list[EmbeddedChunk] = []
+
+
+def fake_embedding(text: str) -> list[float]:
+    # The same for the same text and different for another, so a test can tell which
+    # text a stored embedding is for. Multiples of 1/256 survive Postgres's 32-bit
+    # floats exactly.
+    digest = hashlib.sha256(text.encode()).digest()
+    return [digest[index % len(digest)] / 256 for index in range(EMBEDDING_DIMENSIONS)]
 
 
 class FakeGemini:
@@ -45,6 +60,10 @@ class FakeGemini:
         self.prompts: list[str] = []
         self.system_instructions: list[str] = []
         self.response_models: list[type[BaseModel]] = []
+        self.embed_error: Exception | None = None
+        self.during_embed: Callable[[list[str]], None] = lambda texts: None
+        # The texts of each call to embed.
+        self.embedded: list[list[str]] = []
 
     async def ask(
         self, prompt: str, system_instruction: str, response_model: type[BaseModel]
@@ -56,6 +75,13 @@ class FakeGemini:
         if self.error is not None:
             raise self.error
         return self.answer
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.embedded.append(texts)
+        self.during_embed(texts)
+        if self.embed_error is not None:
+            raise self.embed_error
+        return [fake_embedding(text) for text in texts]
 
 
 def as_setting(url: URL) -> str:
@@ -138,6 +164,22 @@ def create_dataset(client: TestClient, name: str = "Reports") -> str:
     return f"/api/datasets/{response.json()['id']}/documents"
 
 
+def stored_chunks(url: URL, document_id: str) -> list[EmbeddedChunk]:
+    query = text(
+        "SELECT start_line, end_line, text, embedding::text AS embedding "
+        "FROM chunks WHERE document_id = :id ORDER BY position"
+    )
+    with create_engine(url, poolclass=NullPool).connect() as connection:
+        rows = connection.execute(query, {"id": UUID(document_id)})
+        # pgvector writes a vector as a JSON array.
+        return [
+            EmbeddedChunk(
+                row.start_line, row.end_line, row.text, json.loads(row.embedding)
+            )
+            for row in rows
+        ]
+
+
 def drop_connections(url: URL) -> None:
     # Waits, because a connection the server hasn't closed yet would still pass a ping.
     others = "FROM pg_stat_activity WHERE datname = :name AND pid <> pg_backend_pid()"
@@ -203,7 +245,7 @@ def clean_database(shared_database: URL, monkeypatch: pytest.MonkeyPatch) -> URL
     with create_engine(shared_database, poolclass=NullPool).begin() as connection:
         # A transaction left open by a broken test should fail this, not hang the run.
         connection.execute(text("SET LOCAL lock_timeout = '5s'"))
-        connection.execute(text("TRUNCATE documents, datasets"))
+        connection.execute(text("TRUNCATE chunks, documents, datasets"))
     monkeypatch.setenv("DATABASE_URL", as_setting(shared_database))
     return shared_database
 

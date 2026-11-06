@@ -12,8 +12,6 @@ from context_lens.evaluation.cases import (
     select_questions,
 )
 
-pytestmark = pytest.mark.anyio
-
 HANDBOOK = (
     "# Handbook\n"
     "Employees can work from home 3 days a week.\n"
@@ -61,16 +59,16 @@ def write_set(
     return folder
 
 
-async def load_error(folder: Path) -> str:
+def load_error(folder: Path) -> str:
     with pytest.raises(InvalidQuestionSetError) as error:
-        await load_question_set(folder)
+        load_question_set(folder)
     return str(error.value)
 
 
-async def test_question_set_has_its_questions_and_documents(tmp_path: Path) -> None:
+def test_question_set_has_its_questions_and_documents(tmp_path: Path) -> None:
     folder = write_set(tmp_path / "evals", as_toml(REMOTE_DAYS, PARKING))
 
-    question_set = await load_question_set(folder)
+    question_set = load_question_set(folder)
 
     assert question_set.questions == [
         Question.model_validate(REMOTE_DAYS),
@@ -83,9 +81,9 @@ async def test_question_set_has_its_questions_and_documents(tmp_path: Path) -> N
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", question_set.fingerprint)
 
 
-async def test_same_files_give_the_same_fingerprint(tmp_path: Path) -> None:
-    first = await load_question_set(write_set(tmp_path / "a", as_toml(REMOTE_DAYS)))
-    second = await load_question_set(write_set(tmp_path / "b", as_toml(REMOTE_DAYS)))
+def test_same_files_give_the_same_fingerprint(tmp_path: Path) -> None:
+    first = load_question_set(write_set(tmp_path / "a", as_toml(REMOTE_DAYS)))
+    second = load_question_set(write_set(tmp_path / "b", as_toml(REMOTE_DAYS)))
 
     assert first.fingerprint == second.fingerprint
 
@@ -113,25 +111,25 @@ async def test_same_files_give_the_same_fingerprint(tmp_path: Path) -> None:
         ),
     ],
 )
-async def test_any_change_to_the_files_changes_the_fingerprint(
+def test_any_change_to_the_files_changes_the_fingerprint(
     tmp_path: Path, questions_toml: str, documents: dict[str, bytes] | None
 ) -> None:
     original = write_set(tmp_path / "original", as_toml(REMOTE_DAYS))
     changed = write_set(tmp_path / "changed", questions_toml, documents)
 
-    first = await load_question_set(original)
-    second = await load_question_set(changed)
+    first = load_question_set(original)
+    second = load_question_set(changed)
 
     assert first.fingerprint != second.fingerprint
 
 
-async def test_files_no_question_uses_are_ignored(tmp_path: Path) -> None:
+def test_files_no_question_uses_are_ignored(tmp_path: Path) -> None:
     plain = write_set(tmp_path / "plain", as_toml(REMOTE_DAYS))
     documents = {"handbook.md": HANDBOOK.encode(), ".DS_Store": b"\x00\x01\xff"}
     cluttered = write_set(tmp_path / "cluttered", as_toml(REMOTE_DAYS), documents)
 
-    first = await load_question_set(plain)
-    second = await load_question_set(cluttered)
+    first = load_question_set(plain)
+    second = load_question_set(cluttered)
 
     assert list(second.documents) == ["handbook.md"]
     assert first.fingerprint == second.fingerprint
@@ -192,19 +190,19 @@ async def test_files_no_question_uses_are_ignored(tmp_path: Path) -> None:
         ),
     ],
 )
-async def test_invalid_question_is_an_error_naming_it(
+def test_invalid_question_is_an_error_naming_it(
     tmp_path: Path, changes: dict[str, object], message: str
 ) -> None:
     question = REMOTE_DAYS | changes
     folder = write_set(tmp_path / "evals", as_toml(PARKING, question))
 
-    error = await load_error(folder)
+    error = load_error(folder)
 
     assert error.startswith(f"Question {question['id']}: ")
     assert message in error
 
 
-async def test_evidence_can_span_several_ranges(tmp_path: Path) -> None:
+def test_evidence_can_span_several_ranges(tmp_path: Path) -> None:
     question = REMOTE_DAYS | {
         "category": "multi_fact",
         "facts": [["3 days"], ["8:00"]],
@@ -212,28 +210,28 @@ async def test_evidence_can_span_several_ranges(tmp_path: Path) -> None:
     }
     folder = write_set(tmp_path / "evals", as_toml(question))
 
-    question_set = await load_question_set(folder)
+    question_set = load_question_set(folder)
 
     assert question_set.questions[0].evidence == [(2, 2), (3, 3)]
 
 
-async def test_question_without_an_id_is_named_by_its_position(
+def test_question_without_an_id_is_named_by_its_position(
     tmp_path: Path,
 ) -> None:
     question = {key: value for key, value in REMOTE_DAYS.items() if key != "id"}
     folder = write_set(tmp_path / "evals", as_toml(PARKING, question))
 
-    error = await load_error(folder)
+    error = load_error(folder)
 
     assert error.startswith("Question number 2: id: Field required")
 
 
-async def test_duplicate_ids_are_an_error(tmp_path: Path) -> None:
+def test_duplicate_ids_are_an_error(tmp_path: Path) -> None:
     folder = write_set(
         tmp_path / "evals", as_toml(REMOTE_DAYS, PARKING | {"id": REMOTE_DAYS["id"]})
     )
 
-    error = await load_error(folder)
+    error = load_error(folder)
 
     assert error == ("Question handbook-remote-days: another question has the same id.")
 
@@ -257,29 +255,29 @@ async def test_duplicate_ids_are_an_error(tmp_path: Path) -> None:
         ),
     ],
 )
-async def test_unreadable_questions_file_is_an_error_naming_it(
+def test_unreadable_questions_file_is_an_error_naming_it(
     tmp_path: Path, questions_toml: bytes, message: str
 ) -> None:
     folder = write_set(tmp_path / "evals", questions_toml)
 
-    error = await load_error(folder)
+    error = load_error(folder)
 
     assert error.startswith(str(folder / "questions.toml"))
     assert message in error
 
 
-async def test_missing_questions_file_is_an_error(tmp_path: Path) -> None:
-    error = await load_error(tmp_path / "evals")
+def test_missing_questions_file_is_an_error(tmp_path: Path) -> None:
+    error = load_error(tmp_path / "evals")
 
     assert error.startswith(f"Can't read {tmp_path / 'evals' / 'questions.toml'}")
 
 
-async def test_missing_documents_folder_is_an_error(tmp_path: Path) -> None:
+def test_missing_documents_folder_is_an_error(tmp_path: Path) -> None:
     folder = tmp_path / "evals"
     folder.mkdir()
     (folder / "questions.toml").write_text(as_toml(REMOTE_DAYS))
 
-    error = await load_error(folder)
+    error = load_error(folder)
 
     assert error.startswith(f"Can't read {folder / 'documents'}")
 
@@ -298,13 +296,13 @@ async def test_missing_documents_folder_is_an_error(tmp_path: Path) -> None:
         ),
     ],
 )
-async def test_documents_follow_the_upload_rules(
+def test_documents_follow_the_upload_rules(
     tmp_path: Path, filename: str, content: bytes, message: str
 ) -> None:
     question = PARKING | {"document": filename}
     folder = write_set(tmp_path / "evals", as_toml(question), {filename: content})
 
-    error = await load_error(folder)
+    error = load_error(folder)
 
     assert error.startswith(f"{folder / 'documents' / filename}: ")
     assert message in error
@@ -317,7 +315,7 @@ async def test_documents_follow_the_upload_rules(
         pytest.param("\r", id="cr"),
     ],
 )
-async def test_line_endings_are_normalized_so_line_numbers_match(
+def test_line_endings_are_normalized_so_line_numbers_match(
     tmp_path: Path, line_ending: str
 ) -> None:
     document = HANDBOOK.replace("\n", line_ending).encode()
@@ -325,35 +323,35 @@ async def test_line_endings_are_normalized_so_line_numbers_match(
         tmp_path / "evals", as_toml(REMOTE_DAYS), {"handbook.md": document}
     )
 
-    question_set = await load_question_set(folder)
+    question_set = load_question_set(folder)
 
     assert question_set.documents["handbook.md"].lines == HANDBOOK.splitlines()
 
 
-async def test_byte_order_mark_is_dropped(tmp_path: Path) -> None:
+def test_byte_order_mark_is_dropped(tmp_path: Path) -> None:
     document = b"\xef\xbb\xbf" + HANDBOOK.encode()
     folder = write_set(
         tmp_path / "evals", as_toml(REMOTE_DAYS), {"handbook.md": document}
     )
 
-    question_set = await load_question_set(folder)
+    question_set = load_question_set(folder)
 
     assert question_set.documents["handbook.md"].text == HANDBOOK
 
 
-async def two_document_set(tmp_path: Path) -> QuestionSet:
+def two_document_set(tmp_path: Path) -> QuestionSet:
     rules = PARKING | {"id": "rules-dress-code", "document": "rules.md"}
     documents = {"handbook.md": HANDBOOK.encode(), "rules.md": b"Dress well.\n"}
     folder = write_set(
         tmp_path / "evals", as_toml(rules, REMOTE_DAYS, PARKING), documents
     )
-    return await load_question_set(folder)
+    return load_question_set(folder)
 
 
-async def test_selected_questions_keep_their_order_and_documents(
+def test_selected_questions_keep_their_order_and_documents(
     tmp_path: Path,
 ) -> None:
-    question_set = await two_document_set(tmp_path)
+    question_set = two_document_set(tmp_path)
 
     selected = select_questions(
         question_set, ["handbook-parking", "handbook-remote-days"]
@@ -367,8 +365,8 @@ async def test_selected_questions_keep_their_order_and_documents(
     assert selected.fingerprint == question_set.fingerprint
 
 
-async def test_selecting_an_unknown_id_is_an_error(tmp_path: Path) -> None:
-    question_set = await two_document_set(tmp_path)
+def test_selecting_an_unknown_id_is_an_error(tmp_path: Path) -> None:
+    question_set = two_document_set(tmp_path)
 
     with pytest.raises(InvalidQuestionSetError) as error:
         select_questions(question_set, ["handbook-parking", "nope", "also-nope"])

@@ -57,8 +57,9 @@ class DatasetStore:
             delete(DatasetRow).where(DatasetRow.id == key).returning(DatasetRow.id)
         )
         async with self._sessions.begin() as session:
-            # Postgres deletes the dataset's documents in the same transaction, through
-            # ON DELETE CASCADE on their foreign key, so none can be left behind.
+            # Postgres deletes the dataset's documents and their chunks in the same
+            # transaction, through ON DELETE CASCADE on their foreign keys, so none can
+            # be left behind.
             deleted = (await session.execute(statement)).scalar_one_or_none()
         if deleted is None:
             raise DatasetNotFoundError

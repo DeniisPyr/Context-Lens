@@ -2,6 +2,9 @@ from dataclasses import dataclass
 from pathlib import PureWindowsPath
 from typing import Protocol
 
+from context_lens.clients.gemini import GeminiClient
+from context_lens.services.indexing import EmbeddedChunk, index_lines
+
 ALLOWED_EXTENSIONS = {".txt", ".md"}
 
 
@@ -70,7 +73,11 @@ class Document:
 class DocumentStorage(Protocol):
     """What these functions need from the store in db/, which they don't import."""
 
-    async def add(self, dataset_id: str, filename: str, text: str) -> Document: ...
+    async def check_can_add(self, dataset_id: str, filename: str) -> None: ...
+
+    async def add(
+        self, dataset_id: str, filename: str, text: str, chunks: list[EmbeddedChunk]
+    ) -> Document: ...
 
     async def get(self, document_id: str) -> Document | None: ...
 
@@ -96,13 +103,7 @@ def _decode_text(data: bytes) -> str:
     return text
 
 
-async def add_upload(
-    store: DocumentStorage,
-    dataset_id: str,
-    filename: str | None,
-    data: bytes,
-    max_bytes: int,
-) -> Document:
+def read_upload(filename: str | None, data: bytes, max_bytes: int) -> tuple[str, str]:
     clean_name = _clean_filename(filename)
     if len(data) > max_bytes:
         raise DocumentTooLargeError(
@@ -111,8 +112,23 @@ async def add_upload(
     text = _decode_text(data)
     if not text.strip():
         raise EmptyDocumentError("The file must not be empty.")
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    return await store.add(dataset_id, clean_name, normalized)
+    return clean_name, text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+async def add_upload(
+    store: DocumentStorage,
+    gemini: GeminiClient,
+    dataset_id: str,
+    filename: str | None,
+    data: bytes,
+    max_bytes: int,
+) -> Document:
+    clean_name, text = read_upload(filename, data, max_bytes)
+    # Before Gemini, so that an upload the store is going to refuse costs nothing.
+    await store.check_can_add(dataset_id, clean_name)
+    # Between the store's transactions, so that no connection waits for Gemini.
+    chunks = await index_lines(gemini, clean_name, split_lines(text))
+    return await store.add(dataset_id, clean_name, text, chunks)
 
 
 async def get_document(store: DocumentStorage, document_id: str) -> Document:
