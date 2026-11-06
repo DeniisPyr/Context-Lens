@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 
 import httpx
 from google import genai
@@ -20,6 +21,13 @@ class GeminiError(Exception):
 
 class GeminiUnavailableError(GeminiError):
     """Gemini is temporarily unavailable, so trying again later may work."""
+
+
+@dataclass(frozen=True)
+class TokenUsage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    thought_tokens: int = 0
 
 
 class GeminiClient:
@@ -44,6 +52,14 @@ class GeminiClient:
     async def ask[T: BaseModel](
         self, prompt: str, system_instruction: str, response_model: type[T]
     ) -> T:
+        answer, _ = await self.ask_with_usage(
+            prompt, system_instruction, response_model
+        )
+        return answer
+
+    async def ask_with_usage[T: BaseModel](
+        self, prompt: str, system_instruction: str, response_model: type[T]
+    ) -> tuple[T, TokenUsage]:
         try:
             interaction = await asyncio.wait_for(
                 self._client.aio.interactions.create(
@@ -73,13 +89,23 @@ class GeminiClient:
         if interaction.status != "completed" or not interaction.output_text:
             raise GeminiError(f"Gemini gave no answer: {interaction.status}.")
         try:
-            return response_model.model_validate_json(interaction.output_text)
+            answer = response_model.model_validate_json(interaction.output_text)
         except ValidationError:
             # "from None": Pydantic's error quotes the output, which can hold document
             # text, and the traceback would carry it into the logs.
             raise GeminiError(
                 "Gemini returned an answer in the wrong format."
             ) from None
+
+        # Gemini leaves out the usage, or any count in it, when it has none to report.
+        usage = interaction.usage
+        if usage is None:
+            return answer, TokenUsage()
+        return answer, TokenUsage(
+            input_tokens=usage.total_input_tokens or 0,
+            output_tokens=usage.total_output_tokens or 0,
+            thought_tokens=usage.total_thought_tokens or 0,
+        )
 
     async def aclose(self) -> None:
         await self._client.aio.aclose()
