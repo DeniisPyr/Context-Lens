@@ -2,7 +2,7 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
 
-> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document, with documents stored in Postgres and grouped into named datasets. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. The React frontend can create and delete datasets, upload many files into one at once, delete documents, and ask about one document at a time, showing each answer with citations that open the document at the cited lines, and shows whether the API is reachable. An evaluation command scores the answers on a fixed set of questions.
+> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document, with documents stored in Postgres and grouped into named datasets. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. Each uploaded document is also split into chunks of lines, and each chunk is embedded with Gemini and stored in Postgres with pgvector, ready for searching a whole dataset. The React frontend can create and delete datasets, upload many files into one at once, delete documents, and ask about one document at a time, showing each answer with citations that open the document at the cited lines, and shows whether the API is reachable. An evaluation command scores the answers on a fixed set of questions.
 
 ## Run locally
 
@@ -72,6 +72,29 @@ uv run alembic upgrade head
 
 Documents you already have move to a dataset named `My documents` when the migration that adds datasets runs, and any duplicate filenames among them get a number, as in `notes (2).txt`.
 
+### Chunks and embeddings
+
+An upload also prepares the document for search:
+- **Chunks:** the text is split into chunks of whole lines, up to 1,000 characters each. A chunk ends at a blank line where it can, so a paragraph or list entry stays whole and a heading stays with the text under it.
+- **Embeddings:** Gemini's `gemini-embedding-2` turns each chunk, labelled with its filename, into 768 numbers. They're stored with the chunk and its line numbers in the `chunks` table, using pgvector.
+- **All or nothing:** the document and its chunks are saved together. If Gemini is unavailable or fails, the upload is refused and nothing is stored.
+- **Deleting:** deleting a document or a dataset deletes its chunks too.
+- **Cost:** embedding spends credits on every upload, about 5 cents for a 1 MB file at November 2026 prices. So a dataset holds at most 100 documents; to change that, set `MAX_DOCUMENTS_PER_DATASET` in `backend/.env`. An upload that would be refused, such as a duplicate filename or one into a full dataset, is refused before anything is sent to Gemini.
+
+The 1,000-character size comes from a comparison on the evaluation set. Each of its 32 answerable questions was searched against the chunks of all 7 documents, looking for the chunk that holds each of the 40 passages the answers come from.
+- **Size:** of 600, 1,000 and 1,500 characters, 1,000 ranked those chunks highest. It put them first for 57% of the passages, in the top 3 for 88%, and in the top 10 for all of them.
+- **Filename label:** labelling each chunk with its filename helped at every size. At 1,500 characters it raised the share in the top 5 from 72% to 98%.
+
+Documents uploaded before chunks existed have none. After applying the migration that adds them, index those documents once. This calls Gemini, so `--dry-run` first shows how much text it would send:
+
+```bash
+cd backend
+uv run python -m context_lens.index_documents --dry-run
+uv run python -m context_lens.index_documents
+```
+
+It only touches documents without chunks, so running it again is safe and retries any that failed.
+
 The data lives in a Docker volume, so it survives `docker compose down`. To wipe it, run `docker compose down -v`, which deletes everything in the database. The defaults work as they are. To change them, see `.env.example` in the repo root and `DATABASE_URL` in `backend/.env.example`.
 
 ## Evaluation
@@ -125,10 +148,11 @@ context_lens/
 ├── settings.py              # configuration, from the environment or .env
 ├── dependencies.py          # what routes can ask for: GeminiDep, DatasetStoreDep, DocumentStoreDep, SettingsDep
 ├── exception_handlers.py    # maps domain and database errors to HTTP responses
-├── clients/gemini.py        # talks to the Gemini API
+├── index_documents.py       # the command that indexes documents stored before chunks existed
+├── clients/gemini.py        # talks to the Gemini API: answers and embeddings
 ├── db/                      # everything that knows about Postgres
 │   ├── dataset_store.py     # reads and writes datasets
-│   ├── document_store.py    # reads and writes documents
+│   ├── document_store.py    # reads and writes documents and their chunks
 │   ├── engine.py            # builds the connection pool
 │   ├── ids.py               # turns an id from the API into a UUID
 │   └── models.py            # the database tables
@@ -145,8 +169,11 @@ context_lens/
 │   └── ask.py, datasets.py, documents.py, health.py
 └── services/                # logic, no FastAPI imports
     ├── answering.py         # builds the prompt, asks Gemini, verifies citations
+    ├── chunking.py          # splits a document into chunks of lines
     ├── datasets.py          # what a dataset is, and its errors
-    └── documents.py         # validates uploads and splits text into lines
+    ├── documents.py         # validates uploads and splits text into lines
+    ├── embeddings.py        # the embedding size, and how a chunk is labelled for it
+    └── indexing.py          # chunks a document and embeds the chunks
 ```
 
 Postgres, the migrations and the evaluation questions live outside that folder:
