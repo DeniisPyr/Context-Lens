@@ -1,9 +1,10 @@
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import ANY
 from uuid import UUID, uuid4
 
 import pytest
-from conftest import StartApp, create_dataset, run_sql
+from conftest import FakeGemini, StartApp, create_dataset, run_sql
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from sqlalchemy import URL as DatabaseURL
@@ -582,3 +583,134 @@ def test_only_one_of_many_requests_racing_to_delete_a_dataset_wins(
 
     assert sorted(response.status_code for response in responses) == [204] + [404] * 7
     assert client.get(URL).json() == []
+
+
+def full(limit: int) -> dict[str, str]:
+    return {
+        "detail": f"This dataset already has {limit} documents, the most it can hold."
+    }
+
+
+def fill(database: DatabaseURL, documents_url: str, count: int) -> None:
+    # Straight into the database, which is quicker than as many uploads.
+    statement = text(
+        "INSERT INTO documents (id, dataset_id, filename, text, line_count) "
+        "SELECT id, :dataset_id, id || '.txt', 'Old', 1 "
+        "FROM (SELECT gen_random_uuid() AS id FROM generate_series(1, :count))"
+    )
+    with create_engine(database, poolclass=NullPool).begin() as connection:
+        connection.execute(
+            statement, {"dataset_id": documents_url.split("/")[3], "count": count}
+        )
+
+
+@pytest.fixture
+def client_with_room_for_three(
+    clean_database: DatabaseURL,
+    start_app: StartApp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[TestClient]:
+    monkeypatch.setenv("MAX_DOCUMENTS_PER_DATASET", "3")
+    with start_app() as test_client:
+        yield test_client
+
+
+def test_upload_past_the_default_limit_is_refused_without_calling_gemini(
+    client: TestClient,
+    documents_url: str,
+    fake_gemini: FakeGemini,
+    clean_database: DatabaseURL,
+) -> None:
+    fill(clean_database, documents_url, 99)
+    assert upload(client, documents_url, "100.txt").status_code == 201
+    fake_gemini.embedded.clear()
+
+    response = upload(client, documents_url, "101.txt")
+
+    assert response.status_code == 409
+    assert response.json() == full(100)
+    assert fake_gemini.embedded == []
+    assert rows_in(clean_database, "documents") == 100
+
+
+def test_limit_comes_from_the_settings(
+    client_with_room_for_three: TestClient, fake_gemini: FakeGemini
+) -> None:
+    client = client_with_room_for_three
+    documents_url = create_dataset(client)
+    for name in ["a.txt", "b.txt", "c.txt"]:
+        assert upload(client, documents_url, name).status_code == 201
+    fake_gemini.embedded.clear()
+
+    response = upload(client, documents_url, "d.txt")
+
+    assert response.status_code == 409
+    assert response.json() == full(3)
+    assert fake_gemini.embedded == []
+    assert len(client.get(documents_url).json()) == 3
+
+
+def test_limit_is_for_each_dataset_on_its_own(
+    client_with_room_for_three: TestClient,
+) -> None:
+    client = client_with_room_for_three
+    full_url = create_dataset(client, "Full")
+    empty_url = create_dataset(client, "Empty")
+    for name in ["a.txt", "b.txt", "c.txt"]:
+        upload(client, full_url, name)
+
+    assert upload(client, empty_url, "a.txt").status_code == 201
+
+
+def test_deleting_a_document_makes_room_for_another(
+    client_with_room_for_three: TestClient,
+) -> None:
+    client = client_with_room_for_three
+    documents_url = create_dataset(client)
+    [first, *_] = [upload(client, documents_url, f"{n}.txt").json() for n in "abc"]
+    assert upload(client, documents_url, "d.txt").status_code == 409
+
+    client.delete(f"/api/documents/{first['id']}")
+
+    assert upload(client, documents_url, "d.txt").status_code == 201
+    assert upload(client, documents_url, "e.txt").status_code == 409
+
+
+def test_concurrent_uploads_never_pass_the_limit(
+    client_with_room_for_three: TestClient, fake_gemini: FakeGemini
+) -> None:
+    client = client_with_room_for_three
+    documents_url = create_dataset(client)
+    upload(client, documents_url, "first.txt")
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        responses = list(
+            executor.map(
+                lambda number: upload(client, documents_url, f"{number}.txt"), range(8)
+            )
+        )
+
+    statuses = sorted(response.status_code for response in responses)
+    assert statuses == [201] * 2 + [409] * 6
+    assert all(r.json() == full(3) for r in responses if r.status_code == 409)
+    assert len(client.get(documents_url).json()) == 3
+
+
+def test_dataset_that_fills_up_while_gemini_embeds_refuses_the_upload(
+    client_with_room_for_three: TestClient,
+    fake_gemini: FakeGemini,
+    clean_database: DatabaseURL,
+) -> None:
+    # The check before Gemini found room, so only the insert's own count can stop it.
+    client = client_with_room_for_three
+    documents_url = create_dataset(client)
+    fill(clean_database, documents_url, 2)
+    fake_gemini.during_embed = lambda texts: fill(clean_database, documents_url, 1)
+
+    response = upload(client, documents_url, "late.txt")
+
+    assert response.status_code == 409
+    assert response.json() == full(3)
+    assert len(fake_gemini.embedded) == 1
+    assert rows_in(clean_database, "documents") == 3
+    assert rows_in(clean_database, "chunks") == 0

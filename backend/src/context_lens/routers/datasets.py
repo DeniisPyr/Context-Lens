@@ -41,7 +41,13 @@ async def upload_document(
 ) -> DocumentSummary:
     data = await file.read(settings.max_upload_bytes + 1)
     document = await add_upload(
-        store, gemini, dataset_id, file.filename, data, settings.max_upload_bytes
+        store,
+        gemini,
+        dataset_id,
+        file.filename,
+        data,
+        max_bytes=settings.max_upload_bytes,
+        max_documents=settings.max_documents_per_dataset,
     )
     return DocumentSummary.from_document(document)
 

@@ -23,3 +23,4 @@ class Settings(DatabaseSettings):
     gemini_embedding_model: str = "gemini-embedding-2"
     gemini_timeout_seconds: float = 60.0
     max_upload_bytes: int = 1_000_000
+    max_documents_per_dataset: int = 100

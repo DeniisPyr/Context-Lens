@@ -73,10 +73,17 @@ class Document:
 class DocumentStorage(Protocol):
     """What these functions need from the store in db/, which they don't import."""
 
-    async def check_can_add(self, dataset_id: str, filename: str) -> None: ...
+    async def check_can_add(
+        self, dataset_id: str, filename: str, max_documents: int
+    ) -> None: ...
 
     async def add(
-        self, dataset_id: str, filename: str, text: str, chunks: list[EmbeddedChunk]
+        self,
+        dataset_id: str,
+        filename: str,
+        text: str,
+        chunks: list[EmbeddedChunk],
+        max_documents: int,
     ) -> Document: ...
 
     async def get(self, document_id: str) -> Document | None: ...
@@ -121,14 +128,16 @@ async def add_upload(
     dataset_id: str,
     filename: str | None,
     data: bytes,
+    *,
     max_bytes: int,
+    max_documents: int,
 ) -> Document:
     clean_name, text = read_upload(filename, data, max_bytes)
     # Before Gemini, so that an upload the store is going to refuse costs nothing.
-    await store.check_can_add(dataset_id, clean_name)
+    await store.check_can_add(dataset_id, clean_name, max_documents)
     # Between the store's transactions, so that no connection waits for Gemini.
     chunks = await index_lines(gemini, clean_name, split_lines(text))
-    return await store.add(dataset_id, clean_name, text, chunks)
+    return await store.add(dataset_id, clean_name, text, chunks, max_documents)
 
 
 async def get_document(store: DocumentStorage, document_id: str) -> Document:

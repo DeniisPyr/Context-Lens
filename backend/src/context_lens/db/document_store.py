@@ -1,12 +1,12 @@
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from context_lens.db.ids import parse_id
 from context_lens.db.models import ChunkRow, DatasetRow, DocumentRow
-from context_lens.services.datasets import DatasetNotFoundError
+from context_lens.services.datasets import DatasetFullError, DatasetNotFoundError
 from context_lens.services.documents import (
     Document,
     DocumentInfo,
@@ -37,13 +37,23 @@ def _chunk_rows(document_id: UUID, chunks: list[EmbeddedChunk]) -> list[ChunkRow
     ]
 
 
+def _count_documents(dataset_key: UUID) -> Select[int]:
+    return (
+        select(func.count())
+        .select_from(DocumentRow)
+        .where(DocumentRow.dataset_id == dataset_key)
+    )
+
+
 class DocumentStore:
     # Each method holds a connection only for its own short transaction. /api/ask waits
     # up to a minute for Gemini, and must not keep a connection busy all that time.
     def __init__(self, engine: AsyncEngine) -> None:
         self._sessions = async_sessionmaker(engine)
 
-    async def check_can_add(self, dataset_id: str, filename: str) -> None:
+    async def check_can_add(
+        self, dataset_id: str, filename: str, max_documents: int
+    ) -> None:
         key = parse_id(dataset_id)
         if key is None:
             raise DatasetNotFoundError
@@ -55,11 +65,18 @@ class DocumentStore:
         async with self._sessions.begin() as session:
             if await session.get(DatasetRow, key) is None:
                 raise DatasetNotFoundError
+            if await session.scalar(_count_documents(key)) >= max_documents:
+                raise DatasetFullError(max_documents)
             if await session.scalar(same_name.exists().select()):
                 raise DuplicateDocumentError(filename)
 
     async def add(
-        self, dataset_id: str, filename: str, text: str, chunks: list[EmbeddedChunk]
+        self,
+        dataset_id: str,
+        filename: str,
+        text: str,
+        chunks: list[EmbeddedChunk],
+        max_documents: int,
     ) -> Document:
         key = parse_id(dataset_id)
         if key is None:
@@ -75,6 +92,13 @@ class DocumentStore:
         try:
             # One transaction, so a document is never stored without its chunks.
             async with self._sessions.begin() as session:
+                # Locked until the transaction ends, so uploads into one dataset take
+                # turns here, and two can't both see room for one more document.
+                dataset = select(DatasetRow.id).where(DatasetRow.id == key)
+                if await session.scalar(dataset.with_for_update()) is None:
+                    raise DatasetNotFoundError
+                if await session.scalar(_count_documents(key)) >= max_documents:
+                    raise DatasetFullError(max_documents)
                 session.add(row)
                 # The models have no relationship, so SQLAlchemy can't tell that the
                 # document must be inserted before its chunks.

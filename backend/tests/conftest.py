@@ -35,8 +35,9 @@ UNREACHABLE_SERVER = make_url(
 
 type StartApp = Callable[[], AbstractContextManager[TestClient]]
 
-# For tests about documents, where their chunks don't matter.
+# For tests about documents, where their chunks and the limit on them don't matter.
 NO_CHUNKS: list[EmbeddedChunk] = []
+MAX_DOCUMENTS = 100
 
 
 def fake_embedding(text: str) -> list[float]:
@@ -206,6 +207,7 @@ def no_developer_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         "GEMINI_EMBEDDING_MODEL",
         "GEMINI_TIMEOUT_SECONDS",
         "MAX_UPLOAD_BYTES",
+        "MAX_DOCUMENTS_PER_DATASET",
     ):
         monkeypatch.delenv(name, raising=False)
     # Replaced rather than removed, because the default is the developer's own database.
