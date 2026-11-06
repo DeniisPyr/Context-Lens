@@ -1,0 +1,726 @@
+BRIGHTWATER LABS s.r.o.
+STANDARD OPERATING PROCEDURE
+
+SOP number:       SOP-QC-0142
+Title:            Maintenance of the Vestorra LX-500 HPLC system
+Version:          4.0
+Effective date:   1 September 2026
+Supersedes:       Version 3.2
+Department:       Quality Control Laboratory, Brno site
+Author:           Radek Pospíšil, QC Instrument Specialist
+Reviewed by:      Lucie Malá, QA Validation Lead
+Approved by:      Petr Svoboda, Laboratory Operations Manager
+Classification:   Internal
+
+This SOP is a fictional document written for software testing.
+The Vestorra LX-500 instrument, its manufacturer and all people named here are invented.
+
+
+TABLE OF CONTENTS
+
+1.  Purpose
+2.  Scope
+3.  Responsibilities
+4.  Definitions and abbreviations
+5.  Safety
+6.  System description and specifications
+7.  Materials and spare parts
+8.  Daily maintenance
+9.  Weekly maintenance
+10. Monthly maintenance
+11. Annual maintenance
+12. Calibration
+13. Troubleshooting
+14. Error codes
+15. Documentation and records
+16. Training
+17. References
+18. Revision history
+
+
+1. PURPOSE
+==========
+
+This SOP describes the routine maintenance, calibration and troubleshooting of the Vestorra LX-500 HPLC system.
+Its aim is to keep the system in a qualified state, so that analytical results produced on it are reliable.
+It also describes what to do when the system shows an error code or fails a calibration test.
+
+
+2. SCOPE
+========
+
+This SOP applies to all Vestorra LX-500 HPLC systems in the Quality Control Laboratory at the Brno site.
+It covers the binary pump, degasser, autosampler, column compartment and UV/VIS detector of the system.
+It does not cover the chromatography data system, which is maintained under SOP-IT-0031.
+It does not cover the qualification of HPLC columns, which is described in SOP-QC-0118.
+Repairs inside the modules are outside the scope of this SOP and are done only by the service provider.
+
+
+3. RESPONSIBILITIES
+===================
+
+3.1 Laboratory Operations Manager
+
+- Makes sure that enough trained staff and spare parts are available for the maintenance in this SOP.
+- Approves the annual maintenance and calibration plan for all LX-500 systems.
+- Decides on the purchase of replacement systems and major spare parts.
+
+3.2 QC Instrument Specialist
+
+- Owns this SOP and keeps it up to date.
+- Performs the monthly and annual maintenance tasks and all calibrations.
+- Coordinates visits of the service provider and checks their service reports.
+- Keeps the calibration status labels on each system up to date.
+
+3.3 Operators
+
+- Perform the daily and weekly maintenance tasks before and after using the system.
+- Record every maintenance task, error code and repair in the instrument logbook.
+- Stop using the system and inform the QC Instrument Specialist when an error cannot be cleared by this SOP.
+- Use only systems that carry a valid calibration status label.
+
+3.4 Quality Assurance (QA)
+
+- Reviews and approves this SOP and its revisions.
+- Reviews impact assessments after a failed calibration or a major repair.
+- Approves the return to service of a system after an out-of-tolerance calibration result.
+
+3.5 Service provider
+
+- Performs the annual preventive maintenance and all repairs inside the modules.
+- Provides a signed service report after every visit.
+- Uses only spare parts approved by the manufacturer.
+
+
+4. DEFINITIONS AND ABBREVIATIONS
+================================
+
+CDS        Chromatography data system
+D2 lamp    Deuterium lamp of the UV/VIS detector
+GxP        Good practice quality guidelines, such as good manufacturing practice
+HPLC       High-performance liquid chromatography
+Logbook    The bound or electronic instrument logbook kept for each system
+mAU        Milli-absorbance unit
+MPa        Megapascal; 1 MPa = 10 bar
+OQ         Operational qualification
+OOT        Out of tolerance; a calibration result outside its acceptance criterion
+PM         Preventive maintenance
+RSD        Relative standard deviation
+SST        System suitability test
+Purge      Pumping solvent at a high flow rate through the open purge valve to remove air or old solvent
+
+
+5. SAFETY
+=========
+
+5.1 Wear a lab coat, safety glasses and nitrile gloves for all maintenance tasks in this SOP.
+5.2 Handle organic solvents in a ventilated area and keep them away from sources of ignition.
+5.3 Before opening any fluid connection, stop the flow and let the system pressure fall below 1 MPa.
+5.4 Never look directly into the light of the deuterium lamp; it emits ultraviolet radiation.
+5.5 Let the deuterium lamp cool for at least 15 minutes before removing it, because the lamp housing is hot.
+5.6 Collect solvent waste in the labelled waste container and dispose of it according to SOP-EHS-0007.
+5.7 Switch off and unplug a module before removing any cover; only the service provider may open covers
+    marked with a high-voltage warning.
+5.8 Clean up spills immediately with absorbent pads and report larger spills to the EHS department.
+
+
+6. SYSTEM DESCRIPTION AND SPECIFICATIONS
+========================================
+
+6.1 Modules
+
+The LX-500 system consists of the following modules, stacked in this order from the bench up:
+
+- LX-P2 binary pump with two pump heads (pump A and pump B) and an integrated purge valve
+- LX-DG four-channel vacuum degasser
+- LX-AS autosampler with a cooled sample tray, needle wash port and six-port injection valve
+- LX-CC column compartment with a column oven and a two-position column switching valve
+- LX-UV UV/VIS detector with a deuterium lamp, a tungsten lamp and a 10 mm flow cell
+
+Each module has its own leak sensor in a drip tray at the front of the module.
+
+6.2 Specifications
+
+Flow rate range:               0.05 to 5.00 mL/min
+Maximum operating pressure:    60 MPa (600 bar)
+Gradient:                      Binary, high-pressure mixing
+Column oven range:             5 °C to 80 °C
+Sample tray cooling range:     4 °C to 40 °C
+Injection volume range:        0.1 to 100 µL
+Wavelength range:              190 to 600 nm
+Flow cell volume:              10 µL, path length 10 mm
+
+6.3 Operating environment
+
+The system must be operated at a room temperature of 18 °C to 28 °C and a relative humidity below 80 %.
+It must stand on a stable bench away from direct sunlight, air-conditioning outlets and vibration.
+
+
+7. MATERIALS AND SPARE PARTS
+============================
+
+The following materials are used for routine maintenance and are kept in the HPLC spare parts cabinet.
+
+Part number    Description                                         Used in section
+LX-1001        Solvent inlet filter, 10 µm, stainless steel          10.1
+LX-1004        Purge valve frit, PTFE                                10.2
+LX-1007        Inline filter cartridge, 0.5 µm                       10.3
+LX-2010        Piston seal kit, pump A or pump B                     11.1
+LX-2014        Outlet check valve cartridge                          11.1, 14
+LX-3002        Needle assembly, autosampler                          11.1
+LX-3005        Needle seat, autosampler                              11.1, 14
+LX-3011        Rotor seal, injection valve                           11.1, 14
+LX-5001        Deuterium lamp                                        10.4
+LX-5003        Tungsten lamp                                         14
+
+Other materials:
+
+- Purified water of HPLC grade
+- Isopropanol, methanol and acetonitrile of HPLC grade
+- Seal wash solution: 10 % isopropanol in purified water, prepared weekly
+- Lint-free tissues and absorbent pads
+- Torque wrench for column fittings
+
+
+8. DAILY MAINTENANCE
+====================
+
+Daily maintenance is done by the operator on each day the system is used.
+
+8.1 Before the first run of the day
+
+1. Check the instrument logbook for open issues and notes from the previous user.
+2. Check that each solvent bottle contains enough mobile phase for the planned sequence plus at least 200 mL.
+3. Check that aqueous mobile phases containing buffer were prepared no more than 48 hours ago.
+4. Check that the waste container is less than 80 % full; empty it if necessary.
+5. Check that the seal wash reservoir and the needle wash reservoir are at least half full.
+6. Switch on the degasser and wait until the degasser vacuum is ready.
+7. Purge each channel in use at 5 mL/min for 2 minutes.
+8. Switch on the detector lamp and let it warm up for at least 30 minutes before analysis.
+9. Start the method flow and wait until the baseline is stable for at least 10 minutes.
+10. Record the start-up pressure in the logbook and compare it with the reference pressure of the method.
+11. If the start-up pressure differs from the reference pressure by more than 10 %, follow section 13.1 or 13.2.
+12. Look for leaks at all visible fittings and in all drip trays.
+
+8.2 At the end of the day
+
+1. Flush buffered mobile phases out of the system with purified water and organic solvent (90:10) for 20 minutes.
+2. Then flush the system and the column with the storage solvent for the column for at least 10 minutes.
+3. Store reversed-phase columns in at least 50 % organic solvent, with end caps fitted.
+4. If the system will not be used for the next 24 hours, switch off the detector lamp.
+5. Set the flow to 0 mL/min, or to a standby flow of 0.1 mL/min if the next run is the following morning.
+6. Record the end of use and any problems in the logbook.
+
+
+9. WEEKLY MAINTENANCE
+=====================
+
+Weekly maintenance is done by the operator on the first working day of each week.
+
+9.1 Seal wash
+
+1. Empty the seal wash reservoir and rinse it with purified water.
+2. Fill it with freshly prepared seal wash solution (10 % isopropanol in purified water).
+3. Prime the seal wash pump from the instrument menu and check that drops leave the seal wash outlet.
+
+9.2 Needle wash
+
+1. Replace the needle wash solvent with fresh solvent of the composition given in the method.
+2. Wipe the outside of the needle wash port with a lint-free tissue moistened with isopropanol.
+3. Run the needle wash routine three times and check that the wash port drains freely.
+
+9.3 Drip trays and leak sensors
+
+1. Inspect the drip tray of each module for liquid or salt deposits.
+2. Clean the drip trays with purified water and dry them with lint-free tissues.
+3. Test each leak sensor by placing one drop of purified water on it; the matching leak error must appear.
+4. Dry the sensor, clear the error and record the test in the logbook.
+
+9.4 Solvent bottles and inlet filters
+
+1. Replace any mobile phase older than its expiry date.
+2. Inspect the solvent inlet filters; if a filter is discoloured, replace it as in section 10.1.
+3. Check that bottle caps are closed and that the solvent lines are not kinked.
+
+9.5 System suitability
+
+1. Run the weekly system suitability test (SST) with the reference standard given in SOP-QC-0120.
+2. Record the SST result in the logbook.
+3. If the SST fails, do not use the system for analysis and inform the QC Instrument Specialist.
+
+
+10. MONTHLY MAINTENANCE
+=======================
+
+Monthly maintenance is done by the QC Instrument Specialist in the first week of each calendar month.
+
+10.1 Solvent inlet filters
+
+1. Replace the solvent inlet filter (LX-1001) of every channel, whether or not it is discoloured.
+2. Purge each channel at 5 mL/min for 2 minutes after the replacement.
+
+10.2 Purge valve frit
+
+1. Open the purge valve and remove the purge valve cap.
+2. Replace the PTFE purge valve frit (LX-1004), using clean tweezers.
+3. Refit the cap and close the purge valve; purge both channels.
+
+10.3 Inline filter
+
+1. Stop the flow and let the pressure fall below 1 MPa.
+2. Replace the inline filter cartridge (LX-1007) between the pump and the autosampler.
+3. Restart the flow and check the fittings for leaks.
+
+10.4 Deuterium lamp
+
+1. Read the deuterium lamp operating hours from the detector menu and record them in the logbook.
+2. Run the detector intensity test from the detector menu and record the result.
+3. The deuterium lamp must be replaced after 2,000 operating hours, or earlier if the intensity test fails.
+4. To replace the lamp, switch off the detector and let the lamp cool for at least 15 minutes.
+5. Unplug the lamp connector, unscrew the two lamp screws and remove the old lamp by its holder.
+6. Insert the new lamp (LX-5001) without touching the quartz window, tighten the screws and plug in the connector.
+7. Switch on the detector, reset the lamp hour counter and let the lamp warm up for 30 minutes.
+8. Run the wavelength accuracy check described in section 12.3 before using the system.
+
+10.5 Flow cell
+
+1. Flush the flow cell at 1.0 mL/min with purified water for 10 minutes, then with isopropanol for 10 minutes.
+2. Run the detector intensity test again and compare it with the result before flushing.
+
+10.6 Static leak test
+
+1. Run the static leak test from the pump menu, which closes the outlet and holds the pump at 40 MPa.
+2. The pressure drop over 5 minutes must not exceed 1 MPa.
+3. If the test fails, check the fittings and repeat it; if it fails again, inform the service provider.
+
+
+11. ANNUAL MAINTENANCE
+======================
+
+11.1 Preventive maintenance
+
+1. Preventive maintenance (PM) is done once a year by an engineer of the service provider.
+2. The PM includes replacement of the piston seals, the outlet check valves, the autosampler needle,
+   the needle seat and the injection valve rotor seal.
+3. The QC Instrument Specialist is present during the PM and checks the service report before signing it.
+4. Piston seals are replaced earlier than the annual PM if a leak appears at a pump head.
+
+11.2 Operational qualification
+
+1. An operational qualification (OQ) is performed once a year, after the preventive maintenance.
+2. The OQ is done according to the protocol approved by QA and includes all tests of section 12.
+3. The system may be used again only after the OQ report has been approved by QA.
+
+
+12. CALIBRATION
+===============
+
+12.1 Calibration interval
+
+The LX-500 system must be calibrated every 6 months.
+It must also be calibrated after any repair that can affect a calibrated parameter, such as a pump repair.
+Calibration is done by the QC Instrument Specialist using calibrated reference equipment.
+The calibration due date is shown on the green calibration status label on the front of the pump module.
+
+12.2 Calibration parameters
+
+Parameter                   Test conditions                                   Acceptance criterion
+Flow rate accuracy          1.0 mL/min, purified water, weighed for 10 min    ±2 % of the set flow
+Flow rate precision         1.0 mL/min, 6 measurements                        RSD ≤ 0.5 %
+Gradient composition        Step gradient with acetone tracer in channel B    ±1 % absolute
+Column oven temperature     40 °C, calibrated temperature probe               ±1 °C of the set point
+Wavelength accuracy         Built-in holmium oxide filter, 361 nm band        ±1 nm
+Detector noise              Water, 254 nm, 1.0 mL/min, over 10 minutes       ≤ 0.02 mAU
+Injection precision         10 µL, 6 injections of caffeine standard          RSD ≤ 1.0 % of peak area
+Carry-over                  Blank injection after the highest standard        ≤ 0.1 % of the standard
+
+12.3 Wavelength accuracy check
+
+1. Let the deuterium lamp warm up for at least 1 hour.
+2. Start the holmium oxide wavelength check from the detector menu.
+3. The detector compares the measured band with the expected wavelength and shows the difference.
+4. Record the difference in the calibration record.
+
+12.4 Out-of-tolerance results
+
+1. If any parameter is outside its acceptance criterion, stop using the system at once.
+2. Attach a red OUT OF SERVICE label to the pump module.
+3. Inform QA within 1 working day of the out-of-tolerance result.
+4. The QC Instrument Specialist prepares an impact assessment of all results produced since the last
+   passed calibration.
+5. After repair, the full calibration of section 12.2 is repeated.
+6. The system may be returned to service only after QA has approved the impact assessment and the repeated calibration.
+
+12.5 Calibration records
+
+Each calibration is recorded on form F-QC-0142-02 and filed in the calibration folder of the system.
+The green calibration status label is updated with the date of calibration and the next due date.
+
+
+13. TROUBLESHOOTING
+===================
+
+This section lists common symptoms, their likely causes and the actions an operator may take.
+If the system shows an error code, see section 14 first.
+If the problem remains after the actions below, stop using the system and inform the QC Instrument Specialist.
+
+13.1 High or rising system pressure
+
+Likely causes:
+- A blocked inline filter, column frit or capillary.
+- Buffer precipitated in the system after switching to a high proportion of organic solvent.
+- A column used at a flow rate or temperature other than in the method.
+Actions:
+1. Remove the column and replace it with a union; if the pressure falls to normal, the column is the cause.
+2. If the pressure stays high without the column, loosen fittings one by one from the detector back to the pump.
+3. Replace the blocked part, usually the inline filter cartridge.
+4. Flush precipitated buffer out with warm purified water at a low flow rate.
+
+13.2 Low or falling system pressure
+
+Likely causes:
+- A leak at a fitting, the injection valve or a pump seal.
+- Air in a pump head.
+- An empty solvent bottle.
+Actions:
+1. Check all fittings and drip trays for liquid.
+2. Check the solvent levels and the solvent lines.
+3. Purge each channel in use at 5 mL/min for 2 minutes.
+
+13.3 Pressure fluctuations
+
+Likely causes:
+- Air bubbles in a pump head.
+- A dirty or worn check valve.
+- The degasser not working.
+Actions:
+1. Check the degasser status.
+2. Purge the affected channel.
+3. If the fluctuation is limited to one channel, the check valve of that pump head is the likely cause.
+
+13.4 Baseline noise
+
+Likely causes:
+- An ageing deuterium lamp.
+- Air in the flow cell.
+- Poor mixing of the mobile phase.
+Actions:
+1. Check the lamp operating hours and run the detector intensity test.
+2. Flush the flow cell to remove air.
+3. Use freshly degassed mobile phase.
+
+13.5 Baseline drift
+
+Likely causes:
+- The column or the detector is not fully equilibrated.
+- Changes in the room temperature.
+- Contaminated mobile phase.
+Actions:
+1. Equilibrate for longer before starting the sequence.
+2. Keep the column compartment door closed during the run.
+3. Prepare fresh mobile phase.
+
+13.6 Ghost peaks
+
+Likely causes:
+- Contaminated mobile phase or needle wash solvent.
+- Carry-over from a previous injection.
+Actions:
+1. Run a blank gradient without injection; if the peaks remain, the mobile phase is the cause.
+2. Replace the needle wash solvent and clean the needle wash port.
+3. Inject a blank and check for carry-over as described in section 13.10.
+
+13.7 Retention time drift
+
+Likely causes:
+- A change in the mobile phase composition, for example by evaporation of the organic part.
+- An unstable column temperature.
+- A leak that reduces the actual flow.
+Actions:
+1. Prepare fresh mobile phase and keep the bottles closed.
+2. Check the column oven set point and the column compartment temperature.
+3. Check the fittings for leaks.
+
+13.8 Peak tailing or split peaks
+
+Likely causes:
+- A void or blocked frit at the column inlet.
+- A poorly made fitting with dead volume.
+- A sample solvent that is much stronger than the mobile phase.
+Actions:
+1. Remake the fittings at the column inlet and outlet.
+2. Test with a new column of the same type.
+3. Dilute the sample in the mobile phase, if the method allows it.
+
+13.9 Poor injection precision
+
+Likely causes:
+- Air in the sample loop or the metering device.
+- A partly blocked needle or needle seat.
+- Too little sample in the vial.
+Actions:
+1. Flush the needle and the sample loop from the instrument menu.
+2. Check the sample volume in the vials and the needle height setting.
+3. If the problem remains, the needle seat may need replacement.
+
+13.10 Carry-over
+
+Likely causes:
+- A contaminated needle or needle seat.
+- An unsuitable needle wash solvent.
+Actions:
+1. Inject a blank after the highest standard and measure the peak area.
+2. If the carry-over is above the criterion in section 12.2, clean the needle seat and change the wash solvent.
+
+13.11 No peaks
+
+Likely causes:
+- No sample was injected, for example because of an empty vial or a wrong tray position.
+- The detector lamp is off.
+- The flow is not reaching the detector.
+Actions:
+1. Check the vial position and the sample volume.
+2. Check that the lamp is on and that the detector signal is being recorded.
+3. Check that solvent leaves the detector outlet.
+
+
+14. ERROR CODES
+===============
+
+The LX-500 shows error codes on the module display and in the CDS event log.
+Record every error code in the logbook, with the date, time, action taken and result.
+Clear an error only after the cause has been removed.
+If an error cannot be cleared with the action below, stop using the system and inform the QC Instrument Specialist.
+
+E01  Pump A motor stalled
+     Cause:  The drive of pump A cannot turn, usually because a piston is blocked by crystallised buffer.
+     Action: Stop the flow, flush pump head A with warm purified water and restart the pump.
+             If the error returns, call the service provider.
+
+E02  Pump B motor stalled
+     Cause:  The drive of pump B cannot turn, usually because a piston is blocked by crystallised buffer.
+     Action: Stop the flow, flush pump head B with warm purified water and restart the pump.
+             If the error returns, call the service provider.
+
+E03  Pump A home position not found
+     Cause:  The position sensor of pump A did not detect the start position of the piston during initialisation.
+     Action: Switch the pump module off for 30 seconds and on again.
+             If the error returns, call the service provider.
+
+E04  Pump B home position not found
+     Cause:  The position sensor of pump B did not detect the start position of the piston during initialisation.
+     Action: Switch the pump module off for 30 seconds and on again.
+             If the error returns, call the service provider.
+
+E05  Upper pressure limit exceeded
+     Cause:  The pressure rose above the upper pressure limit set in the method, usually because of a blockage.
+     Action: Find the blockage by loosening fittings one by one from the detector back to the pump.
+             Replace the blocked inline filter, frit or capillary, as in section 13.1.
+
+E06  Lower pressure limit not reached
+     Cause:  The pressure fell below the lower pressure limit set in the method, usually because of a leak or air.
+     Action: Check all fittings for leaks, check the solvent levels and purge both channels.
+
+E07  Pressure sensor offset out of range
+     Cause:  With no flow, the pressure sensor reads more than 0.5 MPa.
+     Action: Open the purge valve, wait 1 minute and run the pressure zero routine from the pump menu.
+             If the offset remains, call the service provider.
+
+E08  Pressure sensor not responding
+     Cause:  The pump controller receives no signal from the pressure sensor, usually because of a loose cable.
+     Action: Switch off the pump module, reseat the pressure sensor cable and switch the module on again.
+             If the error returns, call the service provider.
+
+E09  Purge valve position error
+     Cause:  The purge valve did not reach the open or closed position within the expected time.
+     Action: Check that nothing blocks the purge valve knob, then run the valve initialisation from the pump menu.
+
+E10  Seal wash flow not detected
+     Cause:  No seal wash flow is detected, usually because the seal wash reservoir is empty or its tubing is kinked.
+     Action: Refill the seal wash reservoir with seal wash solution, check its tubing and prime the seal wash pump.
+
+E11  Pressure ripple too high, pump A
+     Cause:  The pressure ripple of channel A is above 2 %, usually from air or a dirty check valve in pump head A.
+     Action: Purge channel A at 5 mL/min for 3 minutes.
+             If the ripple stays high, clean or replace the outlet check valve of pump A.
+
+E12  Pressure ripple too high, pump B
+     Cause:  The pressure ripple of channel B is above 2 %, usually from air or a dirty check valve in pump head B.
+     Action: Purge channel B at 5 mL/min for 3 minutes.
+             If the ripple stays high, clean or replace the outlet check valve of pump B.
+
+E13  Degasser vacuum too low
+     Cause:  The degasser cannot reach its working vacuum, usually because of a leak at a degasser connection.
+     Action: Tighten the degasser inlet and outlet fittings and switch the degasser off and on.
+             If the vacuum stays low, call the service provider.
+
+E14  Degasser vacuum sensor failure
+     Cause:  The vacuum sensor of the degasser gives no valid reading.
+     Action: Switch the degasser off and on. If the error returns, call the service provider.
+             Until the repair, the system may be used only with mobile phases degassed off-line.
+
+E15  Solvent bottle A empty
+     Cause:  The level counter of solvent bottle A has fallen below the minimum volume set in the method.
+     Action: Refill or replace solvent bottle A, reset the level counter and purge channel A.
+
+E16  Solvent bottle B empty
+     Cause:  The level counter of solvent bottle B has fallen below the minimum volume set in the method.
+     Action: Refill or replace solvent bottle B, reset the level counter and purge channel B.
+
+E17  Needle position error, vertical
+     Cause:  The autosampler needle did not reach the expected height, usually because a vial septum is too hard.
+     Action: Check the type of vial caps used, remove any blocked vial and run the needle initialisation.
+
+E18  Needle position error, horizontal
+     Cause:  The needle arm did not reach the expected tray position, usually because the sample tray is not seated.
+     Action: Remove the sample tray and insert it again until it clicks into place, then run the needle initialisation.
+
+E19  Vial not found
+     Cause:  No vial was detected in the tray position given in the sequence.
+     Action: Check the sequence and the tray positions, place the vial correctly and restart from that injection.
+
+E20  Injection valve switching timeout
+     Cause:  The injection valve did not switch between the load and inject positions within the expected time.
+     Action: Run the valve initialisation from the autosampler menu.
+             If the error returns, the rotor seal may be worn; call the service provider to replace it.
+
+E21  Sample tray temperature out of range
+     Cause:  The sample tray temperature has differed from the set point by more than 3 °C for more than 10 minutes.
+     Action: Check that the autosampler door is closed and the cooling vents are free.
+             Allow 30 minutes for the tray temperature to stabilise.
+
+E22  Metering device drive error
+     Cause:  The autosampler metering piston did not move as expected, usually because the sample loop is blocked.
+     Action: Flush the needle and the sample loop with purified water from the autosampler menu.
+             If the error returns, call the service provider.
+
+E23  Needle wash flow not detected
+     Cause:  No needle wash flow is detected, usually because the needle wash reservoir is empty or its drain is blocked.
+     Action: Refill the needle wash reservoir with fresh wash solvent, purge the wash port for 30 seconds
+             and check that the wash port drain tubing is not blocked.
+
+E24  Needle seat blocked
+     Cause:  The pressure rises sharply at injection, usually because particles have blocked the needle seat.
+     Action: Back-flush the needle seat with purified water.
+             If the blockage remains, call the service provider to replace the needle seat.
+
+E25  Column compartment temperature above set point
+     Cause:  The column compartment is more than 2 °C above the set point, usually because its vents are blocked.
+     Action: Check the room temperature and the vents at the rear of the column compartment.
+             Allow 20 minutes for the temperature to stabilise.
+
+E26  Column compartment temperature below set point
+     Cause:  The column compartment is more than 2 °C below the set point, usually because its door was left open.
+     Action: Close the column compartment door and allow 20 minutes for the temperature to stabilise.
+             If the error returns, call the service provider.
+
+E27  Column compartment temperature sensor failure
+     Cause:  The temperature sensor of the column compartment gives no valid reading.
+     Action: Do not use the column compartment until it is repaired, and call the service provider.
+
+E28  Column switching valve error
+     Cause:  The column switching valve did not reach the requested position.
+     Action: Run the valve initialisation and check that a column is installed in the selected position.
+             If the error returns, call the service provider.
+
+E29  Deuterium lamp ignition failed
+     Cause:  The deuterium lamp did not ignite, usually because it is at the end of its life or its connector is loose.
+     Action: Switch off the detector, let the lamp cool for 15 minutes, check the lamp connector and switch on again.
+             If the lamp still does not ignite, replace the deuterium lamp.
+
+E30  Deuterium lamp intensity low
+     Cause:  The deuterium lamp energy is below the minimum, usually because of an ageing lamp or a dirty flow cell.
+     Action: Flush the flow cell as in section 10.5.
+             If the intensity stays low, replace the deuterium lamp.
+
+E31  Lamp operating hours limit reached
+     Cause:  The hour counter of the deuterium lamp has reached the replacement limit stored in the detector.
+     Action: Replace the deuterium lamp as described in section 10.4 and reset the lamp hour counter.
+
+E32  Tungsten lamp failure
+     Cause:  The tungsten lamp for the visible range did not ignite or has burnt out.
+     Action: Replace the tungsten lamp (LX-5003).
+             Until then, measurements below 400 nm using the deuterium lamp alone may continue.
+
+E33  Reference signal too low
+     Cause:  The signal of the reference photodiode is too low, usually because of air in the flow cell.
+     Action: Flush the flow cell at 1.0 mL/min for 10 minutes with degassed mobile phase to remove the air.
+
+E34  Wavelength calibration failed
+     Cause:  The holmium oxide check at power-on found a wavelength error of more than 1 nm.
+     Action: Repeat the check after the lamp has warmed up for 1 hour.
+             If it fails again, take the detector out of service and follow section 12.4.
+
+E35  Leak detected, pump
+     Cause:  The leak sensor in the pump drip tray detected liquid, usually from a loose fitting or a worn piston seal.
+     Action: Stop the flow, find and fix the leak, dry the pump leak sensor with a lint-free tissue and clear the error.
+
+E36  Leak detected, autosampler
+     Cause:  The leak sensor in the autosampler drip tray detected liquid, usually from the injection valve.
+     Action: Stop the sequence, find and fix the leak, dry the autosampler leak sensor and clear the error.
+
+E37  Leak detected, column compartment
+     Cause:  The leak sensor in the column compartment detected liquid, usually from a column fitting that is not tight.
+     Action: Stop the flow, tighten or replace the column fittings, dry the column compartment leak sensor
+             and clear the error.
+
+E38  Communication timeout
+     Cause:  A module did not answer the CDS within 30 seconds, usually because of a loose network cable.
+     Action: Check the network cable of the module and restart the instrument control software.
+             Do not restart the CDS workstation while a sequence is running on another system.
+
+E39  Firmware mismatch
+     Cause:  The firmware versions of the modules are not compatible with each other.
+     Action: Do not use the system.
+             Firmware is updated only by the service provider, under change control.
+
+E40  Internal memory error
+     Cause:  The module failed its memory self-test at power-on.
+     Action: Switch the module off for 1 minute and on again.
+             If the error returns, take the system out of service and call the service provider.
+
+
+15. DOCUMENTATION AND RECORDS
+=============================
+
+15.1 Every system has its own instrument logbook, identified by the system number on the front of the pump module.
+15.2 All maintenance tasks, error codes, repairs and calibrations are recorded in the logbook on the day they happen.
+15.3 Each entry contains the date, the task or event, the result and the initials of the person who made it.
+15.4 Corrections are made by a single line through the old entry, with the date, initials and reason.
+15.5 Service reports from the service provider are filed in the system folder together with the logbook.
+15.6 The QC Instrument Specialist reviews each logbook once a month and signs the review.
+15.7 Completed logbooks are archived in the QC document archive for 15 years.
+
+
+16. TRAINING
+============
+
+16.1 Operators must be trained on this SOP before they use the LX-500 system without supervision.
+16.2 Training consists of reading this SOP and a practical session with the QC Instrument Specialist.
+16.3 The QC Instrument Specialist must also be trained by the service provider on the monthly maintenance tasks.
+16.4 Training is recorded in the training management system.
+16.5 After a new version of this SOP becomes effective, all users must read it and confirm the training again.
+
+
+17. REFERENCES
+==============
+
+SOP-QC-0118   Qualification and use of HPLC columns
+SOP-QC-0120   System suitability testing of HPLC systems
+SOP-IT-0031   Administration of the chromatography data system
+SOP-EHS-0007  Handling and disposal of laboratory solvent waste
+F-QC-0142-01  LX-500 instrument logbook template
+F-QC-0142-02  LX-500 calibration record
+Vestorra LX-500 Operator Manual, revision F
+
+
+18. REVISION HISTORY
+====================
+
+Version   Date               Description of change
+3.0       1 March 2023       New SOP for the LX-500 systems, replacing SOP-QC-0097.
+3.1       15 January 2024    Added the static leak test to the monthly maintenance.
+3.2       1 October 2025     Updated the error code list to the new detector firmware.
+4.0       1 September 2026   Changed the calibration interval; revised section 12.4; added error codes E35 to E40.
+
+END OF DOCUMENT

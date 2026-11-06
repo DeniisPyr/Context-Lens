@@ -11,6 +11,7 @@ from context_lens.clients.gemini import (
     GeminiClient,
     GeminiError,
     GeminiUnavailableError,
+    TokenUsage,
 )
 
 pytestmark = pytest.mark.anyio
@@ -28,10 +29,13 @@ def make_client(handler: Handler, timeout_seconds: float = 5.0) -> GeminiClient:
 
 
 def gemini_answer(
-    text: str = '{"text": "Ahoj"}', status: str = "completed"
+    text: str = '{"text": "Ahoj"}', status: str = "completed", **fields: object
 ) -> httpx.Response:
+    # fields are more of the interaction's top-level fields, such as usage.
     step = {"type": "model_output", "content": [{"type": "text", "text": text}]}
-    return httpx.Response(200, json={"id": "", "status": status, "steps": [step]})
+    return httpx.Response(
+        200, json={"id": "", "status": status, "steps": [step], **fields}
+    )
 
 
 async def test_ask_parses_the_answer_into_the_response_model() -> None:
@@ -64,6 +68,69 @@ async def test_ask_sends_the_prompt_and_schema_and_opts_out_of_storage() -> None
             "store": False,
         }
     ]
+
+
+async def test_ask_with_usage_returns_the_answer_and_its_token_counts() -> None:
+    usage = {
+        "total_input_tokens": 120,
+        "total_output_tokens": 30,
+        "total_thought_tokens": 45,
+    }
+    gemini = make_client(lambda request: gemini_answer(usage=usage))
+
+    answer = await gemini.ask_with_usage("Say hello in Czech.", "Be brief.", Reply)
+
+    assert answer == (
+        Reply(text="Ahoj"),
+        TokenUsage(input_tokens=120, output_tokens=30, thought_tokens=45),
+    )
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({}, id="no_usage_field"),
+        pytest.param({"usage": None}, id="null_usage"),
+        pytest.param({"usage": {}}, id="empty_usage"),
+    ],
+)
+async def test_missing_usage_counts_as_no_tokens(fields: dict[str, object]) -> None:
+    gemini = make_client(lambda request: gemini_answer(**fields))
+
+    _, tokens = await gemini.ask_with_usage("Hi", "Be brief.", Reply)
+
+    assert tokens == TokenUsage(input_tokens=0, output_tokens=0, thought_tokens=0)
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        pytest.param({"total_input_tokens": 120}, id="fields_left_out"),
+        pytest.param(
+            {
+                "total_input_tokens": 120,
+                "total_output_tokens": None,
+                "total_thought_tokens": None,
+            },
+            id="null_fields",
+        ),
+    ],
+)
+async def test_missing_token_count_is_zero(usage: dict[str, int | None]) -> None:
+    gemini = make_client(lambda request: gemini_answer(usage=usage))
+
+    _, tokens = await gemini.ask_with_usage("Hi", "Be brief.", Reply)
+
+    assert tokens == TokenUsage(input_tokens=120, output_tokens=0, thought_tokens=0)
+
+
+async def test_ask_returns_only_the_answer_when_gemini_reports_usage() -> None:
+    usage = {"total_input_tokens": 120, "total_output_tokens": 30}
+    gemini = make_client(lambda request: gemini_answer(usage=usage))
+
+    answer = await gemini.ask("Hi", "Be brief.", Reply)
+
+    assert answer == Reply(text="Ahoj")
 
 
 @pytest.mark.parametrize("status_code", [429, 503])
