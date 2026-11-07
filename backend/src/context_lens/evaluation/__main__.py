@@ -46,6 +46,7 @@ def connect_to_gemini(settings: Settings, model: str) -> GeminiClient:
     return GeminiClient(
         settings.gemini_api_key.get_secret_value(),
         model,
+        settings.gemini_embedding_model,
         settings.gemini_timeout_seconds,
     )
 
@@ -181,7 +182,7 @@ def _write(report: Report, markdown: str, path: Path) -> None:
 
 async def _main(args: argparse.Namespace, connect: GeminiFactory) -> int:
     try:
-        question_set = await load_question_set(args.questions)
+        question_set = load_question_set(args.questions)
         if args.only:
             question_set = select_questions(question_set, args.only)
     except InvalidQuestionSetError as exc:

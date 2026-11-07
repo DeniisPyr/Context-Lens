@@ -3,7 +3,13 @@ from collections.abc import AsyncIterator
 from traceback import format_exception
 
 import pytest
-from conftest import apply_migrations, run_sql, wait_for_a_blocked_query
+from conftest import (
+    MAX_DOCUMENTS,
+    NO_CHUNKS,
+    apply_migrations,
+    run_sql,
+    wait_for_a_blocked_query,
+)
 from sqlalchemy import URL, create_engine, event, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.pool import NullPool
@@ -175,9 +181,10 @@ async def test_delete_takes_the_datasets_documents_with_it_and_no_others(
 ) -> None:
     documents = DocumentStore(engine)
     kept, deleted = await store.add("Kept"), await store.add("Deleted")
-    theirs = await documents.add(kept.id, "a.txt", "theirs\n")
+    theirs = await documents.add(kept.id, "a.txt", "theirs\n", NO_CHUNKS, MAX_DOCUMENTS)
     mine = [
-        await documents.add(deleted.id, name, "mine\n") for name in ["a.txt", "b.txt"]
+        await documents.add(deleted.id, name, "mine\n", NO_CHUNKS, MAX_DOCUMENTS)
+        for name in ["a.txt", "b.txt"]
     ]
 
     await store.delete(deleted.id)
@@ -228,7 +235,9 @@ async def test_delete_leaves_the_documents_to_postgres(
 ) -> None:
     # The cascade deletes them without the app reading a single row, text included.
     dataset = await store.add("Reports")
-    await DocumentStore(engine).add(dataset.id, "a.txt", "one\n")
+    await DocumentStore(engine).add(
+        dataset.id, "a.txt", "one\n", NO_CHUNKS, MAX_DOCUMENTS
+    )
     statements = []
 
     def record(connection, cursor, statement, parameters, context, executemany) -> None:

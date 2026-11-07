@@ -313,6 +313,7 @@ def test_gemini_failure_is_logged_with_its_cause(
 def test_settings_reach_the_gemini_client(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_MODEL", "test-model")
+    monkeypatch.setenv("GEMINI_EMBEDDING_MODEL", "test-embedding-model")
     monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "7.5")
     app = create_app()
 
@@ -320,6 +321,7 @@ def test_settings_reach_the_gemini_client(monkeypatch: pytest.MonkeyPatch) -> No
         gemini = get_gemini_client(Request({"type": "http", "app": app}))
 
     assert gemini._model == "test-model"
+    assert gemini._embedding_model == "test-embedding-model"
     assert gemini._timeout_seconds == 7.5
 
 

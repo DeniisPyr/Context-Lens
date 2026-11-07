@@ -1,6 +1,11 @@
 from fastapi import APIRouter, UploadFile
 
-from context_lens.dependencies import DatasetStoreDep, DocumentStoreDep, SettingsDep
+from context_lens.dependencies import (
+    DatasetStoreDep,
+    DocumentStoreDep,
+    GeminiDep,
+    SettingsDep,
+)
 from context_lens.schemas.datasets import DatasetCreate, DatasetResponse
 from context_lens.schemas.documents import DocumentSummary
 from context_lens.services.documents import add_upload
@@ -28,11 +33,21 @@ async def delete_dataset(dataset_id: str, store: DatasetStoreDep) -> None:
 
 @router.post("/{dataset_id}/documents", status_code=201)
 async def upload_document(
-    dataset_id: str, file: UploadFile, store: DocumentStoreDep, settings: SettingsDep
+    dataset_id: str,
+    file: UploadFile,
+    store: DocumentStoreDep,
+    gemini: GeminiDep,
+    settings: SettingsDep,
 ) -> DocumentSummary:
     data = await file.read(settings.max_upload_bytes + 1)
     document = await add_upload(
-        store, dataset_id, file.filename, data, settings.max_upload_bytes
+        store,
+        gemini,
+        dataset_id,
+        file.filename,
+        data,
+        max_bytes=settings.max_upload_bytes,
+        max_documents=settings.max_documents_per_dataset,
     )
     return DocumentSummary.from_document(document)
 

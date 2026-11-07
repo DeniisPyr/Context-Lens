@@ -1,8 +1,11 @@
 from datetime import datetime
 from uuid import UUID
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, ForeignKey, MetaData, Text, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+from context_lens.services.embeddings import EMBEDDING_DIMENSIONS
 
 
 class Base(DeclarativeBase):
@@ -44,3 +47,17 @@ class DocumentRow(Base):
     )
     # Stored so that listing documents doesn't have to read and split every text.
     line_count: Mapped[int]
+
+
+class ChunkRow(Base):
+    __tablename__ = "chunks"
+
+    document_id: Mapped[UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Where the chunk comes in its document, counted from 0.
+    position: Mapped[int] = mapped_column(primary_key=True)
+    start_line: Mapped[int]
+    end_line: Mapped[int]
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSIONS))

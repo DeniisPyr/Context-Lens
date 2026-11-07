@@ -47,21 +47,27 @@ def test_optional_settings_have_defaults(monkeypatch: pytest.MonkeyPatch) -> Non
     settings = Settings(_env_file=None)
 
     assert settings.gemini_model == "gemini-3.8-flash"
+    assert settings.gemini_embedding_model == "gemini-embedding-2"
     assert settings.gemini_timeout_seconds == 60.0
     assert settings.max_upload_bytes == 1_000_000
+    assert settings.max_documents_per_dataset == 100
 
 
 def test_environment_overrides_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("GEMINI_MODEL", "another-model")
+    monkeypatch.setenv("GEMINI_EMBEDDING_MODEL", "another-embedding-model")
     monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "5.5")
     monkeypatch.setenv("MAX_UPLOAD_BYTES", "10")
+    monkeypatch.setenv("MAX_DOCUMENTS_PER_DATASET", "3")
 
     settings = Settings(_env_file=None)
 
     assert settings.gemini_model == "another-model"
+    assert settings.gemini_embedding_model == "another-embedding-model"
     assert settings.gemini_timeout_seconds == 5.5
     assert settings.max_upload_bytes == 10
+    assert settings.max_documents_per_dataset == 3
 
 
 def write_env_file(path: Path, *entries: str) -> Path:

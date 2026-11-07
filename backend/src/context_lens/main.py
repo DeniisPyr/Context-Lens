@@ -20,6 +20,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     gemini_client = GeminiClient(
         settings.gemini_api_key.get_secret_value(),
         settings.gemini_model,
+        settings.gemini_embedding_model,
         settings.gemini_timeout_seconds,
     )
     app.state.settings = settings

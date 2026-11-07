@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from context_lens.db.models import DatasetRow, DocumentRow
+from context_lens.db.models import ChunkRow, DatasetRow, DocumentRow
 from context_lens.services import answering
 
 
@@ -384,6 +384,9 @@ def test_offline_mode_writes_the_sql_without_a_database() -> None:
     assert "My documents" in sql.getvalue()
     assert "uq_documents_dataset_id_filename" in sql.getvalue()
     assert "fk_documents_dataset_id_datasets" in sql.getvalue()
+    assert "CREATE EXTENSION IF NOT EXISTS vector" in sql.getvalue()
+    assert "CREATE TABLE chunks" in sql.getvalue()
+    assert "embedding VECTOR(768) NOT NULL" in sql.getvalue()
     assert "://" not in sql.getvalue()
 
 
@@ -814,3 +817,208 @@ def test_offline_script_stops_at_duplicates_and_changes_nothing(
     assert "dataset_id" not in document_columns_in(database)
     assert "datasets" not in tables_in(database)
     assert set(filenames_by_id(database)) == set(ids)
+
+
+def chunk_count(url: URL) -> int:
+    with create_engine(url, poolclass=NullPool).connect() as connection:
+        return connection.scalar(text("SELECT count(*) FROM chunks"))
+
+
+def vector_extension_installed(url: URL) -> bool:
+    query = text("SELECT count(*) FROM pg_extension WHERE extname = 'vector'")
+    with create_engine(url, poolclass=NullPool).connect() as connection:
+        return connection.scalar(query) == 1
+
+
+def add_dataset_with_chunks(url: URL, chunks_per_document: dict[str, int]) -> UUID:
+    dataset_id = uuid4()
+    with Session(create_engine(url, poolclass=NullPool)) as session:
+        session.add(DatasetRow(id=dataset_id, name=f"Dataset {dataset_id}"))
+        session.flush()
+        for filename, count in chunks_per_document.items():
+            document_id = uuid4()
+            session.add(
+                DocumentRow(
+                    id=document_id,
+                    dataset_id=dataset_id,
+                    filename=filename,
+                    text="Hello",
+                    line_count=1,
+                )
+            )
+            session.flush()
+            session.add_all(
+                ChunkRow(
+                    document_id=document_id,
+                    position=position,
+                    start_line=1,
+                    end_line=1,
+                    text="Hello",
+                    embedding=[position / 4] * 768,
+                )
+                for position in range(count)
+            )
+        session.commit()
+    return dataset_id
+
+
+def chunks_by_filename(url: URL) -> dict[str, list[int]]:
+    query = text(
+        "SELECT documents.filename, chunks.position FROM chunks "
+        "JOIN documents ON documents.id = chunks.document_id "
+        "ORDER BY documents.filename, chunks.position"
+    )
+    with create_engine(url, poolclass=NullPool).connect() as connection:
+        chunks: dict[str, list[int]] = {}
+        for filename, position in connection.execute(query):
+            chunks.setdefault(filename, []).append(position)
+        return chunks
+
+
+def test_upgrade_creates_the_chunks_table(migrated: Config, database: URL) -> None:
+    query = text(
+        "SELECT attname, format_type(atttypid, atttypmod), attnotnull "
+        "FROM pg_attribute WHERE attrelid = 'chunks'::regclass AND attnum > 0 "
+        "ORDER BY attnum"
+    )
+    with create_engine(database, poolclass=NullPool).connect() as connection:
+        columns = [tuple(row) for row in connection.execute(query)]
+
+    assert columns == [
+        ("document_id", "uuid", True),
+        ("position", "integer", True),
+        ("start_line", "integer", True),
+        ("end_line", "integer", True),
+        ("text", "text", True),
+        ("embedding", "vector(768)", True),
+    ]
+
+
+def test_chunks_are_keyed_by_document_and_position_and_go_with_the_document(
+    migrated: Config, database: URL
+) -> None:
+    inspector = inspect(create_engine(database, poolclass=NullPool))
+    [foreign_key] = inspector.get_foreign_keys("chunks")
+
+    primary_key = inspector.get_pk_constraint("chunks")
+    assert primary_key["constrained_columns"] == ["document_id", "position"]
+    assert primary_key["name"] == "pk_chunks"
+    assert foreign_key["name"] == "fk_chunks_document_id_documents"
+    assert foreign_key["constrained_columns"] == ["document_id"]
+    assert foreign_key["referred_table"] == "documents"
+    assert foreign_key["referred_columns"] == ["id"]
+    assert foreign_key["options"]["ondelete"] == "CASCADE"
+
+
+def test_two_chunks_of_a_document_cannot_have_the_same_position(
+    migrated: Config, database: URL
+) -> None:
+    add_dataset_with_chunks(database, {"notes.txt": 1})
+
+    with pytest.raises(IntegrityError, match="pk_chunks"):
+        run_script(
+            database,
+            "INSERT INTO chunks SELECT document_id, 0, 2, 2, 'Again', embedding "
+            "FROM chunks",
+        )
+
+
+@pytest.fixture
+def before_chunks(alembic_config: Config) -> Config:
+    # Where every database with documents in it is before this stage.
+    command.upgrade(alembic_config, "0004")
+    return alembic_config
+
+
+def test_upgrade_keeps_the_documents_and_gives_them_no_chunks(
+    before_chunks: Config, database: URL
+) -> None:
+    dataset_id = uuid4()
+    with create_engine(database, poolclass=NullPool).begin() as connection:
+        connection.execute(
+            text("INSERT INTO datasets (id, name) VALUES (:id, 'Reports')"),
+            {"id": dataset_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO documents (id, dataset_id, filename, text, line_count) "
+                "VALUES (gen_random_uuid(), :dataset_id, :filename, 'Hello', 1)"
+            ),
+            [
+                {"dataset_id": dataset_id, "filename": name}
+                for name in ["a.txt", "b.md"]
+            ],
+        )
+    preserved = preserved_columns_in(database)
+    filenames = filenames_by_id(database)
+
+    command.upgrade(before_chunks, "head")
+
+    assert preserved_columns_in(database) == preserved
+    assert filenames_by_id(database) == filenames
+    assert chunk_count(database) == 0
+    assert vector_extension_installed(database)
+    command.check(before_chunks)
+
+
+def test_downgrade_to_0004_removes_only_the_chunks_and_the_extension(
+    migrated: Config, database: URL
+) -> None:
+    add_dataset_with_chunks(database, {"a.txt": 2, "b.txt": 1})
+    preserved = preserved_columns_in(database)
+
+    command.downgrade(migrated, "0004")
+
+    assert "chunks" not in tables_in(database)
+    assert not vector_extension_installed(database)
+    assert preserved_columns_in(database) == preserved
+
+
+def test_upgrade_after_a_downgrade_to_0004_works_again(
+    migrated: Config, database: URL
+) -> None:
+    add_dataset_with_chunks(database, {"a.txt": 2})
+    command.downgrade(migrated, "0004")
+
+    command.upgrade(migrated, "head")
+
+    assert chunk_count(database) == 0
+    assert list(filenames_by_id(database).values()) == ["a.txt"]
+    command.check(migrated)
+
+
+def test_deleting_a_document_deletes_its_chunks_and_no_others(
+    migrated: Config, database: URL
+) -> None:
+    add_dataset_with_chunks(database, {"kept.txt": 2, "deleted.txt": 3})
+
+    run_script(database, "DELETE FROM documents WHERE filename = 'deleted.txt'")
+
+    assert chunks_by_filename(database) == {"kept.txt": [0, 1]}
+    assert chunk_count(database) == 2
+
+
+def test_deleting_a_dataset_deletes_the_chunks_of_its_documents_and_no_others(
+    migrated: Config, database: URL
+) -> None:
+    deleted = add_dataset_with_chunks(database, {"a.txt": 2, "b.txt": 1})
+    add_dataset_with_chunks(database, {"c.txt": 2})
+
+    with create_engine(database, poolclass=NullPool).begin() as connection:
+        connection.execute(text("DELETE FROM datasets WHERE id = :id"), {"id": deleted})
+
+    assert chunks_by_filename(database) == {"c.txt": [0, 1]}
+
+
+def test_check_notices_a_changed_embedding_size(
+    migrated: Config, database: URL
+) -> None:
+    # Proves Alembic reads the vector type back, rather than skipping a type it
+    # doesn't know.
+    with create_engine(database, poolclass=NullPool).begin() as connection:
+        connection.execute(
+            text("ALTER TABLE chunks ALTER COLUMN embedding TYPE vector(3)")
+        )
+
+    with pytest.raises(AutogenerateDiffsDetected, match="VECTOR"):
+        command.check(migrated)
