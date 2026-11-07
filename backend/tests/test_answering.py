@@ -197,9 +197,6 @@ def test_verified_citation_keeps_the_answer(
     [
         pytest.param(1, 1, "The cat is purple.", id="fabricated_quote"),
         pytest.param(2, 2, "The cat is orange.", id="wrong_line_numbers"),
-        pytest.param(1, 4, "The dog is brown.", id="range_wider_on_both_sides"),
-        pytest.param(1, 2, "The cat is orange.", id="range_too_long_at_the_end"),
-        pytest.param(1, 2, "The dog is brown.", id="range_too_long_at_the_start"),
         pytest.param(0, 4, "The bird is blue.", id="start_line_zero"),
         pytest.param(4, 5, "The bird is blue.", id="end_line_past_the_end"),
         pytest.param(2, 1, "The cat is orange.", id="start_line_after_end_line"),
@@ -215,6 +212,37 @@ def test_unverifiable_citation_rejects_the_answer(
     answer = answered(cite(start_line, end_line, quote))
 
     assert verify_answer(answer, [document_excerpt(DOCUMENT)]) == NOT_FOUND
+
+
+@pytest.mark.parametrize(
+    ("start_line", "end_line", "quote", "narrowed"),
+    [
+        pytest.param(1, 4, "The dog is brown.", (2, 2), id="wider_on_both_sides"),
+        pytest.param(1, 2, "The cat is orange.", (1, 1), id="a_line_too_many_after"),
+        pytest.param(1, 2, "The dog is brown.", (2, 2), id="a_line_too_many_before"),
+        pytest.param(1, 4, "orange. The dog", (1, 2), id="quote_across_two_lines"),
+    ],
+)
+def test_range_wider_than_its_quote_is_narrowed_to_the_quote(
+    start_line: int, end_line: int, quote: str, narrowed: tuple[int, int]
+) -> None:
+    answer = answered(cite(start_line, end_line, quote))
+
+    verified = verify_answer(answer, [document_excerpt(DOCUMENT)])
+
+    [citation] = verified.citations
+    assert (citation.start_line, citation.end_line) == narrowed
+    assert citation.quote == quote
+    assert verified.answer == answer.answer
+
+
+def test_narrowing_one_citation_keeps_the_others_as_they_are() -> None:
+    exact = cite(1, 1, "The cat is orange.")
+    answer = answered(exact, cite(1, 3, "Kočka je oranžová."))
+
+    verified = verify_answer(answer, [document_excerpt(DOCUMENT)])
+
+    assert verified.citations == [exact, cite(3, 3, "Kočka je oranžová.")]
 
 
 @pytest.mark.parametrize(

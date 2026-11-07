@@ -123,28 +123,38 @@ def _cited_lines(citation: Citation, lines: dict[int, str]) -> list[str] | None:
     return [lines[number] for number in numbers]
 
 
-def _is_verified(citation: Citation, shown: dict[str, dict[int, str]]) -> bool:
+def _verified(citation: Citation, shown: dict[str, dict[int, str]]) -> Citation | None:
     cited = _cited_lines(citation, shown.get(citation.file, {}))
     if cited is None:
-        return False
+        return None
     quote = _collapse_whitespace(citation.quote)
     if not quote:
         # An empty string is "in" every string, so it would always match.
-        return False
+        return None
     if not _contains(cited, quote):
-        return False
-    # The range must be tight: if the quote still fits without the first or last
-    # line, the line numbers would point the reader at the wrong place.
-    return not (_contains(cited[1:], quote) or _contains(cited[:-1], quote))
+        return None
+    # Gemini sometimes gives a line too many around a quote. The quote shows where it
+    # is, so the range shrinks to the lines that hold it, and the line numbers point
+    # the reader at exactly those, rather than the whole answer being rejected.
+    start, end = 0, len(cited)
+    while end - start > 1 and _contains(cited[start + 1 : end], quote):
+        start += 1
+    while end - start > 1 and _contains(cited[start : end - 1], quote):
+        end -= 1
+    return citation.model_copy(
+        update={
+            "start_line": citation.start_line + start,
+            "end_line": citation.start_line + end - 1,
+        }
+    )
 
 
 def verify_answer(answer: ModelAnswer, excerpts: list[Excerpt]) -> ModelAnswer:
     if answer.status == "answered":
         shown = _shown_lines(excerpts)
-        if answer.citations and all(
-            _is_verified(citation, shown) for citation in answer.citations
-        ):
-            return answer
+        citations = [_verified(citation, shown) for citation in answer.citations]
+        if citations and None not in citations:
+            return answer.model_copy(update={"citations": citations})
         # Only the fact of the failure: the answer and quotes can be private.
         logger.warning("Citation verification failed, so the answer was rejected.")
     return not_found_answer()
