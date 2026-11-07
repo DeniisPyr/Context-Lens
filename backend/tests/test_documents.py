@@ -9,6 +9,7 @@ from conftest import (
     apply_migrations,
     as_setting,
     create_dataset,
+    dataset_id_of,
     run_sql,
 )
 from fastapi import Request
@@ -34,6 +35,13 @@ def upload(
     filename: str = "notes.txt",
 ) -> Response:
     return client.post(documents_url, files={"file": (filename, content)})
+
+
+def ask(client: TestClient, documents_url: str, question: str) -> Response:
+    dataset_id = dataset_id_of(documents_url)
+    return client.post(
+        "/api/ask", json={"dataset_id": dataset_id, "question": question}
+    )
 
 
 def stored_document(client: TestClient, response: Response) -> Document:
@@ -429,12 +437,12 @@ def test_read_lines_are_the_lines_the_prompt_numbers(
 ) -> None:
     document_id = upload(client, documents_url, NUMBERING_TEXT.encode()).json()["id"]
 
-    client.post("/api/ask", json={"document_id": document_id, "question": "Proč?"})
+    ask(client, documents_url, "Proč?")
     lines = client.get(f"{URL}/{document_id}").json()["lines"]
 
     numbered = "\n".join(f"{i}: {line}" for i, line in enumerate(lines, start=1))
     assert len(lines) == 5
-    assert f"<document>\n{numbered}\n</document>" in fake_gemini.prompts[0]
+    assert f'lines="1-5">\n{numbered}\n</excerpt>' in fake_gemini.prompts[0]
 
 
 def test_a_citation_points_at_the_same_line_in_the_read_response(
@@ -443,13 +451,13 @@ def test_a_citation_points_at_the_same_line_in_the_read_response(
     fake_gemini.answer = ModelAnswer(
         status="answered",
         answer="Kůň je žluťoučký.",
-        citations=[Citation(start_line=5, end_line=5, quote="žluťoučký kůň")],
+        citations=[
+            Citation(file="notes.txt", start_line=5, end_line=5, quote="žluťoučký kůň")
+        ],
     )
     document_id = upload(client, documents_url, NUMBERING_TEXT.encode()).json()["id"]
 
-    answer = client.post(
-        "/api/ask", json={"document_id": document_id, "question": "Jaký je kůň?"}
-    ).json()
+    answer = ask(client, documents_url, "Jaký je kůň?").json()
     lines = client.get(f"{URL}/{document_id}").json()["lines"]
 
     citation = answer["citations"][0]
@@ -539,14 +547,19 @@ def test_text_comes_back_exact_so_citations_still_verify(
     fake_gemini.answer = ModelAnswer(
         status="answered",
         answer="An answer.",
-        citations=[Citation(start_line=cited_line, end_line=cited_line, quote=quote)],
+        citations=[
+            Citation(
+                file="notes.txt",
+                start_line=cited_line,
+                end_line=cited_line,
+                quote=quote,
+            )
+        ],
     )
 
     uploaded = upload(client, documents_url, sent.encode())
     read = client.get(f"{URL}/{uploaded.json()['id']}").json()
-    answer = client.post(
-        "/api/ask", json={"document_id": read["id"], "question": "Hi"}
-    ).json()
+    answer = ask(client, documents_url, "Hi").json()
 
     assert stored_document(client, uploaded).text == stored
     assert read["lines"] == lines
@@ -560,6 +573,12 @@ def test_document_survives_an_app_restart(
     start_app: StartApp,
     fake_gemini: FakeGemini,
 ) -> None:
+    quote = "The cat is orange."
+    fake_gemini.answer = ModelAnswer(
+        status="answered",
+        answer=quote,
+        citations=[Citation(file="cat.txt", start_line=1, end_line=1, quote=quote)],
+    )
     with start_app() as before_restart:
         documents_url = create_dataset(before_restart)
         uploaded = upload(
@@ -569,10 +588,7 @@ def test_document_survives_an_app_restart(
     with start_app() as after_restart:
         listed = after_restart.get(documents_url).json()
         read = after_restart.get(f"{URL}/{uploaded['id']}").json()
-        answer = after_restart.post(
-            "/api/ask",
-            json={"document_id": uploaded["id"], "question": "Which colour?"},
-        ).json()
+        answer = ask(after_restart, documents_url, "Which colour?").json()
 
     assert listed == [uploaded]
     assert read == {**uploaded, "lines": ["The cat is orange."]}
@@ -708,19 +724,21 @@ def test_filename_can_be_uploaded_again_after_its_document_is_deleted(
     ]
 
 
-def test_deleted_document_cannot_be_asked_about(
+def test_deleted_document_is_no_longer_searched(
     client: TestClient, documents_url: str, fake_gemini: FakeGemini
 ) -> None:
-    uploaded = upload(client, documents_url, b"The cat is orange.\n").json()
-    delete(client, uploaded["id"])
+    upload(client, documents_url, b"The dog is brown.\n", "dog.txt")
+    deleted = upload(client, documents_url, b"The cat is orange.\n").json()
+    delete(client, deleted["id"])
 
-    response = client.post(
-        "/api/ask", json={"document_id": uploaded["id"], "question": "Which colour?"}
-    )
+    response = ask(client, documents_url, "Which colour?")
 
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Document not found."}
-    assert fake_gemini.prompts == []
+    # FakeGemini's answer cites the deleted document, which Gemini wasn't shown.
+    assert response.status_code == 200
+    assert response.json()["status"] == "not_found"
+    [prompt] = fake_gemini.prompts
+    assert "The dog is brown." in prompt
+    assert "The cat is orange." not in prompt
 
 
 def test_only_one_of_many_requests_racing_to_delete_a_document_wins(

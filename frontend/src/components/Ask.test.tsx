@@ -16,8 +16,11 @@ function stubRoutes(routes: Record<string, Route>) {
   return fetchStub
 }
 
+const GET_DATASETS = 'GET /api/datasets'
 const GET_LIST = 'GET /api/datasets/d1/documents'
 const POST_FILE = 'POST /api/datasets/d1/documents'
+
+const reports = { id: 'd1', name: 'Reports' }
 
 const notes = { id: '1', filename: 'notes.txt', line_count: 9 }
 const report = { id: '2', filename: 'report.md', line_count: 9 }
@@ -37,11 +40,11 @@ const notFound = {
   citations: [],
 }
 
-// The page with these documents and, by default, an API that answers.
+// The page with one dataset, Reports, holding these documents and, by default, an API that answers.
 function stubPage(documents: (typeof notes)[], routes: Record<string, Route> = {}) {
   return stubRoutes({
     'GET /api/health': () => Response.json({ status: 'ok' }),
-    'GET /api/datasets': () => Response.json([{ id: 'd1', name: 'Reports' }]),
+    [GET_DATASETS]: () => Response.json([reports]),
     [GET_LIST]: () => Response.json(documents),
     'POST /api/ask': () => Response.json(answered),
     ...routes,
@@ -54,7 +57,7 @@ const rejectsOnAbort: Route = (init) =>
     init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
   })
 
-const documentSelect = () => screen.getByRole<HTMLSelectElement>('combobox', { name: 'Document' })
+const prompt = 'Upload a document to ask about it.'
 const questionBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Question' })
 const askButton = () => screen.getByRole('button', { name: 'Ask' })
 
@@ -78,10 +81,10 @@ async function sendFile(user: UserEvent, filename: string) {
   await user.click(screen.getByRole('button', { name: 'Upload' }))
 }
 
-// Uploads a file and waits for the reloaded list to reach the select.
+// Uploads a file and waits for the reloaded list to show it, by the Delete button in its row.
 async function upload(user: UserEvent, filename: string) {
   await sendFile(user, filename)
-  await screen.findByRole('option', { name: filename })
+  await screen.findByRole('button', { name: `Delete ${filename}` })
 }
 
 // The GET route for a list that changes: each load gets the next list, and the last one stays.
@@ -106,13 +109,12 @@ afterEach(() => {
 
 describe('without a document to ask about', () => {
   function expectPromptAndNoForm() {
-    expect(screen.getByText('Upload a document to ask about it.')).toBeInTheDocument()
-    expect(screen.queryByRole('combobox', { name: 'Document' })).not.toBeInTheDocument()
+    expect(screen.getByText(prompt)).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ask' })).not.toBeInTheDocument()
   }
 
-  it('shows the prompt when there are no documents', async () => {
+  it('shows the prompt when the dataset has no documents', async () => {
     stubPage([])
 
     render(<App />)
@@ -125,7 +127,7 @@ describe('without a document to ask about', () => {
     stubPage([], { [GET_LIST]: rejectsOnAbort })
 
     render(<App />)
-    await screen.findByRole('heading', { name: 'Ask a question' })
+    await screen.findByRole('heading', { name: 'Ask a question about Reports' })
 
     expectPromptAndNoForm()
   })
@@ -150,97 +152,33 @@ describe('without a document to ask about', () => {
     await screen.findByText('No documents yet.')
     await upload(user, latest.filename)
 
-    expect(documentSelect()).toHaveValue(latest.id)
-    expect(screen.queryByText('Upload a document to ask about it.')).not.toBeInTheDocument()
+    expect(questionBox()).toBeInTheDocument()
+    expect(askButton()).toBeEnabled()
+    expect(screen.queryByText(prompt)).not.toBeInTheDocument()
   })
 })
 
-describe('choosing a document', () => {
-  it('offers every document by filename and selects the newest', async () => {
+describe('the section', () => {
+  it('names the dataset it asks, and offers no choice of document', async () => {
     stubPage([notes, report])
 
     await renderPage()
 
-    const options = within(documentSelect()).getAllByRole('option')
-    expect(options.map((option) => option.textContent)).toEqual(['notes.txt', 'report.md'])
-    expect(documentSelect()).toHaveValue(report.id)
+    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Document' })).not.toBeInTheDocument()
   })
 
-  it('keeps an explicit choice when the list reloads', async () => {
-    const user = userEvent.setup()
-    stubPage([], {
-      [GET_LIST]: listThatChanges([notes, report], [notes, report, latest]),
-      [POST_FILE]: postUpload,
+  it('wraps a long dataset name in its heading instead of widening the page', async () => {
+    const name = 'x'.repeat(100)
+    stubPage([notes], { [GET_DATASETS]: () => Response.json([{ ...reports, name }]) })
+
+    await renderPage()
+
+    expect(screen.getByRole('heading', { name: `Ask a question about ${name}` })).toHaveStyle({
+      overflowWrap: 'anywhere',
     })
-
-    await renderPage()
-    await user.selectOptions(documentSelect(), notes.id)
-    await upload(user, latest.filename)
-
-    expect(documentSelect()).toHaveValue(notes.id)
   })
 
-  it('goes back to the newest when the chosen document is gone', async () => {
-    const user = userEvent.setup()
-    stubPage([], {
-      [GET_LIST]: listThatChanges([notes, report], [report, latest]),
-      [POST_FILE]: postUpload,
-    })
-
-    await renderPage()
-    await user.selectOptions(documentSelect(), notes.id)
-    await upload(user, latest.filename)
-
-    expect(documentSelect()).toHaveValue(latest.id)
-  })
-
-  it('moves to the newest after an upload when nothing was chosen', async () => {
-    const user = userEvent.setup()
-    stubPage([], {
-      [GET_LIST]: listThatChanges([notes, report], [notes, report, latest]),
-      [POST_FILE]: postUpload,
-    })
-
-    await renderPage()
-    await upload(user, latest.filename)
-
-    expect(documentSelect()).toHaveValue(latest.id)
-  })
-
-  it('keeps the form and the choice when a reload fails', async () => {
-    const user = userEvent.setup()
-    const get = vi
-      .fn<Route>()
-      .mockResolvedValueOnce(Response.json([notes, report]))
-      .mockResolvedValueOnce(new Response('Bad Gateway', { status: 502 }))
-    stubPage([], { [GET_LIST]: get, [POST_FILE]: postUpload })
-
-    await renderPage()
-    await user.selectOptions(documentSelect(), notes.id)
-    await sendFile(user, latest.filename)
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the documents.')
-    expect(documentSelect()).toHaveValue(notes.id)
-  })
-
-  it('moves to the newest again after a removed choice fell back', async () => {
-    const user = userEvent.setup()
-    const newer = { id: '4', filename: 'newer.txt', line_count: 9 }
-    stubPage([], {
-      [GET_LIST]: listThatChanges([notes, report], [report, latest], [report, latest, newer]),
-      [POST_FILE]: postUpload,
-    })
-
-    await renderPage()
-    await user.selectOptions(documentSelect(), notes.id)
-    await upload(user, latest.filename)
-    await upload(user, newer.filename)
-
-    expect(documentSelect()).toHaveValue(newer.id)
-  })
-})
-
-describe('the form', () => {
   it('limits the question to what the backend accepts', async () => {
     stubPage([notes])
 
@@ -249,19 +187,34 @@ describe('the form', () => {
     expect(questionBox()).toHaveAttribute('maxlength', '2000')
   })
 
-  it('keeps the select and the question box inside the page width', async () => {
+  it('keeps the question box inside the page width', async () => {
     stubPage([notes])
 
     await renderPage()
 
-    for (const control of [documentSelect(), questionBox()]) {
-      expect(control).toHaveStyle({ width: '100%', boxSizing: 'border-box' })
-    }
+    expect(questionBox()).toHaveStyle({ width: '100%', boxSizing: 'border-box' })
+  })
+
+  it('keeps the form and the typed question when a reload of the list fails', async () => {
+    const user = userEvent.setup()
+    const get = vi
+      .fn<Route>()
+      .mockResolvedValueOnce(Response.json([notes, report]))
+      .mockResolvedValueOnce(new Response('Bad Gateway', { status: 502 }))
+    stubPage([], { [GET_LIST]: get, [POST_FILE]: postUpload })
+
+    await renderPage()
+    await user.type(questionBox(), 'Why?')
+    await sendFile(user, latest.filename)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the documents.')
+    expect(questionBox()).toHaveValue('Why?')
+    expect(askButton()).toBeEnabled()
   })
 })
 
 describe('asking', () => {
-  it('posts the newest document and the trimmed question as JSON', async () => {
+  it('posts the dataset and the trimmed question as JSON', async () => {
     const user = userEvent.setup()
     const fetchStub = stubPage([notes, report])
 
@@ -276,21 +229,9 @@ describe('asking', () => {
     expect(init.method).toBe('POST')
     expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
     expect(JSON.parse(init.body as string)).toEqual({
-      document_id: report.id,
+      dataset_id: reports.id,
       question: 'first line\nsecond line',
     })
-  })
-
-  it('posts the document the user chose', async () => {
-    const user = userEvent.setup()
-    const fetchStub = stubPage([notes, report])
-
-    await renderPage()
-    await user.selectOptions(documentSelect(), notes.id)
-    await ask(user)
-    await screen.findByRole('article')
-
-    expect(JSON.parse(askRequests(fetchStub)[0][1]?.body as string).document_id).toBe(notes.id)
   })
 
   it('shows the answer with its citations and lets the user ask again', async () => {
@@ -302,7 +243,7 @@ describe('asking', () => {
 
     const answer = within(await screen.findByRole('article'))
     // textContent, because getByText would hide spaces around the question.
-    expect(answer.getByText(/You asked/).textContent).toBe('You asked about notes.txt: Why?')
+    expect(answer.getByText(/You asked/).textContent).toBe('You asked about Reports: Why?')
     expect(answer.getByText('The answer.')).toBeInTheDocument()
     expect(answer.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
     expect(answer.getByText('Line 3')).toBeInTheDocument()
@@ -315,7 +256,7 @@ describe('asking', () => {
     expect(askButton()).toBeEnabled()
   })
 
-  it('shows the message and no citations when the document does not hold the answer', async () => {
+  it('shows the message and no citations when the dataset does not hold the answer', async () => {
     const user = userEvent.setup()
     stubPage([notes], { 'POST /api/ask': () => Response.json(notFound) })
 
@@ -323,18 +264,20 @@ describe('asking', () => {
     await ask(user)
 
     const answer = within(await screen.findByRole('article'))
+    expect(answer.getByText('You asked about Reports: Why?')).toBeInTheDocument()
     expect(answer.getByText(notFound.answer)).toBeInTheDocument()
     expect(answer.queryByRole('heading', { name: 'Sources' })).not.toBeInTheDocument()
     expect(answer.queryByRole('list')).not.toBeInTheDocument()
     expect(answer.queryByRole('blockquote')).not.toBeInTheDocument()
   })
 
-  it('shows HTML in the question, answer, filename and quote as plain text', async () => {
+  it('shows HTML in the dataset name, question, answer, filename and quote as plain text', async () => {
     const user = userEvent.setup()
     const html = '<img src=x onerror=alert(1)>'
     const filename = `${html}.txt`
     const citation = { document_id: '1', filename, start_line: 1, end_line: 1, quote: `${html} quote` }
     stubPage([{ ...notes, filename }], {
+      [GET_DATASETS]: () => Response.json([{ ...reports, name: html }]),
       'POST /api/ask': () =>
         Response.json({ status: 'answered', answer: `${html} answer`, citations: [citation] }),
     })
@@ -344,8 +287,8 @@ describe('asking', () => {
     await ask(user, `${html} question`)
 
     const answer = within(await screen.findByRole('article'))
-    expect(screen.getByRole('option', { name: filename })).toBeInTheDocument()
-    expect(answer.getByText(`You asked about ${filename}: ${html} question`)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: `Ask a question about ${html}` })).toBeInTheDocument()
+    expect(answer.getByText(`You asked about ${html}: ${html} question`)).toBeInTheDocument()
     expect(answer.getByText(`${html} answer`)).toBeInTheDocument()
     expect(answer.getByText(filename)).toBeInTheDocument()
     expect(answer.getByRole('blockquote').textContent).toBe(`${html} quote`)
@@ -361,20 +304,8 @@ describe('asking', () => {
     await screen.findByRole('article')
     await user.type(questionBox(), ' And how?')
 
-    expect(screen.getByText('You asked about notes.txt: Why?')).toBeInTheDocument()
+    expect(screen.getByText('You asked about Reports: Why?')).toBeInTheDocument()
     expect(questionBox()).toHaveValue('Why? And how?')
-  })
-
-  it('still says which document an answer is for after another one is chosen', async () => {
-    const user = userEvent.setup()
-    stubPage([notes, report], { 'POST /api/ask': () => Response.json(notFound) })
-
-    await renderPage()
-    await ask(user, 'Why?')
-    await screen.findByRole('article')
-    await user.selectOptions(documentSelect(), notes.id)
-
-    expect(screen.getByText('You asked about report.md: Why?')).toBeInTheDocument()
   })
 
   it('stops the browser from submitting the form itself', async () => {
@@ -384,6 +315,70 @@ describe('asking', () => {
 
     // fireEvent returns false when the handler called preventDefault.
     expect(fireEvent.submit(questionBox().form!)).toBe(false)
+  })
+})
+
+describe('an answer that cites two files', () => {
+  const fromTwoFiles = {
+    status: 'answered',
+    answer: 'The answer.',
+    citations: [
+      { document_id: '1', filename: 'notes.txt', start_line: 3, end_line: 3, quote: 'notes line 3' },
+      { document_id: '2', filename: 'report.md', start_line: 2, end_line: 2, quote: 'report line 2' },
+    ],
+  }
+  // Each document's lines say which document they're from, so a viewer showing the wrong one can't pass.
+  function documentRoute(doc: typeof notes, prefix: string): Route {
+    const lines = Array.from({ length: 9 }, (_, index) => `${prefix} line ${index + 1}`)
+    return () => Response.json({ ...doc, lines })
+  }
+
+  function stubTwoFiles() {
+    return stubPage([notes, report], {
+      'POST /api/ask': () => Response.json(fromTwoFiles),
+      'GET /api/documents/1': documentRoute(notes, 'notes'),
+      'GET /api/documents/2': documentRoute(report, 'report'),
+    })
+  }
+
+  const citationOf = (button: HTMLElement) => button.closest('li') as HTMLElement
+
+  it('shows each citation with the file it comes from', async () => {
+    const user = userEvent.setup()
+    stubTwoFiles()
+
+    await renderPage()
+    await ask(user)
+
+    const [first, second] = within(await screen.findByRole('article')).getAllByRole('listitem')
+    expect(within(first).getByText('notes.txt')).toBeInTheDocument()
+    expect(within(first).getByRole('button', { name: 'Line 3' })).toHaveAccessibleDescription('notes.txt')
+    expect(within(first).getByRole('blockquote')).toHaveTextContent('notes line 3')
+    expect(within(second).getByText('report.md')).toBeInTheDocument()
+    expect(within(second).getByRole('button', { name: 'Line 2' })).toHaveAccessibleDescription('report.md')
+    expect(within(second).getByRole('blockquote')).toHaveTextContent('report line 2')
+  })
+
+  it("opens each citation's lines in its own document", async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubTwoFiles()
+
+    await renderPage()
+    await ask(user)
+    const notesButton = await screen.findByRole('button', { name: 'Line 3' })
+    const reportButton = screen.getByRole('button', { name: 'Line 2' })
+
+    await user.click(notesButton)
+    const notesViewer = await within(citationOf(notesButton)).findByRole('list', { name: 'Lines of notes.txt' })
+    expect(within(notesViewer).getByText('notes line 3').closest('li')).toHaveAttribute('aria-current', 'true')
+
+    await user.click(reportButton)
+    const reportViewer = await within(citationOf(reportButton)).findByRole('list', { name: 'Lines of report.md' })
+    expect(within(reportViewer).getByText('report line 2').closest('li')).toHaveAttribute('aria-current', 'true')
+    expect(screen.queryByRole('list', { name: 'Lines of notes.txt' })).not.toBeInTheDocument()
+
+    const documentRequests = fetchStub.mock.calls.filter(([url]) => String(url).startsWith('/api/documents/'))
+    expect(documentRequests.map(([url]) => url)).toEqual(['/api/documents/1', '/api/documents/2'])
   })
 })
 
@@ -411,7 +406,7 @@ describe('an open citation', () => {
     expect(expanded()).toHaveLength(1)
 
     await ask(user, 'How?')
-    await screen.findByText('You asked about notes.txt: How?')
+    await screen.findByText('You asked about Reports: How?')
 
     expect(screen.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByRole('button', { name: 'Lines 4–6' })).toHaveAttribute('aria-expanded', 'false')
@@ -433,7 +428,7 @@ describe('an open citation', () => {
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
 
     answer(Response.json(answered))
-    await screen.findByText('You asked about notes.txt: How?')
+    await screen.findByText('You asked about Reports: How?')
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(openViewers()).toHaveLength(0)
@@ -504,7 +499,7 @@ describe('a question with no text', () => {
     await user.click(askButton())
 
     expect(screen.getByRole('alert')).toHaveTextContent('Type a question first.')
-    expect(screen.getByText('You asked about notes.txt: Why?')).toBeInTheDocument()
+    expect(screen.getByText('You asked about Reports: Why?')).toBeInTheDocument()
   })
 })
 
@@ -539,13 +534,13 @@ describe('while waiting for an answer', () => {
 
     answer(Response.json(notFound))
 
-    expect(await screen.findByText('You asked about notes.txt: How?')).toBeInTheDocument()
-    expect(screen.queryByText('You asked about notes.txt: Why?')).not.toBeInTheDocument()
+    expect(await screen.findByText('You asked about Reports: How?')).toBeInTheDocument()
+    expect(screen.queryByText('You asked about Reports: Why?')).not.toBeInTheDocument()
   })
 
   it('removes the previous error as soon as a new question is sent', async () => {
     const user = userEvent.setup()
-    const { route, answer } = waitingRoute(Response.json({ detail: 'Document not found.' }, { status: 404 }))
+    const { route, answer } = waitingRoute(Response.json({ detail: 'Dataset not found.' }, { status: 404 }))
     stubPage([notes], { 'POST /api/ask': route })
 
     await renderPage()
@@ -566,7 +561,7 @@ describe('when asking fails', () => {
   it.each([
     [502, 'Gemini could not answer this question.'],
     [503, 'Gemini is unavailable right now. Please try again.'],
-    [404, 'Document not found.'],
+    [404, 'Dataset not found.'],
   ])('shows the message from the backend on a %i and keeps the question', async (status, detail) => {
     const user = userEvent.setup()
     stubPage([notes], { 'POST /api/ask': () => Response.json({ detail }, { status }) })
@@ -620,48 +615,20 @@ describe('when a document is deleted', () => {
     await user.click(within(question).getByRole('button', { name: 'Delete' }))
   }
 
-  it('goes back to the newest when the chosen document is deleted', async () => {
+  it('keeps the form while other documents are left', async () => {
     const user = userEvent.setup()
     stubPage([], {
-      [GET_LIST]: listThatChanges([notes, report, latest], [report, latest]),
+      [GET_LIST]: listThatChanges([notes, report], [report]),
       'DELETE /api/documents/1': deleted,
     })
 
     await renderPage()
-    await user.selectOptions(documentSelect(), notes.id)
+    await user.type(questionBox(), 'Why?')
     await deleteFromTheList(user, 'notes.txt')
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Delete notes.txt' })).not.toBeInTheDocument())
 
-    await vi.waitFor(() => expect(screen.queryByRole('option', { name: 'notes.txt' })).not.toBeInTheDocument())
-    expect(documentSelect()).toHaveValue(latest.id)
-  })
-
-  it('takes it off the page at once, while the reloaded list is still on its way', async () => {
-    const user = userEvent.setup()
-    const { route } = waitingRoute(Response.json([notes, report]))
-    stubPage([], { [GET_LIST]: route, 'DELETE /api/documents/1': deleted })
-
-    await renderPage()
-    await deleteFromTheList(user, 'notes.txt')
-
-    await vi.waitFor(() => expect(route).toHaveBeenCalledTimes(2))
-    expect(screen.queryByRole('option', { name: 'notes.txt' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Delete notes.txt' })).not.toBeInTheDocument()
-    expect(documentSelect()).toHaveValue(report.id)
-  })
-
-  it('keeps an explicit choice when another document is deleted', async () => {
-    const user = userEvent.setup()
-    stubPage([], {
-      [GET_LIST]: listThatChanges([notes, report, latest], [notes, report]),
-      'DELETE /api/documents/3': deleted,
-    })
-
-    await renderPage()
-    await user.selectOptions(documentSelect(), notes.id)
-    await deleteFromTheList(user, 'latest.txt')
-
-    await vi.waitFor(() => expect(screen.queryByRole('option', { name: 'latest.txt' })).not.toBeInTheDocument())
-    expect(documentSelect()).toHaveValue(notes.id)
+    expect(questionBox()).toHaveValue('Why?')
+    expect(askButton()).toBeEnabled()
   })
 
   it('shows the prompt again when the last document is deleted', async () => {
@@ -671,8 +638,22 @@ describe('when a document is deleted', () => {
     await renderPage()
     await deleteFromTheList(user, 'notes.txt')
 
-    expect(await screen.findByText('Upload a document to ask about it.')).toBeInTheDocument()
-    expect(screen.queryByRole('combobox', { name: 'Document' })).not.toBeInTheDocument()
+    expect(await screen.findByText(prompt)).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
+  })
+
+  it('takes the form away at once when the last one goes, while the reloaded list is on its way', async () => {
+    const user = userEvent.setup()
+    const { route } = waitingRoute(Response.json([notes]))
+    stubPage([], { [GET_LIST]: route, 'DELETE /api/documents/1': deleted })
+
+    await renderPage()
+    await deleteFromTheList(user, 'notes.txt')
+
+    await vi.waitFor(() => expect(route).toHaveBeenCalledTimes(2))
+    expect(screen.getByText(prompt)).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ask' })).not.toBeInTheDocument()
   })
 
   it('keeps an answer about it, whose citations then say the document is gone', async () => {
@@ -684,14 +665,13 @@ describe('when a document is deleted', () => {
     })
 
     await renderPage()
-    await user.selectOptions(documentSelect(), notes.id)
     await ask(user)
     await screen.findByText('The answer.')
     await deleteFromTheList(user, 'notes.txt')
-    await vi.waitFor(() => expect(screen.queryByRole('option', { name: 'notes.txt' })).not.toBeInTheDocument())
+    await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Delete notes.txt' })).not.toBeInTheDocument())
 
     expect(screen.getByText('The answer.')).toBeInTheDocument()
-    expect(screen.getByText('You asked about notes.txt: Why?')).toBeInTheDocument()
+    expect(screen.getByText('You asked about Reports: Why?')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Line 3' }))
 

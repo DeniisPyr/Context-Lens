@@ -4,7 +4,7 @@ from unittest.mock import ANY
 from uuid import UUID, uuid4
 
 import pytest
-from conftest import FakeGemini, StartApp, create_dataset, run_sql
+from conftest import FakeGemini, StartApp, create_dataset, dataset_id_of, run_sql
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from sqlalchemy import URL as DatabaseURL
@@ -265,15 +265,19 @@ def test_uploaded_document_can_be_read_by_its_own_id(
 def test_uploaded_document_can_be_asked_about(
     client: TestClient, documents_url: str
 ) -> None:
-    uploaded = upload(client, documents_url, "a.txt", b"The cat is orange.\n").json()
+    # The name that FakeGemini's answer cites.
+    uploaded = upload(client, documents_url, "notes.txt", b"The cat is orange.\n")
+    dataset_id = dataset_id_of(documents_url)
 
     response = client.post(
-        "/api/ask", json={"document_id": uploaded["id"], "question": "Which colour?"}
+        "/api/ask", json={"dataset_id": dataset_id, "question": "Which colour?"}
     )
 
     assert response.status_code == 200
     assert response.json()["status"] == "answered"
-    assert response.json()["citations"][0]["filename"] == "a.txt"
+    [citation] = response.json()["citations"]
+    assert citation["document_id"] == uploaded.json()["id"]
+    assert citation["filename"] == "notes.txt"
 
 
 def test_list_of_an_empty_dataset_is_empty(

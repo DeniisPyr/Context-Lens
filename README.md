@@ -2,7 +2,7 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
 
-> Work in progress: currently a FastAPI backend that uses Gemini to answer questions from an uploaded text document, with documents stored in Postgres and grouped into named datasets. Citations are checked against the document's lines, and answers that can't be verified get a "not found" reply. Each uploaded document is also split into chunks of lines, and each chunk is embedded with Gemini and stored in Postgres with pgvector, ready for searching a whole dataset. The React frontend can create and delete datasets, upload many files into one at once, delete documents, and ask about one document at a time, showing each answer with citations that open the document at the cited lines, and shows whether the API is reachable. An evaluation command scores the answers on a fixed set of questions.
+> Work in progress: a FastAPI backend and a React frontend. Documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions.
 
 ## Run locally
 
@@ -35,7 +35,7 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173, create a dataset, upload `.txt` or `.md` files into it (up to 1 MB each), pick a document and ask a question about it. Click a citation's lines to read them in the document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+Then open http://localhost:5173, create a dataset, upload `.txt` or `.md` files into it (up to 1 MB each), and ask a question about the dataset. Click a citation's lines to read them in its document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 
 You can also call the API directly. Create a dataset and upload a file into it using the `id` from its response, then read the document, ask about it or delete it using the `id` from the upload response. Deleting the dataset deletes its documents too:
 
@@ -52,7 +52,7 @@ curl http://localhost:8000/api/documents/<id from the upload>
 
 curl -X POST http://localhost:8000/api/ask \
   -H "Content-Type: application/json" \
-  -d '{"document_id": "<id from the upload>", "question": "What do these notes say?"}'
+  -d '{"dataset_id": "<id from the dataset>", "question": "What do these notes say?"}'
 
 curl -X DELETE http://localhost:8000/api/documents/<id from the upload>
 
@@ -97,6 +97,17 @@ It only touches documents without chunks, so running it again is safe and retrie
 
 The data lives in a Docker volume, so it survives `docker compose down`. To wipe it, run `docker compose down -v`, which deletes everything in the database. The defaults work as they are. To change them, see `.env.example` in the repo root and `DATABASE_URL` in `backend/.env.example`.
 
+## How a question is answered
+
+A question is asked of a whole dataset, in four steps:
+
+1. **Search:** Gemini embeds the question, labelled `task: search result | query: …`, and Postgres finds the 8 chunks of the dataset closest to it by cosine distance. It's an exact scan without a vector index, which is fast at this size and never misses a closer chunk. To change the number of chunks, set `CHUNKS_PER_QUESTION` in `backend/.env`.
+2. **Excerpts:** the chunks are grouped by file and put in line order, with neighbouring chunks merged, and every line keeps its number.
+3. **Answer:** Gemini answers from these excerpts only, and gives each claim a citation with the file, the lines and a quote copied from them.
+4. **Check:** each quote must be word for word in the document's real lines, and those lines must be among the ones Gemini was shown. A citation whose range is wider than its quote is narrowed to the lines the quote is on. If any citation fails, the whole answer is replaced with "not found".
+
+A dataset without chunks gets "not found" without asking Gemini. That includes documents uploaded before chunks existed and not yet indexed (see [Chunks and embeddings](#chunks-and-embeddings)).
+
 ## Evaluation
 
 `backend/evals/` holds a fixed set of 48 questions about 7 fictional documents, for measuring how well the app answers. The documents are an employee handbook, an IT security policy, steering committee minutes, a leaflet for a made-up medicine, a travel-expenses policy in Czech, a 726-line instrument maintenance SOP with 40 look-alike error codes, and a supplier agreement.
@@ -123,7 +134,7 @@ uv run python -m context_lens.evaluation --repeats 3 --output evals/results/whol
 
 ### Baseline: the whole document in the prompt
 
-How the app answers today: each question is sent with its whole document, one Gemini call per question. From [evals/results/whole-document.md](backend/evals/results/whole-document.md), gemini-3.8-flash, 3 repeats:
+How the app answered before search: each question is sent with its whole document, one Gemini call per question. From [evals/results/whole-document.md](backend/evals/results/whole-document.md), gemini-3.8-flash, 3 repeats:
 
 | Measure | Result |
 | --- | --- |
@@ -136,7 +147,7 @@ How the app answers today: each question is sent with its whole document, one Ge
 | Input tokens per question | 3,941 on average; 11,743 for the SOP |
 | Output tokens per question, with thinking | 347 on average |
 
-With one document of at most 726 lines in the prompt, every run was right, including both injection questions. The cost is the prompt: every question sends its whole document, so a question about the SOP costs three times the average. The next stages answer from the passages a search finds across a whole dataset, and will be measured against this baseline on the same questions. A perfect score also means these questions are too easy to tell a good method from a better one, so harder questions are needed.
+With one document of at most 726 lines in the prompt, every run was right, including both injection questions. The cost is the prompt: every question sends its whole document, so a question about the SOP costs three times the average. Since then, the app answers from the passages a search finds across a whole dataset, with a prompt that shows excerpts and asks for the file of each quote. The next step reruns this baseline with that prompt and compares the two methods on the same questions. A perfect score also means these questions are too easy to tell a good method from a better one, so harder questions are needed.
 
 ## Project structure
 
@@ -146,11 +157,12 @@ The backend lives in `backend/src/context_lens/`, and each file has one job:
 context_lens/
 ├── main.py                  # creates the app, registers routers and handlers
 ├── settings.py              # configuration, from the environment or .env
-├── dependencies.py          # what routes can ask for: GeminiDep, DatasetStoreDep, DocumentStoreDep, SettingsDep
+├── dependencies.py          # what routes can ask for: GeminiDep, ChunkStoreDep, DatasetStoreDep, DocumentStoreDep, SettingsDep
 ├── exception_handlers.py    # maps domain and database errors to HTTP responses
 ├── index_documents.py       # the command that indexes documents stored before chunks existed
 ├── clients/gemini.py        # talks to the Gemini API: answers and embeddings
 ├── db/                      # everything that knows about Postgres
+│   ├── chunk_store.py       # finds the chunks of a dataset closest to a question
 │   ├── dataset_store.py     # reads and writes datasets
 │   ├── document_store.py    # reads and writes documents and their chunks
 │   ├── engine.py            # builds the connection pool
@@ -168,12 +180,13 @@ context_lens/
 ├── schemas/                 # API request and response models
 │   └── ask.py, datasets.py, documents.py, health.py
 └── services/                # logic, no FastAPI imports
-    ├── answering.py         # builds the prompt, asks Gemini, verifies citations
+    ├── answering.py         # builds the prompt from excerpts, asks Gemini, verifies citations
     ├── chunking.py          # splits a document into chunks of lines
     ├── datasets.py          # what a dataset is, and its errors
     ├── documents.py         # validates uploads and splits text into lines
     ├── embeddings.py        # the embedding size, and how a chunk is labelled for it
-    └── indexing.py          # chunks a document and embeds the chunks
+    ├── indexing.py          # chunks a document and embeds the chunks
+    └── search.py            # answers a question from the chunks a search finds in a dataset
 ```
 
 Postgres, the migrations and the evaluation questions live outside that folder:
@@ -199,7 +212,7 @@ src/
 ├── App.tsx                    # the page: puts the parts below together and keeps the selected dataset
 ├── index.css                  # page styles
 ├── api/                       # every HTTP call lives here
-│   ├── ask.ts                 # asks a question about a document
+│   ├── ask.ts                 # asks a question about a dataset
 │   ├── datasets.ts            # lists, creates and deletes datasets
 │   ├── documents.ts           # lists, uploads, reads and deletes documents
 │   ├── errors.ts              # turns a failed response into a readable message
@@ -208,7 +221,7 @@ src/
 ├── components/
 │   ├── Answer.tsx             # shows one answer and its citations
 │   ├── ApiStatus.tsx          # shows whether the API is reachable
-│   ├── Ask.tsx                # chooses a document and asks a question
+│   ├── Ask.tsx                # asks a question about the selected dataset
 │   ├── ConfirmDelete.tsx      # a Delete button that asks first, inline
 │   ├── CreateDatasetForm.tsx  # names and creates a dataset
 │   ├── DatasetContents.tsx    # everything for one dataset: its documents and the questions

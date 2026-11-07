@@ -12,24 +12,24 @@ afterEach(() => {
 })
 
 describe('askQuestion', () => {
-  it('posts the document id and the question as JSON and returns the answer', async () => {
+  it('posts the dataset id and the question as JSON and returns the answer', async () => {
     const fetchStub = vi.fn<typeof fetch>(async () => Response.json(answer))
     vi.stubGlobal('fetch', fetchStub)
 
-    await expect(askQuestion('1', 'How long is it?')).resolves.toEqual(answer)
+    await expect(askQuestion('d1', 'How long is it?')).resolves.toEqual(answer)
 
     const [url, init = {}] = fetchStub.mock.calls[0]
     expect(url).toBe('/api/ask')
     expect(init.method).toBe('POST')
     expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
-    expect(JSON.parse(init.body as string)).toEqual({ document_id: '1', question: 'How long is it?' })
+    expect(JSON.parse(init.body as string)).toEqual({ dataset_id: 'd1', question: 'How long is it?' })
   })
 
   it('uses the message from the backend when detail is a string', async () => {
     const detail = 'Gemini could not answer this question.'
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => Response.json({ detail }, { status: 502 })))
 
-    await expect(askQuestion('1', 'Why?')).rejects.toThrow(detail)
+    await expect(askQuestion('d1', 'Why?')).rejects.toThrow(detail)
   })
 
   it.each<[string, () => Promise<Response>]>([
@@ -40,6 +40,6 @@ describe('askQuestion', () => {
   ])('falls back on %s', async (_name, respond) => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(respond))
 
-    await expect(askQuestion('1', 'Why?')).rejects.toThrow('Could not get an answer.')
+    await expect(askQuestion('d1', 'Why?')).rejects.toThrow('Could not get an answer.')
   })
 })

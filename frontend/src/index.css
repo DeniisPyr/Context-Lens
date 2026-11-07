@@ -173,15 +173,19 @@ h2 {
   min-width: 0;
 }
 
+/* It names the dataset, and a name can be 100 characters without a space. */
+.ask-heading {
+  overflow-wrap: anywhere;
+}
+
 .ask-form label {
   display: block;
   margin-bottom: 0.75rem;
 }
 
-/* width: 100% stops a long filename or name from widening a control past the page. */
+/* width: 100% stops a long name from widening a control past the page. */
 .dataset-choice select,
 .dataset-form input,
-.ask-form select,
 .ask-form textarea {
   display: block;
   box-sizing: border-box;

@@ -25,7 +25,8 @@ export function useDocuments(datasetId: string) {
     setReloadCount((count) => count + 1)
   }
 
-  // Takes a deleted document off the list at once, so it can't be chosen while the list reloads from the server.
+  // Takes a deleted document off the list at once, without waiting for the reload: its row goes, and when it was
+  // the last one, so does the Ask form, since the dataset has nothing left to search.
   function remove(id: string) {
     setDocuments((current) => current?.filter((doc) => doc.id !== id) ?? null)
     reload()

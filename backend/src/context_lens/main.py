@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from context_lens.clients.gemini import GeminiClient
+from context_lens.db.chunk_store import ChunkStore
 from context_lens.db.dataset_store import DatasetStore
 from context_lens.db.document_store import DocumentStore
 from context_lens.db.engine import create_database_engine
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.dataset_store = DatasetStore(engine)
     app.state.document_store = DocumentStore(engine)
+    app.state.chunk_store = ChunkStore(engine)
     yield
     try:
         await gemini_client.aclose()

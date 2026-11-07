@@ -1,21 +1,24 @@
 import { type SubmitEvent, useState } from 'react'
 import { type Answer as AnswerResult, askQuestion, MAX_QUESTION_LENGTH } from '../api/ask.ts'
-import type { DocumentSummary } from '../api/documents.ts'
 import Answer from './Answer.tsx'
 
-export default function Ask({ documents }: { documents: DocumentSummary[] | null }) {
-  // Only what the user picked. The selected document is worked out from it on every render, so a
-  // reloaded list needs no syncing: no choice, or a choice that's gone, means the newest document.
-  const [chosenId, setChosenId] = useState<string | null>(null)
+type Props = {
+  datasetId: string
+  datasetName: string
+  // Also false while the list is still loading, so the form only shows once there's something to search.
+  hasDocuments: boolean
+}
+
+// Asks the whole dataset: the backend searches all its documents for the passages that answer the question.
+export default function Ask({ datasetId, datasetName, hasDocuments }: Props) {
   const [question, setQuestion] = useState('')
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The document and question are kept with the answer because the form stays editable.
-  const [result, setResult] = useState<{ filename: string; question: string; answer: AnswerResult } | null>(null)
+  // The question is kept with the answer because the form stays editable. The dataset can't change under it:
+  // App starts this section over for another dataset.
+  const [result, setResult] = useState<{ question: string; answer: AnswerResult } | null>(null)
 
-  const selected = documents?.find((doc) => doc.id === chosenId) ?? documents?.at(-1)
-
-  async function handleSubmit(event: SubmitEvent<HTMLFormElement>, doc: DocumentSummary) {
+  async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
     const asked = question.trim()
     if (!asked) {
@@ -27,7 +30,7 @@ export default function Ask({ documents }: { documents: DocumentSummary[] | null
     setError(null)
     setResult(null)
     try {
-      setResult({ filename: doc.filename, question: asked, answer: await askQuestion(doc.id, asked) })
+      setResult({ question: asked, answer: await askQuestion(datasetId, asked) })
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -37,19 +40,9 @@ export default function Ask({ documents }: { documents: DocumentSummary[] | null
 
   return (
     <section>
-      <h2>Ask a question</h2>
-      {selected ? (
-        <form className="ask-form" onSubmit={(event) => handleSubmit(event, selected)}>
-          <label>
-            Document
-            <select value={selected.id} onChange={(event) => setChosenId(event.target.value)}>
-              {documents?.map((doc) => (
-                <option key={doc.id} value={doc.id}>
-                  {doc.filename}
-                </option>
-              ))}
-            </select>
-          </label>
+      <h2 className="ask-heading">Ask a question about {datasetName}</h2>
+      {hasDocuments ? (
+        <form className="ask-form" onSubmit={handleSubmit}>
           <label>
             Question
             <textarea
@@ -67,7 +60,7 @@ export default function Ask({ documents }: { documents: DocumentSummary[] | null
       ) : (
         <p>Upload a document to ask about it.</p>
       )}
-      {result && <Answer filename={result.filename} question={result.question} result={result.answer} />}
+      {result && <Answer datasetName={datasetName} question={result.question} result={result.answer} />}
     </section>
   )
 }

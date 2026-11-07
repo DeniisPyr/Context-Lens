@@ -68,6 +68,9 @@ const createButton = () => screen.getByRole('button', { name: 'Create' })
 const questionBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Question' })
 const startMessage = 'Create a dataset to get started.'
 
+// Waits for a document's row in the list, by its Delete button, which names the file.
+const findDocument = (filename: string) => screen.findByRole('button', { name: `Delete ${filename}` })
+
 const requestsTo = (fetchStub: ReturnType<typeof stubRoutes>, url: string, method = 'GET') =>
   fetchStub.mock.calls.filter((call) => call[0] === url && (call[1]?.method ?? 'GET') === method)
 
@@ -79,7 +82,7 @@ async function createNamed(user: UserEvent, name: string) {
 
 function expectNoDocumentsOrAsk() {
   expect(screen.queryByRole('heading', { name: 'Documents' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Ask a question' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: /^Ask a question/ })).not.toBeInTheDocument()
 }
 
 afterEach(() => {
@@ -168,7 +171,7 @@ describe('before any dataset exists', () => {
     expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(screen.queryByText(startMessage)).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Ask a question' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
   })
 })
 
@@ -195,7 +198,7 @@ describe('the Dataset select', () => {
     render(<App />)
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Dataset' }), reports.id)
 
-    expect(await screen.findByRole('option', { name: 'report.txt' })).toBeInTheDocument()
+    expect(await findDocument('report.txt')).toBeInTheDocument()
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(requestsTo(fetchStub, documentsPath(reports.id))).toHaveLength(1)
   })
@@ -214,7 +217,7 @@ describe('the Dataset select', () => {
     await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'report.txt'))
     await user.click(screen.getByRole('button', { name: 'Upload' }))
 
-    await screen.findByRole('option', { name: 'report.txt' })
+    await findDocument('report.txt')
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(1)
   })
@@ -519,7 +522,7 @@ describe('switching to another dataset', () => {
     })
   }
 
-  async function askAboutTheOldDocument(user: UserEvent) {
+  async function askTheOldDataset(user: UserEvent) {
     render(<App />)
     await user.click(await screen.findByRole('textbox', { name: 'Question' }))
     await user.paste('The old question')
@@ -532,15 +535,14 @@ describe('switching to another dataset', () => {
     stubTwoDatasets({ [listOf(reports.id)]: route })
 
     render(<App />)
-    await screen.findByRole('option', { name: 'old.txt' })
+    await findDocument('old.txt')
     await user.selectOptions(datasetSelect(), reports.id)
 
     expect(screen.queryByText('old.txt')).not.toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'old.txt' })).not.toBeInTheDocument()
 
     await answer(Response.json([newDocument]))
 
-    expect(screen.getByRole('option', { name: 'new.txt' })).toBeInTheDocument()
+    expect(await findDocument('new.txt')).toBeInTheDocument()
     expect(screen.queryByText('old.txt')).not.toBeInTheDocument()
   })
 
@@ -552,7 +554,7 @@ describe('switching to another dataset', () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Documents' })
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
 
     expect(requestsTo(fetchStub, documentsPath(invoices.id))[0][1]?.signal?.aborted).toBe(true)
 
@@ -569,7 +571,7 @@ describe('switching to another dataset', () => {
     render(<App />)
     await user.type(await screen.findByRole('textbox', { name: 'Question' }), 'The old question')
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
 
     expect(questionBox()).toHaveValue('')
   })
@@ -578,10 +580,10 @@ describe('switching to another dataset', () => {
     const user = userEvent.setup()
     stubTwoDatasets()
 
-    await askAboutTheOldDocument(user)
+    await askTheOldDataset(user)
     await screen.findByRole('article')
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
 
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
     expect(screen.queryByText('The old answer.')).not.toBeInTheDocument()
@@ -593,9 +595,9 @@ describe('switching to another dataset', () => {
     const { route, answer } = waitingRoute()
     stubTwoDatasets({ 'POST /api/ask': route })
 
-    await askAboutTheOldDocument(user)
+    await askTheOldDataset(user)
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
 
     await answer(Response.json(answered))
 
@@ -607,31 +609,64 @@ describe('switching to another dataset', () => {
     const user = userEvent.setup()
     stubTwoDatasets()
 
-    await askAboutTheOldDocument(user)
+    await askTheOldDataset(user)
     await screen.findByRole('article')
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
     await user.selectOptions(datasetSelect(), invoices.id)
-    await screen.findByRole('option', { name: 'old.txt' })
+    await findDocument('old.txt')
 
     expect(questionBox()).toHaveValue('')
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
   })
 
-  it('asks about the documents of the new dataset', async () => {
+  it('asks the new dataset, and names it in the ask section and the answer', async () => {
     const user = userEvent.setup()
     const fetchStub = stubTwoDatasets()
 
     render(<App />)
-    await screen.findByRole('option', { name: 'old.txt' })
+    await findDocument('old.txt')
+    expect(screen.getByRole('heading', { name: 'Ask a question about Invoices' })).toBeInTheDocument()
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
     await user.type(questionBox(), 'Why?')
     await user.click(screen.getByRole('button', { name: 'Ask' }))
     await screen.findByRole('article')
 
     const [[, init]] = requestsTo(fetchStub, '/api/ask', 'POST')
-    expect(JSON.parse(init?.body as string)).toEqual({ document_id: newDocument.id, question: 'Why?' })
+    expect(JSON.parse(init?.body as string)).toEqual({ dataset_id: reports.id, question: 'Why?' })
+    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Ask a question about Invoices' })).not.toBeInTheDocument()
+    expect(screen.getByText('You asked about Reports: Why?')).toBeInTheDocument()
+  })
+
+  it('offers no form when the new dataset has no documents', async () => {
+    const user = userEvent.setup()
+    stubTwoDatasets({ [listOf(reports.id)]: () => Response.json([]) })
+
+    render(<App />)
+    await findDocument('old.txt')
+    await user.selectOptions(datasetSelect(), reports.id)
+    await screen.findByText('No documents yet.')
+
+    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
+    expect(screen.getByText('Upload a document to ask about it.')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ask' })).not.toBeInTheDocument()
+  })
+
+  it('removes an error from asking', async () => {
+    const user = userEvent.setup()
+    const detail = 'Gemini is unavailable right now. Please try again.'
+    stubTwoDatasets({ 'POST /api/ask': () => Response.json({ detail }, { status: 503 }) })
+
+    await askTheOldDataset(user)
+    expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('new.txt')
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(questionBox()).toHaveValue('')
   })
 
   it('removes an error about the old list', async () => {
@@ -641,7 +676,7 @@ describe('switching to another dataset', () => {
     render(<App />)
     await screen.findByRole('alert')
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
@@ -654,7 +689,7 @@ describe('switching to another dataset', () => {
     await user.click(await screen.findByRole('button', { name: 'Delete old.txt' }))
     expect(screen.getByRole('group', { name: 'Delete old.txt?' })).toBeInTheDocument()
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
 
     expect(screen.queryByRole('group')).not.toBeInTheDocument()
 
@@ -672,9 +707,9 @@ describe('switching to another dataset', () => {
     })
 
     render(<App />)
-    await screen.findByRole('option', { name: 'old.txt' })
+    await findDocument('old.txt')
     await user.selectOptions(datasetSelect(), reports.id)
-    await screen.findByRole('option', { name: 'new.txt' })
+    await findDocument('new.txt')
     await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'another.txt'))
     await user.click(screen.getByRole('button', { name: 'Upload' }))
 
@@ -749,7 +784,7 @@ describe('during an upload run', () => {
     expect(screen.queryByText('Uploaded')).not.toBeInTheDocument()
   })
 
-  it('offers the files uploaded so far to Ask while the run goes on', async () => {
+  it('lets the user ask about the files uploaded so far while the run goes on', async () => {
     const user = userEvent.setup()
     const { route, answer } = postsAnsweredByTheTest()
     stubPage([reports], {
@@ -761,7 +796,7 @@ describe('during an upload run', () => {
     await startRun(user, 'a.txt', 'b.txt')
     await answer(0, uploaded())
 
-    expect(await screen.findByRole('option', { name: 'a.txt' })).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'Question' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
     expect(datasetSelect()).toBeDisabled()
   })

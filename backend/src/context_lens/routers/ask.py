@@ -1,17 +1,31 @@
 from fastapi import APIRouter
 
-from context_lens.dependencies import DocumentStoreDep, GeminiDep
+from context_lens.dependencies import (
+    ChunkStoreDep,
+    DocumentStoreDep,
+    GeminiDep,
+    SettingsDep,
+)
 from context_lens.schemas.ask import AskRequest, AskResponse
-from context_lens.services.answering import answer_question
-from context_lens.services.documents import get_document
+from context_lens.services.search import answer_from_dataset
 
 router = APIRouter(prefix="/ask", tags=["ask"])
 
 
 @router.post("")
 async def ask_question(
-    body: AskRequest, gemini: GeminiDep, store: DocumentStoreDep
+    body: AskRequest,
+    gemini: GeminiDep,
+    chunks: ChunkStoreDep,
+    documents: DocumentStoreDep,
+    settings: SettingsDep,
 ) -> AskResponse:
-    document = await get_document(store, body.document_id)
-    answer = await answer_question(body.question, document, gemini)
-    return AskResponse.from_answer(answer, document)
+    answer = await answer_from_dataset(
+        body.question,
+        body.dataset_id,
+        chunks,
+        documents,
+        gemini,
+        settings.chunks_per_question,
+    )
+    return AskResponse.from_answer(answer)

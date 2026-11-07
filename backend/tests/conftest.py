@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import time
 from collections.abc import Callable, Iterator
@@ -48,13 +49,27 @@ def fake_embedding(text: str) -> list[float]:
     return [digest[index % len(digest)] / 256 for index in range(EMBEDDING_DIMENSIONS)]
 
 
+def direction(degrees: float) -> list[float]:
+    # An embedding at this angle to direction(0): the smaller the angle, the nearer.
+    radians = math.radians(degrees)
+    rest = [0.0] * (EMBEDDING_DIMENSIONS - 2)
+    return [math.cos(radians), math.sin(radians), *rest]
+
+
 class FakeGemini:
     def __init__(self) -> None:
         # Passes verification against the default document in test_ask.upload_document.
         self.answer = ModelAnswer(
             status="answered",
             answer="The cat is orange.",
-            citations=[Citation(start_line=1, end_line=1, quote="The cat is orange.")],
+            citations=[
+                Citation(
+                    file="notes.txt",
+                    start_line=1,
+                    end_line=1,
+                    quote="The cat is orange.",
+                )
+            ],
         )
         self.error: Exception | None = None
         self.during_call: Callable[[], None] = lambda: None
@@ -65,6 +80,9 @@ class FakeGemini:
         self.during_embed: Callable[[list[str]], None] = lambda texts: None
         # The texts of each call to embed.
         self.embedded: list[list[str]] = []
+        # Embeddings for chosen texts, so that a test can decide which chunks are the
+        # nearest to a question. Other texts get fake_embedding's.
+        self.vectors: dict[str, list[float]] = {}
         self.closed = False
 
     async def ask(
@@ -83,7 +101,7 @@ class FakeGemini:
         self.during_embed(texts)
         if self.embed_error is not None:
             raise self.embed_error
-        return [fake_embedding(text) for text in texts]
+        return [self.vectors.get(text) or fake_embedding(text) for text in texts]
 
     async def aclose(self) -> None:
         self.closed = True
@@ -169,6 +187,10 @@ def create_dataset(client: TestClient, name: str = "Reports") -> str:
     return f"/api/datasets/{response.json()['id']}/documents"
 
 
+def dataset_id_of(documents_url: str) -> str:
+    return documents_url.removeprefix("/api/datasets/").removesuffix("/documents")
+
+
 def stored_chunks(url: URL, document_id: str) -> list[EmbeddedChunk]:
     query = text(
         "SELECT start_line, end_line, text, embedding::text AS embedding "
@@ -212,6 +234,7 @@ def no_developer_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         "GEMINI_TIMEOUT_SECONDS",
         "MAX_UPLOAD_BYTES",
         "MAX_DOCUMENTS_PER_DATASET",
+        "CHUNKS_PER_QUESTION",
     ):
         monkeypatch.delenv(name, raising=False)
     # Replaced rather than removed, because the default is the developer's own database.

@@ -129,6 +129,21 @@ class DocumentStore:
                 return None
             return Document(id=str(row.id), filename=row.filename, text=row.text)
 
+    async def get_many(self, document_ids: list[str]) -> list[Document]:
+        # Only the documents found: an unknown or bad id has none.
+        keys = [key for key in map(parse_id, document_ids) if key is not None]
+        if not keys:
+            return []
+        statement = select(
+            DocumentRow.id, DocumentRow.filename, DocumentRow.text
+        ).where(DocumentRow.id.in_(keys))
+        async with self._sessions.begin() as session:
+            rows = await session.execute(statement)
+            return [
+                Document(id=str(row.id), filename=row.filename, text=row.text)
+                for row in rows
+            ]
+
     async def delete(self, document_id: str) -> None:
         key = parse_id(document_id)
         if key is None:
