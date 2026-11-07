@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
+from context_lens import index_documents
 from context_lens.db.models import ChunkRow, DatasetRow, DocumentRow
 from context_lens.services import answering
 
@@ -765,9 +766,11 @@ def test_migrated_documents_work_through_the_api(
         documents_url = f"/api/datasets/{dataset['id']}/documents"
         listed = client.get(documents_url).json()
         read = client.get(f"/api/documents/{first}").json()
-        answer = client.post(
-            "/api/ask", json={"document_id": str(first), "question": "Which colour?"}
-        ).json()
+        question = {"dataset_id": dataset["id"], "question": "Which colour?"}
+        before_indexing = client.post("/api/ask", json=question).json()
+        # Documents from before chunks existed have none until they're indexed.
+        indexed = index_documents.main([], lambda settings: fake_gemini)
+        answer = client.post("/api/ask", json=question).json()
         again = client.post(documents_url, files={"file": ("notes.txt", b"hello")})
         new_name = client.post(documents_url, files={"file": ("new.txt", b"hello")})
 
@@ -777,7 +780,10 @@ def test_migrated_documents_work_through_the_api(
         {"id": str(second), "filename": "notes (2).txt", "line_count": 1},
     ]
     assert read["lines"] == ["The cat is orange."]
+    assert before_indexing["status"] == "not_found"
+    assert indexed == 0
     assert answer["status"] == "answered"
+    assert answer["citations"][0]["document_id"] == str(first)
     assert again.status_code == 409
     assert new_name.status_code == 201
 

@@ -10,6 +10,7 @@ from conftest import (
     apply_migrations,
     as_setting,
     create_dataset,
+    dataset_id_of,
     drop_connections,
     run_sql,
 )
@@ -44,7 +45,7 @@ EVERY_ROUTE = [
     pytest.param(
         "POST",
         "/api/ask",
-        {"json": {"document_id": NO_SUCH_ID, "question": "Hi"}},
+        {"json": {"dataset_id": NO_SUCH_ID, "question": "Hi"}},
         id="ask",
     ),
     pytest.param("DELETE", f"/api/documents/{NO_SUCH_ID}", {}, id="delete_document"),
@@ -114,8 +115,21 @@ def test_postgres_keeps_refused_rows_out_of_its_own_log(database: URL) -> None:
         ("POST", "/api/datasets/not-a-uuid/documents", UPLOAD, "Dataset not found."),
         ("DELETE", "/api/documents/not-a-uuid", {}, "Document not found."),
         ("DELETE", "/api/datasets/not-a-uuid", {}, "Dataset not found."),
+        (
+            "POST",
+            "/api/ask",
+            {"json": {"dataset_id": "not-a-uuid", "question": "Hi"}},
+            "Dataset not found.",
+        ),
     ],
-    ids=["read", "list_documents", "upload", "delete_document", "delete_dataset"],
+    ids=[
+        "read",
+        "list_documents",
+        "upload",
+        "delete_document",
+        "delete_dataset",
+        "ask",
+    ],
 )
 def test_bad_id_is_a_404_even_with_the_database_down(
     client_without_database: TestClient,
@@ -178,11 +192,12 @@ def test_documents_without_their_dataset_column_ask_for_the_migrations(
 
     with start_app() as client:
         documents_url = create_dataset(client)
+        dataset_id = dataset_id_of(documents_url)
         responses = [
             client.get(documents_url),
             client.post(documents_url, **UPLOAD),
             client.get(f"/api/documents/{NO_SUCH_ID}"),
-            client.post("/api/ask", json={"document_id": NO_SUCH_ID, "question": "Hi"}),
+            client.post("/api/ask", json={"dataset_id": dataset_id, "question": "Hi"}),
         ]
 
     assert [response.status_code for response in responses] == [503] * 4

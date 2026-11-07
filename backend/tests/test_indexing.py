@@ -2,6 +2,7 @@ import pytest
 from conftest import (
     FakeGemini,
     create_dataset,
+    dataset_id_of,
     fake_embedding,
     run_sql,
     stored_chunks,
@@ -14,6 +15,7 @@ from sqlalchemy.pool import NullPool
 from context_lens.clients.gemini import GeminiError, GeminiUnavailableError
 from context_lens.services.chunking import TextChunk, split_into_chunks
 from context_lens.services.documents import split_lines
+from context_lens.services.embeddings import query_embedding_text
 from context_lens.services.indexing import (
     EmbeddedChunk,
     IndexingError,
@@ -320,20 +322,25 @@ def test_deleting_a_document_or_dataset_deletes_the_chunks(
     assert len(stored_chunks(clean_database, invoice["id"])) == 1
 
 
-def test_asking_still_sends_the_whole_document_and_embeds_nothing(
+def test_asking_embeds_only_the_question_and_sends_the_chunks_found(
     client: TestClient, documents_url: str, fake_gemini: FakeGemini
 ) -> None:
-    document_id = upload(client, documents_url).json()["id"]
+    upload(client, documents_url)
+    dataset_id = dataset_id_of(documents_url)
     fake_gemini.embedded.clear()
 
-    client.post("/api/ask", json={"document_id": document_id, "question": "Hi"})
+    client.post("/api/ask", json={"dataset_id": dataset_id, "question": "Hi"})
 
-    numbered = "\n".join(
-        f"{number}: {line}" for number, line in enumerate(PARAGRAPHS, start=1)
-    )
-    excerpt = f'<excerpt file="notes.txt" lines="1-{len(PARAGRAPHS)}">\n{numbered}\n'
-    assert excerpt in fake_gemini.prompts[0]
-    assert fake_gemini.embedded == []
+    # The document has fewer chunks than a question finds, so all of them are sent.
+    chunks = split_into_chunks(PARAGRAPHS)
+    assert len(chunks) < 8
+    for chunk in chunks:
+        numbered = "\n".join(
+            f"{number}: {line}"
+            for number, line in enumerate(chunk.text.split("\n"), chunk.start_line)
+        )
+        assert f"\n{numbered}\n" in fake_gemini.prompts[0]
+    assert fake_gemini.embedded == [[query_embedding_text("Hi")]]
 
 
 @pytest.mark.anyio

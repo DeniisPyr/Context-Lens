@@ -86,6 +86,41 @@ async def test_get_finds_known_ids_and_returns_none_for_unknown_ones(
     assert await store.get("unknown") is None
 
 
+async def test_get_many_finds_only_the_documents_asked_for(
+    store: DocumentStore, dataset_id: str
+) -> None:
+    first = await store.add(dataset_id, "a.txt", "one\n", NO_CHUNKS, MAX_DOCUMENTS)
+    await store.add(dataset_id, "b.txt", "two\n", NO_CHUNKS, MAX_DOCUMENTS)
+    third = await store.add(dataset_id, "c.txt", "three\n", NO_CHUNKS, MAX_DOCUMENTS)
+
+    found = await store.get_many([third.id, first.id])
+
+    assert sorted(found, key=lambda document: document.filename) == [first, third]
+
+
+async def test_get_many_leaves_out_unknown_bad_and_deleted_ids(
+    store: DocumentStore, dataset_id: str
+) -> None:
+    kept = await store.add(dataset_id, "a.txt", "one\n", NO_CHUNKS, MAX_DOCUMENTS)
+    deleted = await store.add(dataset_id, "b.txt", "two\n", NO_CHUNKS, MAX_DOCUMENTS)
+    await store.delete(deleted.id)
+
+    found = await store.get_many(
+        [kept.id, deleted.id, str(uuid4()), "not-a-uuid", "", "\x00"]
+    )
+
+    assert found == [kept]
+
+
+async def test_get_many_of_no_good_ids_does_not_need_a_connection(
+    store: DocumentStore, engine: AsyncEngine
+) -> None:
+    assert await store.get_many([]) == []
+    assert await store.get_many(["not-a-uuid", ""]) == []
+
+    assert engine.pool.checkedin() == 0
+
+
 async def test_list_in_dataset_returns_the_documents_without_their_text(
     store: DocumentStore, dataset_id: str
 ) -> None:
@@ -189,6 +224,9 @@ async def test_every_method_gives_its_connection_back(
     assert engine.pool.checkedout() == 0
 
     await store.get("00000000-0000-0000-0000-000000000000")
+    assert engine.pool.checkedout() == 0
+
+    await store.get_many([document.id, str(uuid4())])
     assert engine.pool.checkedout() == 0
 
     await store.list_in_dataset(dataset_id)

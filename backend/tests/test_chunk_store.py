@@ -1,9 +1,8 @@
-import math
 from collections.abc import AsyncIterator
 from uuid import uuid4
 
 import pytest
-from conftest import MAX_DOCUMENTS, NO_CHUNKS
+from conftest import MAX_DOCUMENTS, NO_CHUNKS, direction
 from sqlalchemy import URL, event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -13,7 +12,6 @@ from context_lens.db.document_store import DocumentStore
 from context_lens.db.engine import create_database_engine
 from context_lens.services.datasets import DatasetNotFoundError
 from context_lens.services.documents import Document
-from context_lens.services.embeddings import EMBEDDING_DIMENSIONS
 from context_lens.services.indexing import EmbeddedChunk
 from context_lens.services.search import FoundChunk
 from context_lens.settings import DatabaseSettings
@@ -21,13 +19,6 @@ from context_lens.settings import DatabaseSettings
 pytestmark = pytest.mark.anyio
 
 LIMIT = 8
-
-
-def direction(degrees: float) -> list[float]:
-    # Embeddings at an angle to direction(0): the smaller the angle, the nearer.
-    radians = math.radians(degrees)
-    rest = [0.0] * (EMBEDDING_DIMENSIONS - 2)
-    return [math.cos(radians), math.sin(radians), *rest]
 
 
 QUESTION = direction(0)
@@ -248,3 +239,57 @@ async def test_search_does_not_read_the_documents_texts(
     [select] = [statement for statement in statements if "FROM chunks" in statement]
     assert "documents.filename" in select
     assert "documents.text" not in select
+
+
+async def test_check_can_search_lets_a_dataset_through_with_or_without_chunks(
+    store: ChunkStore, documents: DocumentStore, datasets: DatasetStore
+) -> None:
+    empty = await datasets.add("Empty")
+    full = await datasets.add("Full")
+    await add_document(documents, full.id, "a.txt", 10)
+
+    await store.check_can_search(empty.id)
+    await store.check_can_search(full.id)
+
+
+@pytest.mark.parametrize(
+    "unknown_id",
+    ["not-a-uuid", "", "\x00", "00000000-0000-0000-0000-000000000000"],
+    ids=["not_a_uuid", "empty", "nul", "unknown_uuid"],
+)
+async def test_check_can_search_refuses_an_unknown_dataset(
+    store: ChunkStore, unknown_id: str
+) -> None:
+    with pytest.raises(DatasetNotFoundError):
+        await store.check_can_search(unknown_id)
+
+
+async def test_check_can_search_refuses_a_deleted_dataset(
+    store: ChunkStore, datasets: DatasetStore, dataset_id: str
+) -> None:
+    await datasets.delete(dataset_id)
+
+    with pytest.raises(DatasetNotFoundError):
+        await store.check_can_search(dataset_id)
+
+
+async def test_check_can_search_of_a_bad_id_does_not_need_a_connection(
+    store: ChunkStore, engine: AsyncEngine
+) -> None:
+    with pytest.raises(DatasetNotFoundError):
+        await store.check_can_search("not-a-uuid")
+
+    assert engine.pool.checkedin() == 0
+
+
+async def test_check_can_search_gives_its_connection_back(
+    store: ChunkStore, engine: AsyncEngine, dataset_id: str
+) -> None:
+    await store.check_can_search(dataset_id)
+    assert engine.pool.checkedout() == 0
+
+    with pytest.raises(DatasetNotFoundError):
+        await store.check_can_search(str(uuid4()))
+    assert engine.pool.checkedout() == 0
+
+    assert engine.pool.checkedin() == 1

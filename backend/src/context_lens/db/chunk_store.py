@@ -12,6 +12,16 @@ class ChunkStore:
     def __init__(self, engine: AsyncEngine) -> None:
         self._sessions = async_sessionmaker(engine)
 
+    async def check_can_search(self, dataset_id: str) -> None:
+        # Only tells a question early that search would refuse it, before Gemini embeds
+        # it. The dataset can still be deleted meanwhile, and then search refuses it.
+        key = parse_id(dataset_id)
+        if key is None:
+            raise DatasetNotFoundError
+        async with self._sessions.begin() as session:
+            if await session.get(DatasetRow, key) is None:
+                raise DatasetNotFoundError
+
     async def search(
         self, dataset_id: str, embedding: list[float], limit: int
     ) -> list[FoundChunk]:

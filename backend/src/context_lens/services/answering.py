@@ -78,6 +78,10 @@ def build_prompt(question: str, excerpts: list[Excerpt]) -> str:
     return f"{context}\n\nQuestion: {question}"
 
 
+def not_found_answer() -> ModelAnswer:
+    return ModelAnswer(status="not_found", answer=NOT_FOUND_MESSAGE, citations=[])
+
+
 def _collapse_whitespace(text: str) -> str:
     return " ".join(text.split())
 
@@ -143,7 +147,7 @@ def verify_answer(answer: ModelAnswer, excerpts: list[Excerpt]) -> ModelAnswer:
             return answer
         # Only the fact of the failure: the answer and quotes can be private.
         logger.warning("Citation verification failed, so the answer was rejected.")
-    return ModelAnswer(status="not_found", answer=NOT_FOUND_MESSAGE, citations=[])
+    return not_found_answer()
 
 
 async def ask_about_excerpts(
@@ -158,6 +162,6 @@ async def ask_about_excerpts(
 async def answer_question(
     question: str, document: Document, gemini: GeminiClient
 ) -> ModelAnswer:
-    # The whole document is one excerpt.
+    # The whole document is one excerpt, so the lines Gemini is shown are the real ones.
     excerpts = [document_excerpt(document)]
     return verify_answer(await ask_about_excerpts(question, excerpts, gemini), excerpts)
