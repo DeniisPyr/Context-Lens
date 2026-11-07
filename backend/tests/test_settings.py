@@ -51,6 +51,7 @@ def test_optional_settings_have_defaults(monkeypatch: pytest.MonkeyPatch) -> Non
     assert settings.gemini_timeout_seconds == 60.0
     assert settings.max_upload_bytes == 1_000_000
     assert settings.max_documents_per_dataset == 100
+    assert settings.chunks_per_question == 8
 
 
 def test_environment_overrides_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,6 +61,7 @@ def test_environment_overrides_the_defaults(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("GEMINI_TIMEOUT_SECONDS", "5.5")
     monkeypatch.setenv("MAX_UPLOAD_BYTES", "10")
     monkeypatch.setenv("MAX_DOCUMENTS_PER_DATASET", "3")
+    monkeypatch.setenv("CHUNKS_PER_QUESTION", "4")
 
     settings = Settings(_env_file=None)
 
@@ -68,6 +70,7 @@ def test_environment_overrides_the_defaults(monkeypatch: pytest.MonkeyPatch) -> 
     assert settings.gemini_timeout_seconds == 5.5
     assert settings.max_upload_bytes == 10
     assert settings.max_documents_per_dataset == 3
+    assert settings.chunks_per_question == 4
 
 
 def write_env_file(path: Path, *entries: str) -> Path:
