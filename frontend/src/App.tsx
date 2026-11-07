@@ -37,7 +37,15 @@ export default function App() {
         onCreated={handleCreated}
         onDeleted={remove}
       />
-      {selected && <DatasetContents key={selected.id} datasetId={selected.id} busy={busy} onBusyChange={setBusy} />}
+      {selected && (
+        <DatasetContents
+          key={selected.id}
+          datasetId={selected.id}
+          datasetName={selected.name}
+          busy={busy}
+          onBusyChange={setBusy}
+        />
+      )}
     </main>
   )
 }

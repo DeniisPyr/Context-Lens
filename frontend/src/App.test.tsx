@@ -30,7 +30,7 @@ it('shows the title, the API status, the datasets, the documents and the ask sec
   expect(screen.getByRole('heading', { name: 'Datasets' })).toBeInTheDocument()
   expect(await screen.findByText('API: online')).toBeInTheDocument()
   expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Ask a question' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
 })
 
 it('shows only the datasets section before any dataset exists', async () => {
@@ -40,5 +40,5 @@ it('shows only the datasets section before any dataset exists', async () => {
 
   expect(await screen.findByText('Create a dataset to get started.')).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Documents' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Ask a question' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: /^Ask a question/ })).not.toBeInTheDocument()
 })

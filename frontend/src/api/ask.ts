@@ -17,13 +17,14 @@ export type Answer = {
 // Matches the limit on AskRequest in the backend.
 export const MAX_QUESTION_LENGTH = 2000
 
-export function askQuestion(documentId: string, question: string): Promise<Answer> {
+// The backend searches every document of the dataset, so one answer can cite several files.
+export function askQuestion(datasetId: string, question: string): Promise<Answer> {
   return send(
     '/api/ask',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ document_id: documentId, question }),
+      body: JSON.stringify({ dataset_id: datasetId, question }),
     },
     'Could not get an answer.',
   )
