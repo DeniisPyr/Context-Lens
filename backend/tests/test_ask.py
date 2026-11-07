@@ -36,7 +36,7 @@ def test_ask_returns_the_answer_with_citations_to_the_document(
     fake_gemini.answer = ModelAnswer(
         status="answered",
         answer="The cat is orange and the dog is brown.",
-        citations=[Citation(start_line=2, end_line=3, quote=quote)],
+        citations=[Citation(file="notes.txt", start_line=2, end_line=3, quote=quote)],
     )
     document_id = upload_document(client, f"Pets:\n{quote}")
 
@@ -60,13 +60,20 @@ def test_ask_returns_the_answer_with_citations_to_the_document(
     }
 
 
-def test_fabricated_citation_returns_the_not_found_message(
-    client: TestClient, fake_gemini: FakeGemini
+@pytest.mark.parametrize(
+    ("file", "quote"),
+    [
+        pytest.param("notes.txt", "The cat is purple.", id="fabricated_quote"),
+        pytest.param("other.txt", "The cat is orange.", id="file_not_shown"),
+    ],
+)
+def test_unverifiable_citation_returns_the_not_found_message(
+    client: TestClient, fake_gemini: FakeGemini, file: str, quote: str
 ) -> None:
     fake_gemini.answer = ModelAnswer(
         status="answered",
         answer="The cat is purple.",
-        citations=[Citation(start_line=1, end_line=1, quote="The cat is purple.")],
+        citations=[Citation(file=file, start_line=1, end_line=1, quote=quote)],
     )
     document_id = upload_document(client)
 
@@ -115,10 +122,13 @@ def test_prompt_has_the_requested_document_and_the_stripped_question(
 
     assert response.status_code == 200
     [prompt] = fake_gemini.prompts
-    assert "<document>\n1: The cat is orange.\n</document>" in prompt
-    assert prompt.endswith("What colour is the cat?")
-    assert "Another document." not in prompt
-    assert "notes.txt" not in prompt
+    assert prompt == (
+        '<excerpt file="notes.txt" lines="1-1">\n'
+        "1: The cat is orange.\n"
+        "</excerpt>\n"
+        "\n"
+        "Question: What colour is the cat?"
+    )
 
 
 def test_prompt_numbers_each_line_of_the_document(
@@ -131,7 +141,10 @@ def test_prompt_numbers_each_line_of_the_document(
     )
 
     [prompt] = fake_gemini.prompts
-    assert "<document>\n1: first line\n2: second line\n</document>" in prompt
+    assert (
+        '<excerpt file="notes.txt" lines="1-2">\n1: first line\n2: second line\n'
+        "</excerpt>"
+    ) in prompt
     assert prompt.endswith("What is on line 2?")
 
 
@@ -148,7 +161,7 @@ def test_prompt_numbering_matches_the_line_count_from_the_upload(
 
     assert upload.json()["line_count"] == 2
     [prompt] = fake_gemini.prompts
-    assert "<document>\n1: one\x0cstill one\n2: two\n</document>" in prompt
+    assert "\n1: one\x0cstill one\n2: two\n</excerpt>" in prompt
 
 
 def test_gemini_receives_the_system_instruction(

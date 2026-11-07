@@ -11,6 +11,7 @@ from context_lens.services.answering import (
     Citation,
     ModelAnswer,
     build_prompt,
+    document_excerpt,
 )
 from context_lens.services.documents import Document
 from context_lens.settings import Settings
@@ -45,7 +46,14 @@ class ScriptedGemini:
             REMOTE_DAYS: ModelAnswer(
                 status="answered",
                 answer="Employees can work from home 3 days a week.",
-                citations=[Citation(start_line=2, end_line=2, quote="3 days a week")],
+                citations=[
+                    Citation(
+                        file="handbook.md",
+                        start_line=2,
+                        end_line=2,
+                        quote="3 days a week",
+                    )
+                ],
             ),
             PARKING: ModelAnswer(status="not_found", answer="No.", citations=[]),
         }
@@ -96,7 +104,8 @@ def api_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def prompt_characters(question: str) -> int:
     document = Document(id="handbook.md", filename="handbook.md", text=HANDBOOK)
-    return len(SYSTEM_INSTRUCTION) + len(build_prompt(question, document))
+    prompt = build_prompt(question, [document_excerpt(document)])
+    return len(SYSTEM_INSTRUCTION) + len(prompt)
 
 
 @pytest.mark.usefixtures("evals")

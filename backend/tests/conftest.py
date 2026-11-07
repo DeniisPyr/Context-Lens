@@ -54,7 +54,14 @@ class FakeGemini:
         self.answer = ModelAnswer(
             status="answered",
             answer="The cat is orange.",
-            citations=[Citation(start_line=1, end_line=1, quote="The cat is orange.")],
+            citations=[
+                Citation(
+                    file="notes.txt",
+                    start_line=1,
+                    end_line=1,
+                    quote="The cat is orange.",
+                )
+            ],
         )
         self.error: Exception | None = None
         self.during_call: Callable[[], None] = lambda: None

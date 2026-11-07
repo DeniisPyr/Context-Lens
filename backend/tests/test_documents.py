@@ -434,7 +434,7 @@ def test_read_lines_are_the_lines_the_prompt_numbers(
 
     numbered = "\n".join(f"{i}: {line}" for i, line in enumerate(lines, start=1))
     assert len(lines) == 5
-    assert f"<document>\n{numbered}\n</document>" in fake_gemini.prompts[0]
+    assert f'lines="1-5">\n{numbered}\n</excerpt>' in fake_gemini.prompts[0]
 
 
 def test_a_citation_points_at_the_same_line_in_the_read_response(
@@ -443,7 +443,9 @@ def test_a_citation_points_at_the_same_line_in_the_read_response(
     fake_gemini.answer = ModelAnswer(
         status="answered",
         answer="Kůň je žluťoučký.",
-        citations=[Citation(start_line=5, end_line=5, quote="žluťoučký kůň")],
+        citations=[
+            Citation(file="notes.txt", start_line=5, end_line=5, quote="žluťoučký kůň")
+        ],
     )
     document_id = upload(client, documents_url, NUMBERING_TEXT.encode()).json()["id"]
 
@@ -539,7 +541,14 @@ def test_text_comes_back_exact_so_citations_still_verify(
     fake_gemini.answer = ModelAnswer(
         status="answered",
         answer="An answer.",
-        citations=[Citation(start_line=cited_line, end_line=cited_line, quote=quote)],
+        citations=[
+            Citation(
+                file="notes.txt",
+                start_line=cited_line,
+                end_line=cited_line,
+                quote=quote,
+            )
+        ],
     )
 
     uploaded = upload(client, documents_url, sent.encode())
@@ -560,6 +569,12 @@ def test_document_survives_an_app_restart(
     start_app: StartApp,
     fake_gemini: FakeGemini,
 ) -> None:
+    quote = "The cat is orange."
+    fake_gemini.answer = ModelAnswer(
+        status="answered",
+        answer=quote,
+        citations=[Citation(file="cat.txt", start_line=1, end_line=1, quote=quote)],
+    )
     with start_app() as before_restart:
         documents_url = create_dataset(before_restart)
         uploaded = upload(

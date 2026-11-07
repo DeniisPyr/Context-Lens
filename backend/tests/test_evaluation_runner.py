@@ -13,6 +13,7 @@ from context_lens.services.answering import (
     Citation,
     ModelAnswer,
     build_prompt,
+    document_excerpt,
 )
 from context_lens.services.documents import Document
 
@@ -50,7 +51,7 @@ def remote_days_answer(quote: str = "work from home 3 days a week") -> ModelAnsw
     return ModelAnswer(
         status="answered",
         answer="Employees can work from home 3 days a week.",
-        citations=[Citation(start_line=2, end_line=2, quote=quote)],
+        citations=[Citation(file="handbook.md", start_line=2, end_line=2, quote=quote)],
     )
 
 
@@ -122,9 +123,8 @@ async def test_gemini_gets_the_prompt_the_app_sends() -> None:
 
     await run_questions(make_set(question), gemini)
 
-    assert gemini.calls == [
-        (build_prompt(question.question, HANDBOOK), SYSTEM_INSTRUCTION, ModelAnswer)
-    ]
+    prompt = build_prompt(question.question, [document_excerpt(HANDBOOK)])
+    assert gemini.calls == [(prompt, SYSTEM_INSTRUCTION, ModelAnswer)]
 
 
 async def test_citation_the_verifier_rejects_gives_not_found() -> None:

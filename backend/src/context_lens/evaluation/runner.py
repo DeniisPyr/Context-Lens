@@ -13,6 +13,7 @@ from context_lens.services.answering import (
     ModelAnswer,
     answer_question,
     build_prompt,
+    document_excerpt,
 )
 from context_lens.services.documents import Document
 
@@ -48,7 +49,8 @@ class RecordingGemini:
 
 def prompt_characters(question: Question, document: Document) -> int:
     # What answer_question sends for the question.
-    return len(SYSTEM_INSTRUCTION) + len(build_prompt(question.question, document))
+    prompt = build_prompt(question.question, [document_excerpt(document)])
+    return len(SYSTEM_INSTRUCTION) + len(prompt)
 
 
 async def _run_once(

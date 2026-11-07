@@ -27,7 +27,9 @@ UNANSWERABLE = make_question(
 
 
 def cite(start_line: int, end_line: int) -> Citation:
-    return Citation(start_line=start_line, end_line=end_line, quote="A quote.")
+    return Citation(
+        file="handbook.md", start_line=start_line, end_line=end_line, quote="A quote."
+    )
 
 
 def answered(text: str, *citations: Citation) -> ModelAnswer:

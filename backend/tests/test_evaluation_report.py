@@ -48,8 +48,10 @@ def unanswerable(question_id: str, **changes: object) -> Question:
     )
 
 
-def answered(text: str, line: int, quote: str) -> ModelAnswer:
-    citation = Citation(start_line=line, end_line=line, quote=quote)
+def answered(
+    text: str, line: int, quote: str, file: str = "handbook.md"
+) -> ModelAnswer:
+    citation = Citation(file=file, start_line=line, end_line=line, quote=quote)
     return ModelAnswer(status="answered", answer=text, citations=[citation])
 
 
@@ -95,7 +97,7 @@ async def test_report_has_the_settings_summaries_and_every_run() -> None:
         (make_question("remote-days"), RIGHT),
         (
             unanswerable("dress-code", document="rules.md"),
-            answered("Dress well.", 1, "Dress well."),
+            answered("Dress well.", 1, "Dress well.", "rules.md"),
         ),
     )
 

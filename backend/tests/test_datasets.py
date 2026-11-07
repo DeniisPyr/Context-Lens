@@ -265,15 +265,17 @@ def test_uploaded_document_can_be_read_by_its_own_id(
 def test_uploaded_document_can_be_asked_about(
     client: TestClient, documents_url: str
 ) -> None:
-    uploaded = upload(client, documents_url, "a.txt", b"The cat is orange.\n").json()
+    # The name that FakeGemini's answer cites.
+    uploaded = upload(client, documents_url, "notes.txt", b"The cat is orange.\n")
 
     response = client.post(
-        "/api/ask", json={"document_id": uploaded["id"], "question": "Which colour?"}
+        "/api/ask",
+        json={"document_id": uploaded.json()["id"], "question": "Which colour?"},
     )
 
     assert response.status_code == 200
     assert response.json()["status"] == "answered"
-    assert response.json()["citations"][0]["filename"] == "a.txt"
+    assert response.json()["citations"][0]["filename"] == "notes.txt"
 
 
 def test_list_of_an_empty_dataset_is_empty(

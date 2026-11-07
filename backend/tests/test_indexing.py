@@ -331,7 +331,8 @@ def test_asking_still_sends_the_whole_document_and_embeds_nothing(
     numbered = "\n".join(
         f"{number}: {line}" for number, line in enumerate(PARAGRAPHS, start=1)
     )
-    assert f"<document>\n{numbered}\n</document>" in fake_gemini.prompts[0]
+    excerpt = f'<excerpt file="notes.txt" lines="1-{len(PARAGRAPHS)}">\n{numbered}\n'
+    assert excerpt in fake_gemini.prompts[0]
     assert fake_gemini.embedded == []
 
 
