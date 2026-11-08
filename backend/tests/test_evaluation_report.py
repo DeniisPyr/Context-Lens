@@ -230,14 +230,24 @@ async def test_rate_with_nothing_to_count_shows_as_not_applicable() -> None:
         pytest.param(
             make_question("remote-days"),
             answered("3 days.", 3, "The office opens at 8:00."),
-            "evidence line 2 not cited",
+            "evidence handbook.md line 2 not cited",
             id="evidence_line_not_cited",
         ),
         pytest.param(
             make_question("remote-days", evidence=[[2, 3]]),
             answered("3 days.", 1, "# Handbook"),
-            "evidence lines 2–3 not cited",
+            "evidence handbook.md lines 2–3 not cited",
             id="evidence_lines_not_cited",
+        ),
+        pytest.param(
+            make_question(
+                "remote-days-and-dress",
+                category="cross_document",
+                evidence=[[2, 2], ["rules.md", 1, 1]],
+            ),
+            RIGHT,
+            "evidence rules.md line 1 not cited",
+            id="evidence_in_another_file_not_cited",
         ),
         pytest.param(
             make_question("remote-days"),
@@ -248,7 +258,7 @@ async def test_rate_with_nothing_to_count_shows_as_not_applicable() -> None:
         pytest.param(
             make_question("remote-days"),
             answered("Two days.", 3, "The office opens at 8:00."),
-            "missing fact: 3 days / three days; evidence line 2 not cited",
+            "missing fact: 3 days / three days; evidence handbook.md line 2 not cited",
             id="several_reasons",
         ),
         pytest.param(

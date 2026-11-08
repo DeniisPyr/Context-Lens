@@ -19,12 +19,9 @@ from context_lens.evaluation.cases import (
     load_question_set,
     select_questions,
 )
+from context_lens.evaluation.methods import WholeDocuments
 from context_lens.evaluation.report import Report, build_report, render_markdown
-from context_lens.evaluation.runner import (
-    GeminiWithUsage,
-    prompt_characters,
-    run_questions,
-)
+from context_lens.evaluation.runner import GeminiWithUsage, run_questions
 from context_lens.evaluation.scoring import RunRecord
 from context_lens.settings import Settings
 
@@ -120,9 +117,9 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 def describe_plan(question_set: QuestionSet, repeats: int) -> str:
     questions = question_set.questions
     counts = Counter(question.category for question in questions)
+    method = WholeDocuments(question_set.documents)
     characters = repeats * sum(
-        prompt_characters(question, question_set.documents[question.document])
-        for question in questions
+        method.prompt_characters(question) for question in questions
     )
     tokens = round(characters / CHARACTERS_PER_TOKEN)
     count = len(questions)

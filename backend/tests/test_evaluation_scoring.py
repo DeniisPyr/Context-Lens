@@ -146,6 +146,40 @@ def test_citation_counts_when_it_names_the_document_as_shown_or_as_uploaded(
     assert score.extra_citations == (0 if cited else 1)
 
 
+@pytest.mark.parametrize(
+    ("citations", "evidence_cited", "extra_citations"),
+    [
+        pytest.param(
+            [cite(42, 43), cite(7, 7, "policy.md")], [True, True], 0, id="both_files"
+        ),
+        pytest.param(
+            [cite(42, 43), cite(7, 7)], [True, False], 1, id="other_lines_in_handbook"
+        ),
+        pytest.param(
+            [cite(42, 43, "policy.md"), cite(7, 7, "policy.md")],
+            [False, True],
+            1,
+            id="handbook_lines_in_policy",
+        ),
+    ],
+)
+def test_each_evidence_range_is_checked_against_citations_of_its_own_file(
+    citations: list[Citation], evidence_cited: list[bool], extra_citations: int
+) -> None:
+    question = make_question(
+        category="cross_document",
+        facts=[["3 days"], ["laptop"]],
+        evidence=[[42, 43], ["policy.md", 7, 7]],
+    )
+    final = answered("3 days, with a laptop.", *citations)
+
+    score = score_run(question, final, final)
+
+    assert score.evidence_cited == evidence_cited
+    assert score.extra_citations == extra_citations
+    assert score.correct == all(evidence_cited)
+
+
 def test_extra_citations_are_counted_but_dont_make_the_answer_wrong() -> None:
     final = answered(
         "3 days.", cite(1, 1), cite(42, 43), cite(50, 52), cite(42, 43, "policy.md")

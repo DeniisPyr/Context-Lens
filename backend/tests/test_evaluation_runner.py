@@ -4,7 +4,8 @@ import pytest
 from pydantic import BaseModel
 
 from context_lens.clients.gemini import GeminiError, GeminiUnavailableError, TokenUsage
-from context_lens.evaluation.cases import Question, QuestionSet
+from context_lens.evaluation.cases import LineRange, Question, QuestionSet
+from context_lens.evaluation.methods import document_excerpt
 from context_lens.evaluation.runner import RecordingGemini, run_questions
 from context_lens.evaluation.scoring import RunRecord, RunScore
 from context_lens.services.answering import (
@@ -13,7 +14,6 @@ from context_lens.services.answering import (
     Citation,
     ModelAnswer,
     build_prompt,
-    document_excerpt,
 )
 from context_lens.services.documents import Document
 
@@ -28,6 +28,8 @@ HANDBOOK = Document(
         "The office opens at 8:00.\n"
     ),
 )
+RULES = Document(id="rules.md", filename="rules.md", text="# Rules\nDress well.\n")
+POLICY = Document(id="policy.md", filename="policy.md", text="Lock your screen.\n")
 USAGE = TokenUsage(input_tokens=120, output_tokens=30, thought_tokens=45)
 
 
@@ -44,7 +46,8 @@ def make_question(question_id: str, **changes: object) -> Question:
 
 
 def make_set(*questions: Question) -> QuestionSet:
-    return QuestionSet(list(questions), {"handbook.md": HANDBOOK}, "sha256:test")
+    documents = {document.id: document for document in (HANDBOOK, POLICY, RULES)}
+    return QuestionSet(list(questions), documents, "sha256:test")
 
 
 def remote_days_answer(quote: str = "work from home 3 days a week") -> ModelAnswer:
@@ -94,7 +97,7 @@ async def test_run_records_the_answer_its_score_and_token_usage() -> None:
         document="handbook.md",
         question="Question remote-days?",
         facts=[["3 days"]],
-        evidence=[(2, 2)],
+        evidence=[LineRange("handbook.md", 2, 2)],
         status="answered",
         answer="Employees can work from home 3 days a week.",
         citations=remote_days_answer().citations,
@@ -125,6 +128,40 @@ async def test_gemini_gets_the_prompt_the_app_sends() -> None:
 
     prompt = build_prompt(question.question, [document_excerpt(HANDBOOK)])
     assert gemini.calls == [(prompt, SYSTEM_INSTRUCTION, ModelAnswer)]
+
+
+async def test_cross_document_question_gets_its_document_then_each_other_one() -> None:
+    question = make_question(
+        "remote-days-and-dress",
+        category="cross_document",
+        facts=[["3 days"], ["Dress well"]],
+        evidence=[["rules.md", 2, 2], [2, 2], ["policy.md", 1, 1]],
+    )
+    gemini = ScriptedGemini()
+    gemini.scripts[question.question] = ModelAnswer(
+        status="answered",
+        answer="Work from home 3 days a week. Dress well. Lock your screen.",
+        citations=[
+            Citation(file="handbook.md", start_line=2, end_line=2, quote="3 days"),
+            Citation(file="rules.md", start_line=2, end_line=2, quote="Dress well."),
+            Citation(file="policy.md", start_line=1, end_line=1, quote="Lock"),
+        ],
+    )
+
+    [record] = await run_questions(make_set(question), gemini)
+
+    excerpts = [document_excerpt(document) for document in (HANDBOOK, RULES, POLICY)]
+    assert gemini.calls == [
+        (build_prompt(question.question, excerpts), SYSTEM_INSTRUCTION, ModelAnswer)
+    ]
+    assert record.evidence == [
+        LineRange("rules.md", 2, 2),
+        LineRange("handbook.md", 2, 2),
+        LineRange("policy.md", 1, 1),
+    ]
+    assert record.score is not None
+    assert record.score.evidence_cited == [True, True, True]
+    assert record.score.correct
 
 
 async def test_citation_the_verifier_rejects_gives_not_found() -> None:

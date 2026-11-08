@@ -5,7 +5,7 @@ from typing import TypedDict
 
 from pydantic import BaseModel
 
-from context_lens.evaluation.cases import ANSWERABLE, Category, Question
+from context_lens.evaluation.cases import ANSWERABLE, Category, LineRange, Question
 from context_lens.evaluation.matching import contains_phrase
 from context_lens.services.answering import (
     AnswerStatus,
@@ -32,7 +32,7 @@ class RunRecord(BaseModel):
     # What was expected, so the report can say what's missing without the set.
     question: str
     facts: list[list[str]]
-    evidence: list[tuple[int, int]]
+    evidence: list[LineRange]
     # After verification. A run that ended in a Gemini error has no answer or score.
     status: AnswerStatus | None
     answer: str | None
@@ -81,11 +81,11 @@ def _names(filename: str) -> set[str]:
     return {filename, file_as_shown(filename)}
 
 
-def _cites(citation: Citation, filename: str, start: int, end: int) -> bool:
+def _cites(citation: Citation, lines: LineRange) -> bool:
     # Lines of another file don't count, however well their numbers match.
-    if citation.file not in _names(filename):
+    if citation.file not in _names(lines.file):
         return False
-    return citation.start_line <= end and start <= citation.end_line
+    return citation.start_line <= lines.end and lines.start <= citation.end_line
 
 
 def score_run(
@@ -96,17 +96,11 @@ def score_run(
         for fact in question.facts
     ]
     evidence_cited = [
-        any(
-            _cites(citation, question.document, start, end)
-            for citation in final.citations
-        )
-        for start, end in question.evidence
+        any(_cites(citation, lines) for citation in final.citations)
+        for lines in question.evidence
     ]
     extra_citations = sum(
-        not any(
-            _cites(citation, question.document, start, end)
-            for start, end in question.evidence
-        )
+        not any(_cites(citation, lines) for lines in question.evidence)
         for citation in final.citations
     )
     forbidden_found = [

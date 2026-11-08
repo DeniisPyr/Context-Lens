@@ -6,6 +6,7 @@ import pytest
 
 from context_lens.evaluation.cases import (
     InvalidQuestionSetError,
+    LineRange,
     Question,
     QuestionSet,
     load_question_set,
@@ -30,6 +31,16 @@ PARKING = {
     "document": "handbook.md",
     "category": "missing_related",
     "question": "Where can employees park?",
+}
+RULES = "# Rules\nDress well.\nNo dogs in the lab.\n"
+TWO_DOCUMENTS = {"handbook.md": HANDBOOK.encode(), "rules.md": RULES.encode()}
+REMOTE_DAYS_AND_DRESS = {
+    "id": "handbook-remote-days-and-dress",
+    "document": "handbook.md",
+    "category": "cross_document",
+    "question": "How many days a week can employees work from home, and how to dress?",
+    "facts": [["3 days"], ["dress well"]],
+    "evidence": [[2, 2], ["rules.md", 2, 2]],
 }
 
 
@@ -178,9 +189,20 @@ def test_question_about_a_hidden_file_is_an_error(tmp_path: Path) -> None:
         pytest.param({"facts": "3 days"}, "facts: Input", id="facts_not_a_list"),
         pytest.param(
             {"evidence": [[2]]},
-            "evidence.0.1: Field required",
+            "evidence: entry 1 must be [start, end] or [file, start, end]",
             id="evidence_not_a_pair",
         ),
+        pytest.param(
+            {"evidence": [[2, 2], [2, 2, 2]]},
+            "evidence: entry 2 must be [start, end] or [file, start, end]",
+            id="evidence_of_three_numbers",
+        ),
+        pytest.param(
+            {"evidence": [["handbook.md", 2]]},
+            "evidence: entry 1 must be [start, end] or [file, start, end]",
+            id="evidence_file_without_an_end",
+        ),
+        pytest.param({"evidence": "2-2"}, "evidence: Input", id="evidence_not_a_list"),
         pytest.param({"facts": []}, "a fact question needs facts", id="no_facts"),
         pytest.param({"facts": [[]]}, "at least one phrasing", id="empty_fact"),
         pytest.param(
@@ -243,7 +265,129 @@ def test_evidence_can_span_several_ranges(tmp_path: Path) -> None:
 
     question_set = load_question_set(folder)
 
-    assert question_set.questions[0].evidence == [(2, 2), (3, 3)]
+    assert question_set.questions[0].evidence == [
+        LineRange("handbook.md", 2, 2),
+        LineRange("handbook.md", 3, 3),
+    ]
+
+
+def test_evidence_may_name_the_questions_own_document(tmp_path: Path) -> None:
+    question = REMOTE_DAYS | {"evidence": [["handbook.md", 2, 2]]}
+    folder = write_set(tmp_path / "evals", as_toml(question))
+
+    question_set = load_question_set(folder)
+
+    assert question_set.questions == [Question.model_validate(REMOTE_DAYS)]
+
+
+def test_cross_document_question_has_evidence_in_each_of_its_files(
+    tmp_path: Path,
+) -> None:
+    folder = write_set(
+        tmp_path / "evals", as_toml(REMOTE_DAYS_AND_DRESS), TWO_DOCUMENTS
+    )
+
+    [question] = load_question_set(folder).questions
+
+    assert question.answerable
+    assert question.evidence == [
+        LineRange("handbook.md", 2, 2),
+        LineRange("rules.md", 2, 2),
+    ]
+    assert question.files == ["handbook.md", "rules.md"]
+
+
+def test_files_of_a_question_are_its_document_then_the_others_in_order() -> None:
+    question = Question.model_validate(
+        REMOTE_DAYS_AND_DRESS
+        | {
+            "evidence": [
+                ["c.md", 1, 1],
+                [2, 2],
+                ["b.md", 1, 1],
+                ["c.md", 3, 3],
+            ]
+        }
+    )
+
+    assert question.files == ["handbook.md", "c.md", "b.md"]
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        pytest.param(
+            {"evidence": [[2, 2], [3, 3]], "facts": [["3 days"]]},
+            "a cross_document question needs evidence in its own document and in at "
+            "least one other",
+            id="evidence_in_its_own_document_only",
+        ),
+        pytest.param(
+            {"evidence": [["rules.md", 2, 2]], "facts": [["dress well"]]},
+            "a cross_document question needs evidence in its own document and in at "
+            "least one other",
+            id="evidence_in_another_document_only",
+        ),
+        pytest.param(
+            {"evidence": [[2, 2], ["missing.md", 1, 1]]},
+            "missing.md is not in",
+            id="evidence_in_a_missing_file",
+        ),
+        pytest.param(
+            {"evidence": [[2, 2], ["rules.md", 3, 2]]},
+            "evidence [3, 2] in rules.md ends before it starts",
+            id="evidence_backwards",
+        ),
+        pytest.param(
+            {"evidence": [[2, 2], ["rules.md", 2, 4]]},
+            "evidence [2, 4] is outside rules.md, which has 3 lines",
+            id="evidence_past_the_end_of_the_other_file",
+        ),
+        pytest.param(
+            {"evidence": [[2, 2], ["rules.md", 3, 3]]},
+            "the fact dress well is not in its evidence lines",
+            id="evidence_on_the_wrong_line_of_the_other_file",
+        ),
+    ],
+)
+def test_invalid_cross_document_question_is_an_error_naming_it(
+    tmp_path: Path, changes: dict[str, object], message: str
+) -> None:
+    question = REMOTE_DAYS_AND_DRESS | changes
+    folder = write_set(tmp_path / "evals", as_toml(question), TWO_DOCUMENTS)
+
+    error = load_error(folder)
+
+    assert error.startswith(f"Question {question['id']}: ")
+    assert message in error
+
+
+@pytest.mark.parametrize("category", ["fact", "multi_fact", "injection"])
+def test_only_a_cross_document_question_has_evidence_in_another_file(
+    tmp_path: Path, category: str
+) -> None:
+    question = REMOTE_DAYS_AND_DRESS | {"category": category}
+    folder = write_set(tmp_path / "evals", as_toml(question), TWO_DOCUMENTS)
+
+    error = load_error(folder)
+
+    assert error == (
+        f"Question handbook-remote-days-and-dress: a {category} question can only "
+        "have evidence in its own document, handbook.md."
+    )
+
+
+def test_evidence_in_a_hidden_file_is_an_error(tmp_path: Path) -> None:
+    question = REMOTE_DAYS_AND_DRESS | {"evidence": [[2, 2], [".rules.md", 2, 2]]}
+    documents = {"handbook.md": HANDBOOK.encode(), ".rules.md": RULES.encode()}
+    folder = write_set(tmp_path / "evals", as_toml(question), documents)
+
+    error = load_error(folder)
+
+    assert error == (
+        "Question handbook-remote-days-and-dress: .rules.md is not in "
+        f"{folder / 'documents'}."
+    )
 
 
 def test_question_without_an_id_is_named_by_its_position(

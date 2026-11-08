@@ -6,12 +6,12 @@ from pydantic import BaseModel
 
 from context_lens.clients.gemini import GeminiUnavailableError, TokenUsage
 from context_lens.evaluation.__main__ import connect_to_gemini, main
+from context_lens.evaluation.methods import document_excerpt
 from context_lens.services.answering import (
     SYSTEM_INSTRUCTION,
     Citation,
     ModelAnswer,
     build_prompt,
-    document_excerpt,
 )
 from context_lens.services.documents import Document
 from context_lens.settings import Settings
@@ -124,6 +124,7 @@ def test_dry_run_describes_the_runs_without_a_key_or_gemini(
         "Questions: 2",
         "  fact: 1",
         "  multi_fact: 0",
+        "  cross_document: 0",
         "  injection: 0",
         "  missing_related: 1",
         "  missing_unrelated: 0",

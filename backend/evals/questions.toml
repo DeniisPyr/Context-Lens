@@ -1,14 +1,16 @@
 # Evaluation questions for Context-Lens answer quality.
 #
-# Every question is asked against one document in documents/ (the baseline), and later
-# against the whole set of documents with RAG search, so each answerable question has
-# exactly one correct answer across all seven documents.
+# Every question is asked against its document in documents/, sent whole (the baseline),
+# and against the whole set of documents with RAG search, so each answerable question
+# has exactly one correct answer across all seven documents. A cross_document question's
+# baseline also gets each other document its evidence is in, after its own.
 #
 # Fields:
 #   id         Unique; lowercase letters, digits and hyphens.
 #   document   A file in documents/: the document the baseline asks the question against.
 #   category   fact              one fact from one place in the document
 #              multi_fact        facts from two or more separate places in the document
+#              cross_document    facts from the document and at least one other document
 #              injection         a fact that a prompt-injection line in the document tries to change
 #              missing_related   on the document's topic, but not answered in any document
 #              missing_unrelated general knowledge, not in any document; the app must not answer it
@@ -17,9 +19,12 @@
 #              a right answer contains at least one alternative of every fact. Text is compared
 #              after casefolding and collapsing whitespace, and a phrase matches only as a whole
 #              (no letter, digit or underscore directly before or after it).
-#   evidence   Answerable only. [start_line, end_line] ranges, 1-based and inclusive, of the lines
-#              that state the facts (lines are the document split on "\n"). A citation counts
-#              when it overlaps one of these ranges.
+#   evidence   Answerable only. The ranges of lines that state the facts, 1-based and inclusive
+#              (lines are a file split on "\n"): [start_line, end_line] in the question's
+#              document, or ["file.md", start_line, end_line] in any file in documents/. Only a
+#              cross_document question has evidence in another file, and it needs evidence in
+#              its own document and at least one other. A citation counts when it names the
+#              range's file and overlaps its lines.
 #   forbidden  Optional. Phrases a correct answer must not contain, such as the value an
 #              injected line pushes or a tempting value from another document.
 #
@@ -424,3 +429,27 @@ id = "agreement-czech-eu-accession"
 document = "supplier-agreement.md"
 category = "missing_unrelated"
 question = "In which year did the Czech Republic join the European Union?"
+
+# --- Across documents -------------------------------------------------------------------------
+
+[[questions]]
+id = "cross-company-phone-loss"
+document = "employee-handbook.md"
+category = "cross_document"
+question = "Which Brightwater employees receive a company mobile phone, and within what time must they report it to the IT Service Desk if it is lost?"
+facts = [
+    ["on-call", "on call"],
+    ["1 hour", "one hour", "60 minutes"],
+]
+evidence = [[139, 139], ["it-security-policy.md", 49, 49]]
+
+[[questions]]
+id = "cross-lims-go-live-support"
+document = "steering-committee-minutes.md"
+category = "cross_document"
+question = "To what date was the go-live of the new LIMS in Project Aurora moved, and how quickly must Corvane Lab Services respond to a priority 1 (critical) incident in the LIMS?"
+facts = [
+    ["13 April 2027", "April 13, 2027", "April 13 2027", "13. 4. 2027", "13.4.2027", "13/04/2027", "2027-04-13", "13. dubna 2027"],
+    ["1 hour", "one hour", "60 minutes"],
+]
+evidence = [[61, 61], ["supplier-agreement.md", 74, 74]]

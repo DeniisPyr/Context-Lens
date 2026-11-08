@@ -170,8 +170,8 @@ def _reasons(record: RunRecord) -> list[str]:
         if not found
     ]
     reasons += [
-        f"evidence {_lines(start, end)} not cited"
-        for (start, end), cited in zip(
+        f"evidence {file} {_lines(start, end)} not cited"
+        for (file, start, end), cited in zip(
             record.evidence, score.evidence_cited, strict=True
         )
         if not cited

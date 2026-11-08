@@ -6,7 +6,6 @@ from xml.sax.saxutils import escape
 from pydantic import BaseModel
 
 from context_lens.clients.gemini import GeminiClient
-from context_lens.services.documents import Document
 
 logger = logging.getLogger(__name__)
 
@@ -59,11 +58,6 @@ class Excerpt:
     @property
     def file(self) -> str:
         return file_as_shown(self.filename)
-
-
-def document_excerpt(document: Document) -> Excerpt:
-    lines = dict(enumerate(document.lines, start=1))
-    return Excerpt(document_id=document.id, filename=document.filename, lines=lines)
 
 
 def _format_excerpt(excerpt: Excerpt) -> str:
@@ -171,11 +165,3 @@ async def ask_about_excerpts(
     return await gemini.ask(
         build_prompt(question, excerpts), SYSTEM_INSTRUCTION, ModelAnswer
     )
-
-
-async def answer_question(
-    question: str, document: Document, gemini: GeminiClient
-) -> ModelAnswer:
-    # The whole document is one excerpt, so the lines Gemini is shown are the real ones.
-    excerpts = [document_excerpt(document)]
-    return verify_answer(await ask_about_excerpts(question, excerpts, gemini), excerpts)

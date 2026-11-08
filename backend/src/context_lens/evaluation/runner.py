@@ -7,15 +7,9 @@ from pydantic import BaseModel
 
 from context_lens.clients.gemini import GeminiError, TokenUsage
 from context_lens.evaluation.cases import Question, QuestionSet
+from context_lens.evaluation.methods import WholeDocuments
 from context_lens.evaluation.scoring import RunRecord, score_run
-from context_lens.services.answering import (
-    SYSTEM_INSTRUCTION,
-    ModelAnswer,
-    answer_question,
-    build_prompt,
-    document_excerpt,
-)
-from context_lens.services.documents import Document
+from context_lens.services.answering import ModelAnswer
 
 type OnResult = Callable[[RunRecord, int, int], None]
 
@@ -27,8 +21,8 @@ class GeminiWithUsage(Protocol):
 
 
 class RecordingGemini:
-    # answer_question returns only the verified answer, so this keeps what Gemini
-    # said before verification, and what it cost.
+    # A method returns only the verified answer, so this keeps what Gemini said before
+    # verification, and what it cost.
     def __init__(self, gemini: GeminiWithUsage) -> None:
         self._gemini = gemini
         self.raw_answer: ModelAnswer | None = None
@@ -47,21 +41,15 @@ class RecordingGemini:
         return answer
 
 
-def prompt_characters(question: Question, document: Document) -> int:
-    # What answer_question sends for the question.
-    prompt = build_prompt(question.question, [document_excerpt(document)])
-    return len(SYSTEM_INSTRUCTION) + len(prompt)
-
-
 async def _run_once(
-    question: Question, repeat: int, document: Document, gemini: GeminiWithUsage
+    question: Question, repeat: int, method: WholeDocuments, gemini: GeminiWithUsage
 ) -> RunRecord:
     recorder = RecordingGemini(gemini)
     final: ModelAnswer | None = None
     error: str | None = None
     started = time.perf_counter()
     try:
-        final = await answer_question(question.question, document, recorder)
+        final = await method.answer(question, recorder)
     except GeminiError as exc:
         error = type(exc).__name__
     seconds = time.perf_counter() - started
@@ -103,14 +91,14 @@ async def run_questions(
         for question in question_set.questions
         for repeat in range(1, repeats + 1)
     ]
+    method = WholeDocuments(question_set.documents)
     semaphore = asyncio.Semaphore(concurrency)
     done = 0
 
     async def run(question: Question, repeat: int) -> RunRecord:
         nonlocal done
-        document = question_set.documents[question.document]
         async with semaphore:
-            record = await _run_once(question, repeat, document, gemini)
+            record = await _run_once(question, repeat, method, gemini)
         done += 1
         if on_result is not None:
             on_result(record, done, len(jobs))
