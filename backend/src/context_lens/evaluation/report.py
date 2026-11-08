@@ -93,11 +93,11 @@ def build_report(
     )
 
 
-def _plural(count: int, noun: str) -> str:
+def plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
-def _rate(rate: Rate) -> str:
+def format_rate(rate: Rate) -> str:
     if rate["rate"] is None:
         return NOT_APPLICABLE
     return f"{rate['rate']:.0%} ({rate['count']}/{rate['of']})"
@@ -115,22 +115,22 @@ def _row(cells: list[str]) -> str:
     return "| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |"
 
 
-def _table(header: list[str], rows: list[list[str]]) -> list[str]:
+def markdown_table(header: list[str], rows: list[list[str]]) -> list[str]:
     return [_row(header), _row(["---"] * len(header)), *map(_row, rows)]
 
 
-def _summary_rows(summary: Summary) -> list[list[str]]:
+def summary_rows(summary: Summary) -> list[list[str]]:
     return [
         ["Questions", str(summary["questions"])],
         ["Runs", str(summary["runs"])],
         ["Gemini errors", str(summary["errors"])],
-        ["Correct", _rate(summary["correct"])],
-        ["Answer accuracy", _rate(summary["answer_accuracy"])],
-        ["Citation accuracy", _rate(summary["citation_accuracy"])],
-        ["Evidence shown to Gemini", _rate(summary["evidence_shown"])],
-        ["False not found", _rate(summary["false_not_found_rate"])],
-        ["Not found accuracy", _rate(summary["not_found_accuracy"])],
-        ["Rejected by the verifier", _rate(summary["rejected_by_verifier"])],
+        ["Correct", format_rate(summary["correct"])],
+        ["Answer accuracy", format_rate(summary["answer_accuracy"])],
+        ["Citation accuracy", format_rate(summary["citation_accuracy"])],
+        ["Evidence shown to Gemini", format_rate(summary["evidence_shown"])],
+        ["False not found", format_rate(summary["false_not_found_rate"])],
+        ["Not found accuracy", format_rate(summary["not_found_accuracy"])],
+        ["Rejected by the verifier", format_rate(summary["rejected_by_verifier"])],
         ["Median seconds", _seconds(summary["median_seconds"])],
         ["p95 seconds", _seconds(summary["p95_seconds"])],
         ["Max seconds", _seconds(summary["max_seconds"])],
@@ -147,12 +147,12 @@ def _group_rows(summaries: dict[str, Summary]) -> list[list[str]]:
             name,
             str(summary["runs"]),
             str(summary["errors"]),
-            _rate(summary["correct"]),
-            _rate(summary["answer_accuracy"]),
-            _rate(summary["citation_accuracy"]),
-            _rate(summary["evidence_shown"]),
-            _rate(summary["false_not_found_rate"]),
-            _rate(summary["not_found_accuracy"]),
+            format_rate(summary["correct"]),
+            format_rate(summary["answer_accuracy"]),
+            format_rate(summary["citation_accuracy"]),
+            format_rate(summary["evidence_shown"]),
+            format_rate(summary["false_not_found_rate"]),
+            format_rate(summary["not_found_accuracy"]),
             _seconds(summary["median_seconds"]),
             _tokens(summary["mean_input_tokens"]),
         ]
@@ -176,7 +176,7 @@ def _not_shown(record: RunRecord) -> list[LineRange]:
     ]
 
 
-def _reasons(record: RunRecord) -> list[str]:
+def failure_reasons(record: RunRecord) -> list[str]:
     score = record.score
     if score is None:
         return [f"Gemini error: {record.error}"]
@@ -213,7 +213,7 @@ def _describe_search(report: Report) -> list[str]:
         return []
     search = (
         f"Search: the {report['chunks_per_question']} nearest of "
-        f"{_plural(index['chunks'], 'chunk')} for each question. Indexing embedded "
+        f"{plural(index['chunks'], 'chunk')} for each question. Indexing embedded "
         f"{index['embedded_characters']:,} characters in {index['seconds']:.1f} s."
     )
     return [search, ""]
@@ -223,16 +223,16 @@ def render_markdown(report: Report) -> str:
     question_set = report["question_set"]
     records = [RunRecord.model_validate(run) for run in report["runs"]]
     failures = [
-        f"- `{record.question_id}` #{record.repeat}: {'; '.join(_reasons(record))}"
+        f"- `{record.question_id}` #{record.repeat}: {'; '.join(failure_reasons(record))}"
         for record in records
         if record.score is None or not record.score.correct
     ]
-    questions = _plural(question_set["questions"], "question")
-    documents = _plural(question_set["documents"], "document")
+    questions = plural(question_set["questions"], "question")
+    documents = plural(question_set["documents"], "document")
     about = ", ".join(
         [
             f"{questions} about {documents} (set {question_set['fingerprint']})",
-            _plural(report["repeats"], "repeat"),
+            plural(report["repeats"], "repeat"),
             f"concurrency {report['concurrency']}",
             f"started {report['started_at']}",
             f"took {report['duration_seconds']:.1f} s",
@@ -246,15 +246,19 @@ def render_markdown(report: Report) -> str:
         *_describe_search(report),
         "## Summary",
         "",
-        *_table(["Measure", "Value"], _summary_rows(report["summary"])),
+        *markdown_table(["Measure", "Value"], summary_rows(report["summary"])),
         "",
         "## By category",
         "",
-        *_table(["Category", *GROUP_COLUMNS], _group_rows(report["by_category"])),
+        *markdown_table(
+            ["Category", *GROUP_COLUMNS], _group_rows(report["by_category"])
+        ),
         "",
         "## By document",
         "",
-        *_table(["Document", *GROUP_COLUMNS], _group_rows(report["by_document"])),
+        *markdown_table(
+            ["Document", *GROUP_COLUMNS], _group_rows(report["by_document"])
+        ),
         "",
         "## Runs that weren't correct",
         "",
