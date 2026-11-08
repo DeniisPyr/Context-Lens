@@ -13,6 +13,7 @@ from context_lens.services.answering import (
     ModelAnswer,
     file_as_shown,
 )
+from context_lens.services.documents import Document
 
 
 class RunScore(BaseModel):
@@ -40,10 +41,17 @@ class RunRecord(BaseModel):
     raw_status: AnswerStatus | None
     # Only when the verifier rejected them, to show what Gemini cited instead.
     raw_citations: list[Citation] | None
+    # The lines Gemini was shown, and for each evidence range whether all of it was
+    # among them, which tells a search that missed from an answer that did. A run that
+    # ended in a Gemini error has neither.
+    excerpts: list[LineRange]
+    evidence_shown: list[bool] | None
     seconds: float
     input_tokens: int
     output_tokens: int
     thought_tokens: int
+    # Of the question, which rag embeds to search with. Embedding costs too.
+    embedded_characters: int
     error: str | None
     score: RunScore | None
 
@@ -62,6 +70,7 @@ class Summary(TypedDict):
     answerable_runs: int
     answer_accuracy: Rate
     citation_accuracy: Rate
+    evidence_shown: Rate
     false_not_found_rate: Rate
     unanswerable_runs: int
     not_found_accuracy: Rate
@@ -86,6 +95,33 @@ def _cites(citation: Citation, lines: LineRange) -> bool:
     if citation.file not in _names(lines.file):
         return False
     return citation.start_line <= lines.end and lines.start <= citation.end_line
+
+
+def _was_shown(file: str, number: int, excerpts: list[LineRange]) -> bool:
+    return any(
+        shown.file == file and shown.start <= number <= shown.end for shown in excerpts
+    )
+
+
+def _range_was_shown(
+    lines: LineRange, excerpts: list[LineRange], document: Document
+) -> bool:
+    # A blank line needn't have been: there's nothing on it to see, and a chunk leaves
+    # out those at its ends. A line too long for one chunk counts as shown when a piece
+    # of it was.
+    text = document.lines
+    return all(
+        not text[number - 1].strip() or _was_shown(lines.file, number, excerpts)
+        for number in range(lines.start, lines.end + 1)
+    )
+
+
+def evidence_shown(
+    evidence: list[LineRange], excerpts: list[LineRange], documents: dict[str, Document]
+) -> list[bool]:
+    return [
+        _range_was_shown(lines, excerpts, documents[lines.file]) for lines in evidence
+    ]
 
 
 def score_run(
@@ -145,6 +181,10 @@ def _evidence_is_cited(record: RunRecord) -> bool:
     return record.score is not None and all(record.score.evidence_cited)
 
 
+def _evidence_was_shown(record: RunRecord) -> bool:
+    return record.evidence_shown is not None and all(record.evidence_shown)
+
+
 def _said_not_found(record: RunRecord) -> bool:
     return record.status == "not_found"
 
@@ -190,6 +230,7 @@ def summarize(records: list[RunRecord]) -> Summary:
         answerable_runs=len(answerable),
         answer_accuracy=_rate(answerable, _answer_is_right),
         citation_accuracy=_rate(answerable, _evidence_is_cited),
+        evidence_shown=_rate(answerable, _evidence_was_shown),
         false_not_found_rate=_rate(answerable, _said_not_found),
         unanswerable_runs=len(unanswerable),
         not_found_accuracy=_rate(unanswerable, _said_not_found),

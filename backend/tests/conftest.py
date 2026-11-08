@@ -4,7 +4,9 @@ import json
 import logging
 import math
 import os
+import re
 import time
+import zlib
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
@@ -47,6 +49,17 @@ def fake_embedding(text: str) -> list[float]:
     # floats exactly.
     digest = hashlib.sha256(text.encode()).digest()
     return [digest[index % len(digest)] / 256 for index in range(EMBEDDING_DIMENSIONS)]
+
+
+def word_embedding(text: str) -> list[float]:
+    # Each word adds one to a number picked by its hash, so texts that share words are
+    # near each other and a test can tell which chunk a search finds first. crc32,
+    # because Python's own hash of a string changes from run to run.
+    vector = [0.0] * EMBEDDING_DIMENSIONS
+    for word in re.findall(r"\w+", text.casefold()):
+        vector[zlib.crc32(word.encode()) % EMBEDDING_DIMENSIONS] += 1
+    norm = math.sqrt(sum(value * value for value in vector))
+    return [value / norm for value in vector] if norm else vector
 
 
 def direction(degrees: float) -> list[float]:

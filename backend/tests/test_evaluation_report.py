@@ -2,12 +2,15 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from conftest import word_embedding
 from pydantic import BaseModel
 
 from context_lens.clients.gemini import GeminiUnavailableError, TokenUsage
 from context_lens.evaluation.cases import Question, QuestionSet
+from context_lens.evaluation.dataset import DocumentsById, IndexInfo, plan_index
+from context_lens.evaluation.methods import DatasetSearch, Method, WholeDocuments
 from context_lens.evaluation.report import Report, build_report, render_markdown
-from context_lens.evaluation.runner import run_questions
+from context_lens.evaluation.runner import build_index, run_questions
 from context_lens.evaluation.scoring import RunRecord, summarize
 from context_lens.services.answering import Citation, ModelAnswer
 from context_lens.services.documents import Document
@@ -72,18 +75,35 @@ class ScriptedGemini:
         usage = TokenUsage(input_tokens=1000, output_tokens=200, thought_tokens=34)
         return response_model.model_validate(script.model_dump()), usage
 
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [word_embedding(text) for text in texts]
 
-async def report_for(*runs: tuple[Question, Script]) -> Report:
+
+async def report_for(
+    *runs: tuple[Question, Script], chunks: int | None = None
+) -> Report:
+    # By rag when chunks are given, and by whole_document when not.
     questions = [question for question, _ in runs]
     question_set = QuestionSet(
         questions, {"handbook.md": HANDBOOK, "rules.md": RULES}, "sha256:test"
     )
     gemini = ScriptedGemini({question.question: script for question, script in runs})
-    records = await run_questions(question_set, gemini)
+    method: Method
+    index: IndexInfo | None
+    if chunks is None:
+        method, index = WholeDocuments(question_set.documents), None
+    else:
+        chunk_index, index = await build_index(question_set, gemini)
+        documents = DocumentsById(question_set.documents.values())
+        method = DatasetSearch(chunk_index, documents, chunks)
+    records = await run_questions(question_set, method, gemini)
     return build_report(
         records,
         question_set,
+        method=method.name,
         model="test-model",
+        chunks_per_question=chunks,
+        index=index,
         started_at=STARTED_AT,
         duration_seconds=12.345,
         repeats=1,
@@ -105,6 +125,8 @@ async def test_report_has_the_settings_summaries_and_every_run() -> None:
     assert {key: value for key, value in report.items() if key not in summaries} == {
         "method": "whole_document",
         "model": "test-model",
+        "chunks_per_question": None,
+        "index": None,
         "started_at": "2026-11-06T09:30:00+00:00",
         "duration_seconds": 12.345,
         "repeats": 1,
@@ -181,6 +203,7 @@ async def test_markdown_shows_rates_with_their_counts_and_rounds_numbers() -> No
 
     assert "| Correct | 67% (2/3) |" in markdown
     assert "| Answer accuracy | 50% (1/2) |" in markdown
+    assert "| Evidence shown to Gemini | 100% (2/2) |" in markdown
     assert "| False not found | 50% (1/2) |" in markdown
     assert "| Not found accuracy | 100% (1/1) |" in markdown
     assert "| Median seconds | 3.3 |" in markdown
@@ -198,10 +221,11 @@ async def test_markdown_has_a_row_for_each_category_and_document() -> None:
     markdown = render_markdown(report)
 
     fact_row = (
-        "| fact | 1 | 0 | 100% (1/1) | 100% (1/1) | 100% (1/1) | 0% (0/1) | n/a |"
+        "| fact | 1 | 0 | 100% (1/1) | 100% (1/1) | 100% (1/1) | 100% (1/1) | 0% (0/1) "
+        "| n/a |"
     )
     missing_row = (
-        "| missing_related | 1 | 0 | 100% (1/1) | n/a | n/a | n/a | 100% (1/1) |"
+        "| missing_related | 1 | 0 | 100% (1/1) | n/a | n/a | n/a | n/a | 100% (1/1) |"
     )
     assert fact_row in markdown
     assert missing_row in markdown
@@ -288,6 +312,94 @@ async def test_markdown_says_why_each_wrong_run_was_wrong(
     question: Question, script: Script, reasons: str
 ) -> None:
     report = await report_for((question, script), (make_question("right"), RIGHT))
+
+    markdown = render_markdown(report)
+
+    assert markdown.endswith(
+        f"## Runs that weren't correct\n\n- `{question.id}` #1: {reasons}\n"
+    )
+
+
+async def test_rag_report_has_its_chunks_and_index() -> None:
+    report = await report_for((make_question("remote-days"), RIGHT), chunks=1)
+
+    assert report["method"] == "rag"
+    assert report["chunks_per_question"] == 1
+    index = report["index"]
+    assert index is not None
+    characters = plan_index([HANDBOOK, RULES]).characters_to_embed
+    assert index == {
+        "chunks": 2,
+        "embedded_characters": characters,
+        "seconds": index["seconds"],
+    }
+    [run] = report["runs"]
+    assert run["excerpts"] == [["handbook.md", 1, 3]]
+    assert run["evidence_shown"] == [True]
+
+
+async def test_rag_markdown_says_how_it_searched() -> None:
+    report = await report_for((make_question("remote-days"), RIGHT), chunks=1)
+    assert report["index"] is not None
+    report["index"]["embedded_characters"] = 12345
+    report["index"]["seconds"] = 3.21
+
+    heading, _, _, _, search, blank, summary, *_ = render_markdown(report).splitlines()
+
+    assert heading == "# Answer quality: rag, test-model"
+    assert search == (
+        "Search: the 1 nearest of 2 chunks for each question. Indexing embedded "
+        "12,345 characters in 3.2 s."
+    )
+    assert (blank, summary) == ("", "## Summary")
+
+
+async def test_whole_document_markdown_has_no_search_line() -> None:
+    report = await report_for((make_question("remote-days"), RIGHT))
+
+    _, _, _, blank, summary, *_ = render_markdown(report).splitlines()
+
+    assert (blank, summary) == ("", "## Summary")
+
+
+# Its words are in the rules, so a search for one chunk shows Gemini only those.
+ABOUT_THE_RULES = make_question("rules-dress")
+
+
+@pytest.mark.parametrize(
+    ("question", "script", "reasons"),
+    [
+        pytest.param(
+            ABOUT_THE_RULES,
+            NOT_FOUND,
+            "said not found; evidence handbook.md line 2 not shown to Gemini",
+            id="search_miss",
+        ),
+        pytest.param(
+            make_question("remote-days"),
+            NOT_FOUND,
+            "said not found",
+            id="answering_miss",
+        ),
+        pytest.param(
+            ABOUT_THE_RULES,
+            answered("3 days.", 2, "3 days a week"),
+            "citations rejected by the verifier; evidence handbook.md line 2 not "
+            "shown to Gemini",
+            id="rejected_after_a_search_miss",
+        ),
+        pytest.param(
+            ABOUT_THE_RULES,
+            answered("3 days.", 1, "Dress well.", "rules.md"),
+            "evidence handbook.md line 2 not shown to Gemini",
+            id="answered_from_the_wrong_document",
+        ),
+    ],
+)
+async def test_markdown_says_when_the_search_didnt_show_gemini_the_evidence(
+    question: Question, script: Script, reasons: str
+) -> None:
+    report = await report_for((question, script), chunks=1)
 
     markdown = render_markdown(report)
 

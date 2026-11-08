@@ -2,10 +2,10 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, TypedDict
 
-from context_lens.evaluation.cases import ANSWERABLE, CATEGORIES, QuestionSet
+from context_lens.evaluation.cases import ANSWERABLE, CATEGORIES, LineRange, QuestionSet
+from context_lens.evaluation.dataset import IndexInfo
 from context_lens.evaluation.scoring import Rate, RunRecord, Summary, summarize
 
-METHOD = "whole_document"
 NOT_APPLICABLE = "n/a"
 GROUP_COLUMNS = [
     "Runs",
@@ -13,6 +13,7 @@ GROUP_COLUMNS = [
     "Correct",
     "Answer accuracy",
     "Citation accuracy",
+    "Evidence shown",
     "False not found",
     "Not found accuracy",
     "Median seconds",
@@ -29,6 +30,9 @@ class QuestionSetInfo(TypedDict):
 class Report(TypedDict):
     method: str
     model: str
+    # Only for rag, which searches an index of the documents.
+    chunks_per_question: int | None
+    index: IndexInfo | None
     started_at: str
     duration_seconds: float
     repeats: int
@@ -53,7 +57,10 @@ def build_report(
     records: list[RunRecord],
     question_set: QuestionSet,
     *,
+    method: str,
     model: str,
+    chunks_per_question: int | None,
+    index: IndexInfo | None,
     started_at: datetime,
     duration_seconds: float,
     repeats: int,
@@ -66,8 +73,10 @@ def build_report(
     ]
     documents = sorted({record.document for record in records})
     return Report(
-        method=METHOD,
+        method=method,
         model=model,
+        chunks_per_question=chunks_per_question,
+        index=index,
         started_at=started_at.isoformat(timespec="seconds"),
         duration_seconds=round(duration_seconds, 3),
         repeats=repeats,
@@ -118,6 +127,7 @@ def _summary_rows(summary: Summary) -> list[list[str]]:
         ["Correct", _rate(summary["correct"])],
         ["Answer accuracy", _rate(summary["answer_accuracy"])],
         ["Citation accuracy", _rate(summary["citation_accuracy"])],
+        ["Evidence shown to Gemini", _rate(summary["evidence_shown"])],
         ["False not found", _rate(summary["false_not_found_rate"])],
         ["Not found accuracy", _rate(summary["not_found_accuracy"])],
         ["Rejected by the verifier", _rate(summary["rejected_by_verifier"])],
@@ -140,6 +150,7 @@ def _group_rows(summaries: dict[str, Summary]) -> list[list[str]]:
             _rate(summary["correct"]),
             _rate(summary["answer_accuracy"]),
             _rate(summary["citation_accuracy"]),
+            _rate(summary["evidence_shown"]),
             _rate(summary["false_not_found_rate"]),
             _rate(summary["not_found_accuracy"]),
             _seconds(summary["median_seconds"]),
@@ -149,18 +160,33 @@ def _group_rows(summaries: dict[str, Summary]) -> list[list[str]]:
     ]
 
 
-def _lines(start: int, end: int) -> str:
-    return f"line {start}" if start == end else f"lines {start}–{end}"
+def _lines(lines: LineRange) -> str:
+    if lines.start == lines.end:
+        return f"{lines.file} line {lines.start}"
+    return f"{lines.file} lines {lines.start}–{lines.end}"
+
+
+def _not_shown(record: RunRecord) -> list[LineRange]:
+    if record.evidence_shown is None:
+        return []
+    return [
+        lines
+        for lines, shown in zip(record.evidence, record.evidence_shown, strict=True)
+        if not shown
+    ]
 
 
 def _reasons(record: RunRecord) -> list[str]:
     score = record.score
     if score is None:
         return [f"Gemini error: {record.error}"]
+    # Evidence Gemini wasn't shown is a miss of the search, not of the answer.
+    not_shown = _not_shown(record)
+    missed = [f"evidence {_lines(lines)} not shown to Gemini" for lines in not_shown]
     if record.status == "not_found":
         if score.rejected_by_verifier:
-            return ["citations rejected by the verifier"]
-        return ["said not found"]
+            return ["citations rejected by the verifier", *missed]
+        return ["said not found", *missed]
     reasons = []
     if record.category not in ANSWERABLE:
         reasons.append("answered a question the documents can't answer")
@@ -169,17 +195,28 @@ def _reasons(record: RunRecord) -> list[str]:
         for fact, found in zip(record.facts, score.facts_found, strict=True)
         if not found
     ]
+    reasons += missed
     reasons += [
-        f"evidence {file} {_lines(start, end)} not cited"
-        for (file, start, end), cited in zip(
-            record.evidence, score.evidence_cited, strict=True
-        )
-        if not cited
+        f"evidence {_lines(lines)} not cited"
+        for lines, cited in zip(record.evidence, score.evidence_cited, strict=True)
+        if not (cited or lines in not_shown)
     ]
     reasons += [
         f"said a forbidden phrase: {phrase}" for phrase in score.forbidden_found
     ]
     return reasons
+
+
+def _describe_search(report: Report) -> list[str]:
+    index = report["index"]
+    if index is None:
+        return []
+    search = (
+        f"Search: the {report['chunks_per_question']} nearest of "
+        f"{_plural(index['chunks'], 'chunk')} for each question. Indexing embedded "
+        f"{index['embedded_characters']:,} characters in {index['seconds']:.1f} s."
+    )
+    return [search, ""]
 
 
 def render_markdown(report: Report) -> str:
@@ -206,6 +243,7 @@ def render_markdown(report: Report) -> str:
         "",
         f"{about}.",
         "",
+        *_describe_search(report),
         "## Summary",
         "",
         *_table(["Measure", "Value"], _summary_rows(report["summary"])),

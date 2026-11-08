@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from conftest import word_embedding
 from pydantic import BaseModel
 
 from context_lens.clients.gemini import GeminiUnavailableError, TokenUsage
@@ -58,15 +59,27 @@ class ScriptedGemini:
             PARKING: ModelAnswer(status="not_found", answer="No.", citations=[]),
         }
         self.closed = False
+        self.asked: list[str] = []
+        # The texts of each call to embed.
+        self.embedded: list[list[str]] = []
+        self.embed_error: Exception | None = None
 
     async def ask_with_usage[T: BaseModel](
         self, prompt: str, system_instruction: str, response_model: type[T]
     ) -> tuple[T, TokenUsage]:
-        script = self.scripts[prompt.rpartition("Question: ")[2]]
+        question = prompt.rpartition("Question: ")[2]
+        self.asked.append(question)
+        script = self.scripts[question]
         if isinstance(script, Exception):
             raise script
         usage = TokenUsage(input_tokens=100, output_tokens=20, thought_tokens=5)
         return response_model.model_validate(script.model_dump()), usage
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.embedded.append(texts)
+        if self.embed_error is not None:
+            raise self.embed_error
+        return [word_embedding(text) for text in texts]
 
     async def aclose(self) -> None:
         self.closed = True
@@ -109,7 +122,77 @@ def prompt_characters(question: str) -> int:
 
 
 @pytest.mark.usefixtures("evals")
-def test_dry_run_describes_the_runs_without_a_key_or_gemini(
+def test_dry_run_of_rag_describes_the_index_and_runs_without_a_key_or_gemini(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    connections: Connections,
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    # The handbook is one chunk, so the most a search can show is all of it.
+    characters = 2 * (prompt_characters(REMOTE_DAYS) + prompt_characters(PARKING))
+    embedded = len("title: handbook.md | text: " + HANDBOOK.removesuffix("\n"))
+
+    exit_code = main(["--dry-run", "--repeats", "2"], connections)
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "Method: rag, 8 chunks a question",
+        "Questions: 2",
+        "  fact: 1",
+        "  multi_fact: 0",
+        "  cross_document: 0",
+        "  injection: 0",
+        "  missing_related: 1",
+        "  missing_unrelated: 0",
+        "Documents: 1",
+        "Runs: 4 (questions × repeats: 2 × 2)",
+        "Chunks to embed: 1",
+        f"Characters to embed: {embedded:,}",
+        f"Prompt characters over all runs, at most: {characters:,}",
+        f"Prompt tokens at 4 characters a token, at most: {round(characters / 4):,}",
+    ]
+    assert connections.models == []
+
+
+def test_dry_run_of_rag_counts_what_indexing_embeds(
+    evals: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    connections: Connections,
+) -> None:
+    (evals / "documents" / "leave.md").write_text(
+        "".join(
+            f"Annual leave rule {n}: book it in the portal first.\n" for n in range(12)
+        )
+        + "\n"
+        + "".join(
+            f"Sick leave rule {n}: tell your manager by nine.\n" for n in range(12)
+        )
+    )
+    main(["--dry-run"], connections)
+    planned = capsys.readouterr().out.splitlines()
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    main(["--output", "report.json"], connections)
+
+    index = json.loads(Path("report.json").read_text())["index"]
+    assert f"Chunks to embed: {index['chunks']}" in planned
+    assert f"Characters to embed: {index['embedded_characters']:,}" in planned
+    assert index["chunks"] == 3
+
+
+@pytest.mark.usefixtures("evals")
+def test_dry_run_of_rag_with_fewer_chunks_says_so(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["--dry-run", "--chunks", "3"])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.startswith("Method: rag, 3 chunks a question\n")
+
+
+@pytest.mark.usefixtures("evals")
+def test_dry_run_of_whole_document_describes_the_runs_without_a_key_or_gemini(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     connections: Connections,
@@ -117,10 +200,13 @@ def test_dry_run_describes_the_runs_without_a_key_or_gemini(
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     characters = 2 * (prompt_characters(REMOTE_DAYS) + prompt_characters(PARKING))
 
-    exit_code = main(["--dry-run", "--repeats", "2"], connections)
+    exit_code = main(
+        ["--dry-run", "--method", "whole_document", "--repeats", "2"], connections
+    )
 
     assert exit_code == 0
     assert capsys.readouterr().out.splitlines() == [
+        "Method: whole_document",
         "Questions: 2",
         "  fact: 1",
         "  multi_fact: 0",
@@ -149,7 +235,9 @@ def test_dry_run_reads_the_folder_it_is_given(
 
 @pytest.mark.usefixtures("evals")
 def test_only_narrows_the_dry_run(capsys: pytest.CaptureFixture[str]) -> None:
-    exit_code = main(["--dry-run", "--only", "handbook-parking"])
+    exit_code = main(
+        ["--dry-run", "--method", "whole_document", "--only", "handbook-parking"]
+    )
 
     assert exit_code == 0
     output = capsys.readouterr().out
@@ -201,15 +289,17 @@ def test_run_writes_both_reports_and_prints_the_markdown(
     assert exit_code == 0
     report = json.loads((tmp_path / "results" / "baseline.json").read_text())
     markdown = (tmp_path / "results" / "baseline.md").read_text()
-    assert report["method"] == "whole_document"
+    assert report["method"] == "rag"
     assert report["model"] == "other-model"
+    assert report["chunks_per_question"] == 8
+    assert report["index"]["chunks"] == 1
     assert [run["question_id"] for run in report["runs"]] == [
         "handbook-remote-days",
         "handbook-parking",
     ]
     assert report["summary"]["correct"] == {"rate": 1.0, "count": 2, "of": 2}
     assert report["summary"]["total_output_tokens"] == 50
-    assert markdown.startswith("# Answer quality: whole_document, other-model\n")
+    assert markdown.startswith("# Answer quality: rag, other-model\n")
     output = capsys.readouterr()
     assert output.out == markdown
     *progress, wrote = output.err.splitlines()
@@ -232,10 +322,97 @@ def test_run_without_output_writes_nothing(
 
     assert exit_code == 0
     assert [path.name for path in tmp_path.iterdir()] == ["evals"]
-    assert capsys.readouterr().out.startswith(
-        "# Answer quality: whole_document, env-model\n"
-    )
+    assert capsys.readouterr().out.startswith("# Answer quality: rag, env-model\n")
     assert connections.models == ["env-model"]
+
+
+@pytest.mark.usefixtures("evals", "api_key")
+def test_whole_document_run_sends_each_question_its_document_without_search(
+    tmp_path: Path, connections: Connections
+) -> None:
+    exit_code = main(["--method", "whole_document", "--output", "w.json"], connections)
+
+    assert exit_code == 0
+    report = json.loads((tmp_path / "w.json").read_text())
+    assert report["method"] == "whole_document"
+    assert report["chunks_per_question"] is None
+    assert report["index"] is None
+    assert report["summary"]["correct"] == {"rate": 1.0, "count": 2, "of": 2}
+    assert connections.gemini.embedded == []
+
+
+@pytest.mark.usefixtures("api_key")
+def test_rag_indexes_the_documents_once_for_all_the_runs(
+    evals: Path, tmp_path: Path, connections: Connections
+) -> None:
+    (evals / "documents" / "rules.md").write_text("# Rules\nDress well.\n")
+
+    exit_code = main(
+        ["--repeats", "2", "--chunks", "1", "--output", "r.json"], connections
+    )
+
+    assert exit_code == 0
+    indexing = [
+        texts for texts in connections.gemini.embedded if texts[0].startswith("title: ")
+    ]
+    questions = [
+        texts for texts in connections.gemini.embedded if texts[0].startswith("task: ")
+    ]
+    assert len(indexing) == 2
+    assert questions == [
+        [f"task: search result | query: {question}"]
+        for question in (REMOTE_DAYS, REMOTE_DAYS, PARKING, PARKING)
+    ]
+    assert indexing == connections.gemini.embedded[:2]
+    report = json.loads((tmp_path / "r.json").read_text())
+    assert report["chunks_per_question"] == 1
+    assert report["index"]["chunks"] == 2
+    assert [run["excerpts"] for run in report["runs"]] == [[["handbook.md", 1, 3]]] * 4
+
+
+@pytest.mark.usefixtures("evals", "api_key")
+def test_failed_indexing_stops_before_any_question(
+    capsys: pytest.CaptureFixture[str], connections: Connections
+) -> None:
+    connections.gemini.embed_error = GeminiUnavailableError("Busy.")
+
+    exit_code = main([], connections)
+
+    assert exit_code == 1
+    output = capsys.readouterr()
+    assert output.err == (
+        "Couldn't index the documents, so no question was asked: Gemini is "
+        "unavailable right now.\n"
+    )
+    assert output.out == ""
+    assert connections.gemini.asked == []
+    assert connections.gemini.closed
+
+
+@pytest.mark.usefixtures("evals", "api_key")
+def test_gemini_error_while_embedding_a_question_is_that_runs_error(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    connections: Connections,
+) -> None:
+    gemini = connections.gemini
+    real_embed = gemini.embed
+
+    async def embed(texts: list[str]) -> list[list[float]]:
+        if texts[0].startswith("task: ") and PARKING in texts[0]:
+            raise GeminiUnavailableError("Busy.")
+        return await real_embed(texts)
+
+    monkeypatch.setattr(gemini, "embed", embed)
+
+    exit_code = main([], connections)
+
+    assert exit_code == 0
+    progress = capsys.readouterr().err.splitlines()
+    assert progress[0].startswith("[1/2] handbook-remote-days #1: correct")
+    assert progress[1].startswith(
+        "[2/2] handbook-parking #1: Gemini error: GeminiUnavailableError"
+    )
 
 
 @pytest.mark.usefixtures("evals", "api_key")
@@ -329,6 +506,9 @@ async def test_gemini_gets_the_model_asked_for_and_the_rest_from_the_settings(
         pytest.param(["--concurrency", "two"], id="concurrency_not_a_number"),
         pytest.param(["--output", "baseline.md"], id="output_ending_in_md"),
         pytest.param(["--unknown"], id="unknown_option"),
+        pytest.param(["--method", "keywords"], id="unknown_method"),
+        pytest.param(["--chunks", "0"], id="no_chunks"),
+        pytest.param(["--chunks", "many"], id="chunks_not_a_number"),
     ],
 )
 def test_bad_options_are_a_usage_error(
@@ -340,4 +520,16 @@ def test_bad_options_are_a_usage_error(
     assert exit_info.value.code == 2
     assert capsys.readouterr().err.startswith(
         "usage: python -m context_lens.evaluation"
+    )
+
+
+def test_chunks_with_whole_documents_is_a_usage_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--method", "whole_document", "--chunks", "3"])
+
+    assert exit_info.value.code == 2
+    assert capsys.readouterr().err.endswith(
+        "error: --chunks is only for --method rag\n"
     )
