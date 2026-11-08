@@ -109,6 +109,11 @@ def test_same_files_give_the_same_fingerprint(tmp_path: Path) -> None:
             {"rules.md": HANDBOOK.encode()},
             id="document_renamed",
         ),
+        pytest.param(
+            as_toml(REMOTE_DAYS),
+            {"handbook.md": HANDBOOK.encode(), "rules.md": b"Dress well.\n"},
+            id="document_no_question_is_about_added",
+        ),
     ],
 )
 def test_any_change_to_the_files_changes_the_fingerprint(
@@ -123,9 +128,23 @@ def test_any_change_to_the_files_changes_the_fingerprint(
     assert first.fingerprint != second.fingerprint
 
 
-def test_files_no_question_uses_are_ignored(tmp_path: Path) -> None:
+def test_documents_no_question_is_about_are_in_the_set_too(tmp_path: Path) -> None:
+    documents = {"rules.md": b"Dress well.\n", "handbook.md": HANDBOOK.encode()}
+    folder = write_set(tmp_path / "evals", as_toml(REMOTE_DAYS), documents)
+
+    question_set = load_question_set(folder)
+
+    assert list(question_set.documents) == ["handbook.md", "rules.md"]
+    assert question_set.documents["rules.md"].text == "Dress well.\n"
+
+
+def test_hidden_files_are_left_out(tmp_path: Path) -> None:
     plain = write_set(tmp_path / "plain", as_toml(REMOTE_DAYS))
-    documents = {"handbook.md": HANDBOOK.encode(), ".DS_Store": b"\x00\x01\xff"}
+    documents = {
+        "handbook.md": HANDBOOK.encode(),
+        ".DS_Store": b"\x00\x01\xff",
+        ".draft.md": b"Not ready.\n",
+    }
     cluttered = write_set(tmp_path / "cluttered", as_toml(REMOTE_DAYS), documents)
 
     first = load_question_set(plain)
@@ -133,6 +152,18 @@ def test_files_no_question_uses_are_ignored(tmp_path: Path) -> None:
 
     assert list(second.documents) == ["handbook.md"]
     assert first.fingerprint == second.fingerprint
+
+
+def test_question_about_a_hidden_file_is_an_error(tmp_path: Path) -> None:
+    question = PARKING | {"document": ".draft.md"}
+    documents = {"handbook.md": HANDBOOK.encode(), ".draft.md": b"Not ready.\n"}
+    folder = write_set(tmp_path / "evals", as_toml(question), documents)
+
+    error = load_error(folder)
+
+    assert error == (
+        f"Question handbook-parking: .draft.md is not in {folder / 'documents'}."
+    )
 
 
 @pytest.mark.parametrize(
@@ -308,6 +339,19 @@ def test_documents_follow_the_upload_rules(
     assert message in error
 
 
+def test_documents_no_question_is_about_follow_the_upload_rules_too(
+    tmp_path: Path,
+) -> None:
+    documents = {"handbook.md": HANDBOOK.encode(), "notes.pdf": b"%PDF-1.7"}
+    folder = write_set(tmp_path / "evals", as_toml(REMOTE_DAYS), documents)
+
+    error = load_error(folder)
+
+    assert error == (
+        f"{folder / 'documents' / 'notes.pdf'}: Only .txt and .md files are accepted."
+    )
+
+
 @pytest.mark.parametrize(
     "line_ending",
     [
@@ -348,7 +392,7 @@ def two_document_set(tmp_path: Path) -> QuestionSet:
     return load_question_set(folder)
 
 
-def test_selected_questions_keep_their_order_and_documents(
+def test_selected_questions_keep_their_order_and_every_document(
     tmp_path: Path,
 ) -> None:
     question_set = two_document_set(tmp_path)
@@ -361,7 +405,8 @@ def test_selected_questions_keep_their_order_and_documents(
         "handbook-remote-days",
         "handbook-parking",
     ]
-    assert list(selected.documents) == ["handbook.md"]
+    assert list(selected.documents) == ["handbook.md", "rules.md"]
+    assert selected.documents == question_set.documents
     assert selected.fingerprint == question_set.fingerprint
 
 

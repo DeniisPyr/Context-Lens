@@ -85,7 +85,12 @@ def _list_files(folder: Path) -> dict[str, Path]:
         paths = sorted(folder.iterdir())
     except OSError as exc:
         raise InvalidQuestionSetError(f"Can't read {folder}: {exc.strerror}.") from None
-    return {path.name: path for path in paths if path.is_file()}
+    # Hidden files, such as .DS_Store, aren't documents.
+    return {
+        path.name: path
+        for path in paths
+        if path.is_file() and not path.name.startswith(".")
+    }
 
 
 def _parse_entry(entry: dict[str, object], number: int) -> Question:
@@ -193,10 +198,9 @@ def load_question_set(folder: Path) -> QuestionSet:
             raise _problem(
                 question, f"{question.document} is not in {documents_folder}"
             )
-    # Only the documents that questions use, so stray files such as .DS_Store don't
-    # break the set or change its fingerprint.
-    names = sorted({question.document for question in questions})
-    files = {name: _read(available[name]) for name in names}
+    # Every document, whether a question is about it or not: the app searches a whole
+    # dataset, so the others are there to be found instead.
+    files = {name: _read(path) for name, path in available.items()}
     documents = {
         name: _as_document(available[name], data) for name, data in files.items()
     }
@@ -212,6 +216,5 @@ def select_questions(question_set: QuestionSet, ids: Collection[str]) -> Questio
     if unknown:
         raise InvalidQuestionSetError(f"No question has the id {', '.join(unknown)}.")
     questions = [question for question in question_set.questions if question.id in ids]
-    names = sorted({question.document for question in questions})
-    documents = {name: question_set.documents[name] for name in names}
-    return replace(question_set, questions=questions, documents=documents)
+    # All the documents stay: fewer questions are asked of the same dataset.
+    return replace(question_set, questions=questions)
