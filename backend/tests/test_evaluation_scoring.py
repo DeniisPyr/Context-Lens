@@ -26,9 +26,9 @@ UNANSWERABLE = make_question(
 )
 
 
-def cite(start_line: int, end_line: int) -> Citation:
+def cite(start_line: int, end_line: int, file: str = "handbook.md") -> Citation:
     return Citation(
-        file="handbook.md", start_line=start_line, end_line=end_line, quote="A quote."
+        file=file, start_line=start_line, end_line=end_line, quote="A quote."
     )
 
 
@@ -115,12 +115,45 @@ def test_evidence_counts_as_cited_when_a_citation_overlaps_it(
     assert score.correct == cited
 
 
-def test_extra_citations_are_counted_but_dont_make_the_answer_wrong() -> None:
-    final = answered("3 days.", cite(1, 1), cite(42, 43), cite(50, 52))
+def test_citation_of_another_file_is_not_evidence_even_on_the_right_lines() -> None:
+    final = answered("3 days.", cite(42, 43, "policy.md"))
 
     score = score_run(make_question(), final, final)
 
-    assert score.extra_citations == 2
+    assert score.evidence_cited == [False]
+    assert score.extra_citations == 1
+    assert not score.correct
+
+
+@pytest.mark.parametrize(
+    ("file", "cited"),
+    [
+        pytest.param("R&amp;D &quot;notes&quot;.md", True, id="as_shown"),
+        pytest.param('R&D "notes".md', True, id="as_uploaded"),
+        pytest.param("R&D &quot;notes&quot;.md", False, id="half_escaped"),
+        pytest.param('r&d "notes".md', False, id="other_case"),
+    ],
+)
+def test_citation_counts_when_it_names_the_document_as_shown_or_as_uploaded(
+    file: str, cited: bool
+) -> None:
+    question = make_question(document='R&D "notes".md')
+    final = answered("3 days.", cite(42, 43, file))
+
+    score = score_run(question, final, final)
+
+    assert score.evidence_cited == [cited]
+    assert score.extra_citations == (0 if cited else 1)
+
+
+def test_extra_citations_are_counted_but_dont_make_the_answer_wrong() -> None:
+    final = answered(
+        "3 days.", cite(1, 1), cite(42, 43), cite(50, 52), cite(42, 43, "policy.md")
+    )
+
+    score = score_run(make_question(), final, final)
+
+    assert score.extra_citations == 3
     assert score.correct
 
 

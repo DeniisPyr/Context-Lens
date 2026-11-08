@@ -7,7 +7,12 @@ from pydantic import BaseModel
 
 from context_lens.evaluation.cases import ANSWERABLE, Category, Question
 from context_lens.evaluation.matching import contains_phrase
-from context_lens.services.answering import AnswerStatus, Citation, ModelAnswer
+from context_lens.services.answering import (
+    AnswerStatus,
+    Citation,
+    ModelAnswer,
+    file_as_shown,
+)
 
 
 class RunScore(BaseModel):
@@ -70,7 +75,16 @@ class Summary(TypedDict):
     total_output_tokens: int
 
 
-def _overlaps(citation: Citation, start: int, end: int) -> bool:
+def _names(filename: str) -> set[str]:
+    # What a citation may call a document, by the rule sources_by_name applies: its
+    # file as the prompt shows it, or its filename.
+    return {filename, file_as_shown(filename)}
+
+
+def _cites(citation: Citation, filename: str, start: int, end: int) -> bool:
+    # Lines of another file don't count, however well their numbers match.
+    if citation.file not in _names(filename):
+        return False
     return citation.start_line <= end and start <= citation.end_line
 
 
@@ -82,11 +96,17 @@ def score_run(
         for fact in question.facts
     ]
     evidence_cited = [
-        any(_overlaps(citation, start, end) for citation in final.citations)
+        any(
+            _cites(citation, question.document, start, end)
+            for citation in final.citations
+        )
         for start, end in question.evidence
     ]
     extra_citations = sum(
-        not any(_overlaps(citation, start, end) for start, end in question.evidence)
+        not any(
+            _cites(citation, question.document, start, end)
+            for start, end in question.evidence
+        )
         for citation in final.citations
     )
     forbidden_found = [

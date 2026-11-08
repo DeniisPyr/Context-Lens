@@ -42,6 +42,13 @@ class ModelAnswer(BaseModel):
     citations: list[Citation]
 
 
+def file_as_shown(filename: str) -> str:
+    # How the prompt names a file, and so what a citation of it says. Escaped the XML
+    # way because filenames are user input, and a quote mark in one would end the
+    # attribute early.
+    return escape(filename, {'"': "&quot;"})
+
+
 @dataclass(frozen=True)
 class Excerpt:
     document_id: str
@@ -51,10 +58,7 @@ class Excerpt:
 
     @property
     def file(self) -> str:
-        # How the prompt names the file, and so what a citation of it says. Escaped the
-        # XML way because filenames are user input, and a quote mark in one would end
-        # the attribute early.
-        return escape(self.filename, {'"': "&quot;"})
+        return file_as_shown(self.filename)
 
 
 def document_excerpt(document: Document) -> Excerpt:
