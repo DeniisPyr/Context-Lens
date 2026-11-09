@@ -413,6 +413,23 @@ def test_changing_the_password_ends_every_session(
     assert response.json() == NOT_LOGGED_IN
 
 
+def test_signing_key_is_derived_once_however_many_requests(
+    monkeypatch: pytest.MonkeyPatch, start_app: StartApp, scrypt_calls: list[None]
+) -> None:
+    # A password no other test uses, so that its key isn't derived yet.
+    password = "a password only this request test uses"
+    monkeypatch.setenv("ACCESS_PASSWORD", password)
+
+    for _ in range(2):
+        with start_app() as client:
+            log_in(client, password)
+            for _ in range(3):
+                assert logged_in(client)
+                assert client.get("/api/datasets").status_code == 503
+
+    assert len(scrypt_calls) == 1
+
+
 def test_password_and_session_are_never_logged_or_sent_back(
     guarded: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:

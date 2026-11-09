@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+
 import pytest
 from pydantic import SecretStr
 
@@ -65,6 +68,43 @@ def test_session_holds_its_expiry_and_a_signature_but_not_the_password() -> None
     assert EXPIRY == str(int(NOW) + SESSION_SECONDS)
     assert len(SIGNATURE) == 64
     assert PASSWORD.get_secret_value() not in SESSION
+
+
+def signed_with(key: bytes) -> str:
+    return hmac.new(key, EXPIRY.encode(), hashlib.sha256).hexdigest()
+
+
+def test_signing_key_is_slow_to_derive_rather_than_a_plain_hmac() -> None:
+    password = PASSWORD.get_secret_value().encode()
+    hmac_key = hmac.digest(password, b"context-lens session", "sha256")
+    # Written out, so that making the key cheaper to guess fails here.
+    scrypt_key = hashlib.scrypt(
+        password,
+        salt=b"context-lens session",
+        n=2**16,
+        r=8,
+        p=1,
+        maxmem=2**27,
+        dklen=32,
+    )
+
+    assert SIGNATURE != signed_with(hmac_key)
+    assert SIGNATURE == signed_with(scrypt_key)
+
+
+def test_signing_key_is_derived_once_for_each_password(
+    scrypt_calls: list[None],
+) -> None:
+    # A password no other test uses, so that its key isn't derived yet. A new SecretStr
+    # each time, as the app's settings would give after a restart.
+    text = "a password only this test uses"
+
+    for second in range(3):
+        session = sign_session(SecretStr(text), NOW + second)
+        assert is_valid_session(session, SecretStr(text), NOW)
+        assert start_session(text, SecretStr(text), NOW) is not None
+
+    assert len(scrypt_calls) == 1
 
 
 def test_same_password_and_time_sign_the_same_session() -> None:

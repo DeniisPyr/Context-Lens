@@ -1,3 +1,4 @@
+import functools
 import hashlib
 import hmac
 import re
@@ -8,9 +9,19 @@ from pydantic import SecretStr
 # app stops accepting it, so a cookie left on a shared computer doesn't stay useful.
 SESSION_SECONDS = 12 * 60 * 60
 
-# The signing key is derived from the password with this label, so that the key is
-# used for signing sessions and nothing else.
-SIGNING_KEY_LABEL = b"context-lens session"
+# The salt the signing key is derived with. A random salt for each password would have to
+# be stored somewhere, and the app stores nothing, so it is fixed. It still stops a table
+# made for another app's keys from working on this one's.
+SIGNING_KEY_SALT = b"context-lens session"
+# scrypt's cost: n=2**16 and r=8 take about 90 ms and 64 MiB on a laptop. A cookie is
+# signed with the key, so someone who steals one could test passwords against it offline,
+# and this makes each guess that slow. The app pays it once, as the key is kept.
+SCRYPT_N = 2**16
+SCRYPT_R = 8
+SCRYPT_P = 1
+# scrypt needs 128 * r * n bytes, more than OpenSSL's default limit of 32 MiB. This is
+# only the limit, set at twice what is needed.
+SCRYPT_MAXMEM = 2 * 128 * SCRYPT_R * SCRYPT_N
 
 # The expiry in whole seconds, a dot and the signature in hex. Anything else is not a
 # session, and is turned away before it reaches the checks that could raise on it.
@@ -31,11 +42,21 @@ class NotLoggedInError(Exception):
         super().__init__("Log in first.")
 
 
+# Derived from the password rather than kept as a second secret, so that changing the
+# password ends every session and there is nothing else to manage. Kept for each
+# password, which SecretStr hashes by its value, so that a process derives it once
+# rather than on every request. Only the app's own password ever reaches this: what a
+# user types to log in is checked by _is_access_password.
+@functools.cache
 def _signing_key(password: SecretStr) -> bytes:
-    # Derived from the password rather than kept as a second secret, so that changing
-    # the password ends every session and there is nothing else to manage.
-    return hmac.digest(
-        password.get_secret_value().encode(), SIGNING_KEY_LABEL, "sha256"
+    return hashlib.scrypt(
+        password.get_secret_value().encode(),
+        salt=SIGNING_KEY_SALT,
+        n=SCRYPT_N,
+        r=SCRYPT_R,
+        p=SCRYPT_P,
+        maxmem=SCRYPT_MAXMEM,
+        dklen=32,
     )
 
 

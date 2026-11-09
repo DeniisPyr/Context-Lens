@@ -358,6 +358,20 @@ def fake_gemini() -> FakeGemini:
 
 
 @pytest.fixture
+def scrypt_calls(monkeypatch: pytest.MonkeyPatch) -> list[None]:
+    # One item for each time a session signing key is derived.
+    calls: list[None] = []
+    scrypt = hashlib.scrypt
+
+    def counting_scrypt(password: bytes, **options: int | bytes) -> bytes:
+        calls.append(None)
+        return scrypt(password, **options)
+
+    monkeypatch.setattr(hashlib, "scrypt", counting_scrypt)
+    return calls
+
+
+@pytest.fixture
 def start_app(monkeypatch: pytest.MonkeyPatch, fake_gemini: FakeGemini) -> StartApp:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
 
