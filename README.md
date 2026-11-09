@@ -2,7 +2,7 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
 
-> Work in progress: a FastAPI backend and a React frontend. Documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions.
+> Work in progress: a FastAPI backend and a React frontend. Documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
 
 ## Run locally
 
@@ -81,7 +81,7 @@ An upload also prepares the document for search:
 - **Deleting:** deleting a document or a dataset deletes its chunks too.
 - **Cost:** embedding spends credits on every upload, about 5 cents for a 1 MB file at November 2026 prices. So a dataset holds at most 100 documents; to change that, set `MAX_DOCUMENTS_PER_DATASET` in `backend/.env`. An upload that would be refused, such as a duplicate filename or one into a full dataset, is refused before anything is sent to Gemini.
 
-The 1,000-character size comes from a comparison on the evaluation set. Each of its 32 answerable questions was searched against the chunks of all 7 documents, looking for the chunk that holds each of the 40 passages the answers come from.
+The 1,000-character size comes from a comparison on the evaluation set, when it had 48 questions. Each of its 32 answerable questions was searched against the chunks of all 7 documents, looking for the chunk that holds each of the 40 passages the answers come from.
 - **Size:** of 600, 1,000 and 1,500 characters, 1,000 ranked those chunks highest. It put them first for 57% of the passages, in the top 3 for 88%, and in the top 10 for all of them.
 - **Filename label:** labelling each chunk with its filename helped at every size. At 1,500 characters it raised the share in the top 5 from 72% to 98%.
 
@@ -110,12 +110,25 @@ A dataset without chunks gets "not found" without asking Gemini. That includes d
 
 ## Evaluation
 
-`backend/evals/` holds a fixed set of 48 questions about 7 fictional documents, for measuring how well the app answers. The documents are an employee handbook, an IT security policy, steering committee minutes, a leaflet for a made-up medicine, a travel-expenses policy in Czech, a 726-line instrument maintenance SOP with 40 look-alike error codes, and a supplier agreement.
+`backend/evals/` holds a fixed set of 72 questions about 7 fictional documents, for measuring how well the app answers. The documents are an employee handbook, an IT security policy, steering committee minutes, a leaflet for a made-up medicine, a travel-expenses policy in Czech, a 726-line instrument maintenance SOP with 40 look-alike error codes, and a supplier agreement. Together they make one dataset of 95 chunks.
 
-- 32 questions have an answer in their document. Each lists the facts a right answer must contain, with alternative phrasings, and the lines it must cite. Two of them ask about facts that a line in the document, addressed to AI assistants, tries to change.
-- 16 have no answer in any of the documents, so the app must say "not found". Some ask about something next to what a document covers, and some are general knowledge that Gemini knows but must not use.
+- 52 questions have an answer. Each lists the facts a right answer must contain, with alternative phrasings, and the lines it must cite, in which file. Two ask about facts that a line in a document, addressed to AI assistants, tries to change, and six need two documents.
+- 20 have no answer in any of the documents, so the app must say "not found". Some ask about something next to what a document covers, and some are general knowledge that Gemini knows but must not use.
 
-A run is correct when it answers with every fact, cites every expected line range and uses no forbidden phrase, or, for a question without an answer, when it says "not found". Grading is plain text matching with no second model as a judge, so the same answers always get the same scores. The set is checked on every test run: each expected fact must appear in the lines the question says to cite.
+The first 48 questions were written for the whole-document baseline, which got every one right. The other 24 are made to be hard for search but fair to a careful reader. Each one does one of these:
+
+- needs two documents
+- uses everyday words instead of the document's own
+- needs facts far apart in a long document
+- has a look-alike value nearby for another case
+- has no answer, although a passage covers something similar
+
+A run is correct when it answers with every fact, cites every expected line range in the right file and uses no forbidden phrase. For a question without an answer, it's correct when it says "not found". Grading is plain text matching with no second model as a judge, so the same answers always get the same scores. The set is checked on every test run: each expected fact must appear in the lines the question says to cite.
+
+The evaluation answers in one of two ways:
+
+- **`rag`**, the default, answers as the app does, with the app's own code. Every document is chunked and embedded once at the start, for about half a cent. Then each question goes through the same search, excerpts, prompt and check as `POST /api/ask`. Only the store differs: the chunks are kept in memory and searched exactly by cosine distance, as Postgres does.
+- **`whole_document`** sends each question's documents whole: its own document, plus the other one for a question that needs two. That's how the app answered before search. It's also told which document holds the answer, which the app never is.
 
 To check the set and see how much text the prompts would send, without calling Gemini:
 
@@ -124,30 +137,55 @@ cd backend
 uv run python -m context_lens.evaluation --dry-run
 ```
 
-To run it, with the key from `backend/.env`. This calls Gemini once for each question and repeat, so it spends credits: the 3 repeats below cost about $0.60 at gemini-3.8-flash's prices in November 2026.
+To run it, with the key from `backend/.env`. This calls Gemini once for each question and repeat, so it spends credits. At gemini-3.8-flash's prices in November 2026, 3 repeats cost about $0.75 for `rag` and $1.00 for `whole_document`:
 
 ```bash
-uv run python -m context_lens.evaluation --repeats 3 --output evals/results/whole-document.json
+uv run python -m context_lens.evaluation --repeats 3 --output evals/results/rag.json
+uv run python -m context_lens.evaluation --method whole_document --repeats 3 --output evals/results/whole-document.json
+uv run python -m context_lens.evaluation.compare evals/results/whole-document.json evals/results/rag.json --output evals/results/comparison.md
 ```
 
-`--only <id>` asks one question, and `--model <name>` tries another Gemini model. The JSON report keeps every answer and citation, and the markdown file next to it sums them up.
+More options:
 
-### Baseline: the whole document in the prompt
+- `--chunks <n>` changes how many chunks `rag` gives each question.
+- `--only <id>` asks one question.
+- `--model <name>` tries another Gemini model.
 
-How the app answered before search: each question is sent with its whole document, one Gemini call per question. From [evals/results/whole-document.md](backend/evals/results/whole-document.md), gemini-3.8-flash, 3 repeats:
+The JSON report keeps every answer, citation and excerpt Gemini was shown, and the markdown file next to it sums them up. The comparison lists every question the two methods got differently, with the reasons.
 
-| Measure | Result |
-| --- | --- |
-| Correct | 100% (144/144) |
-| Facts right, for questions with an answer | 100% (96/96) |
-| Expected lines cited | 100% (96/96) |
-| "Not found" when there's no answer | 100% (48/48) |
-| Answers rejected by the citation check | 0 |
-| Median / p95 seconds | 3.5 / 7.9 |
-| Input tokens per question | 3,941 on average; 11,743 for the SOP |
-| Output tokens per question, with thinking | 347 on average |
+### Results: search compared with whole documents
 
-With one document of at most 726 lines in the prompt, every run was right, including both injection questions. The cost is the prompt: every question sends its whole document, so a question about the SOP costs three times the average. Since then, the app answers from the passages a search finds across a whole dataset, with a prompt that shows excerpts and asks for the file of each quote. The next step reruns this baseline with that prompt and compares the two methods on the same questions. A perfect score also means these questions are too easy to tell a good method from a better one, so harder questions are needed.
+From [evals/results/comparison.md](backend/evals/results/comparison.md), with gemini-3.8-flash and 3 repeats of each of the 72 questions:
+
+| Measure | Whole documents | Search (`rag`) |
+| --- | --- | --- |
+| Correct | 100% (215/216) | 95% (205/215) |
+| Correct, questions that need two documents | 100% (18/18) | 61% (11/18) |
+| Correct, questions with facts in two places of one document | 100% (36/36) | 92% (33/36) |
+| Expected lines shown to Gemini | 100% (156/156) | 94% (146/155) |
+| "Not found" when there's no answer | 100% (60/60) | 100% (60/60) |
+| Median / p95 seconds | 3.3 / 5.7 | 4.5 / 8.2 |
+| Input tokens per question | 4,325 on average; 11,925 for the SOP | 2,392 on average; 2,337 for the SOP |
+| Output tokens per question, with thinking | 343 | 441 |
+| Cost per 1,000 questions | $4.53 | $3.45 |
+
+One `rag` run ended in a Gemini error ("unavailable"), so the `rag` rates count 215 runs.
+
+What this shows:
+
+- **Search misses the second half of a question.**
+  - All 10 wrong `rag` runs were questions whose answer sits in two places. The question is embedded once, so the 8 closest chunks match the part of it that dominates.
+  - In 9 of those runs, 3 questions each time, search never showed Gemini the second passage. For example, "Who reviewed the SOP, and which action item does that person own?" needs the reviewer's name to find the action item, and the name isn't in the question. Gemini then said "not found" or left that part out, instead of guessing.
+  - In the 10th run, both passages were shown and Gemini still said "not found".
+- **It didn't answer what the documents don't say.** Both methods said "not found" for all 20 questions without an answer. That includes the ones where search returned a passage about a similar case.
+- **It's cheaper, and its cost doesn't grow with the documents.**
+  - Search sends 45% fewer input tokens. It sends about the same for the 726-line SOP as for a short leaflet.
+  - Gemini thinks a little longer over excerpts, so the saving here is 24% per question.
+  - The bigger point is scale: a dataset of 100 documents can't be sent whole at all.
+- **It's about a second slower**, because of the embedding request and the longer thinking.
+- **The whole-document method isn't perfect either.** Its one wrong run quoted a heading from the line above its cited range, so the check rejected the answer.
+
+Searching once for each part of a question, or giving it more chunks, might fix the questions whose answer sits in two places, and this set can measure either change.
 
 ## Project structure
 
@@ -171,9 +209,12 @@ context_lens/
 ├── evaluation/              # measures answer quality; the web app doesn't use it
 │   ├── __main__.py          # the command: python -m context_lens.evaluation
 │   ├── cases.py             # loads the question set and checks it
+│   ├── compare.py           # the command that compares two reports
+│   ├── dataset.py           # the evaluation's documents as one dataset, searched in memory
 │   ├── matching.py          # finds a phrase in an answer, as a whole word
+│   ├── methods.py           # the two ways of answering: from search, or from whole documents
 │   ├── report.py            # builds the JSON report and its markdown summary
-│   ├── runner.py            # asks every question the way the app does
+│   ├── runner.py            # asks every question, and records what Gemini was shown and what it cost
 │   └── scoring.py           # scores each answer and sums the scores up
 ├── routers/                 # route functions only
 │   └── api.py, ask.py, datasets.py, documents.py, health.py
@@ -198,7 +239,7 @@ backend/
 ├── evals/                   # the evaluation
 │   ├── questions.toml       # the questions, with the facts and lines a right answer needs
 │   ├── documents/           # the fictional documents they're about
-│   └── results/             # reports from evaluation runs
+│   └── results/             # reports from evaluation runs, and their comparison
 └── migrations/
     ├── env.py               # runs migrations against DATABASE_URL
     └── versions/            # one file for each schema change

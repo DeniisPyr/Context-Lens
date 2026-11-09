@@ -6,20 +6,19 @@ from context_lens.services.answering import (
     Excerpt,
     ModelAnswer,
     build_prompt,
-    document_excerpt,
     verify_answer,
 )
-from context_lens.services.documents import Document
 
-DOCUMENT = Document(
-    id="doc-1",
+# A whole document of four lines.
+NOTES = Excerpt(
+    document_id="doc-1",
     filename="notes.txt",
-    text=(
-        "The cat is orange.\n"
-        "The dog is brown.\n"
-        "Kočka je oranžová.\n"
-        "The bird  is\tblue.\n"
-    ),
+    lines={
+        1: "The cat is orange.",
+        2: "The dog is brown.",
+        3: "Kočka je oranžová.",
+        4: "The bird  is\tblue.",
+    },
 )
 NOT_FOUND = ModelAnswer(status="not_found", answer=NOT_FOUND_MESSAGE, citations=[])
 
@@ -78,21 +77,6 @@ def test_prompt_shows_one_line_excerpt_as_a_range_of_one() -> None:
     prompt = build_prompt("Hi", [excerpt])
 
     assert prompt.startswith('<excerpt file="a.txt" lines="7-7">\n7: Seven.\n')
-
-
-def test_document_excerpt_holds_every_line_numbered_from_one() -> None:
-    excerpt = document_excerpt(DOCUMENT)
-
-    assert excerpt == Excerpt(
-        document_id="doc-1",
-        filename="notes.txt",
-        lines={
-            1: "The cat is orange.",
-            2: "The dog is brown.",
-            3: "Kočka je oranžová.",
-            4: "The bird  is\tblue.",
-        },
-    )
 
 
 @pytest.mark.parametrize(
@@ -189,7 +173,7 @@ def test_verified_citation_keeps_the_answer(
 ) -> None:
     answer = answered(cite(start_line, end_line, quote))
 
-    assert verify_answer(answer, [document_excerpt(DOCUMENT)]) == answer
+    assert verify_answer(answer, [NOTES]) == answer
 
 
 @pytest.mark.parametrize(
@@ -211,7 +195,7 @@ def test_unverifiable_citation_rejects_the_answer(
 ) -> None:
     answer = answered(cite(start_line, end_line, quote))
 
-    assert verify_answer(answer, [document_excerpt(DOCUMENT)]) == NOT_FOUND
+    assert verify_answer(answer, [NOTES]) == NOT_FOUND
 
 
 @pytest.mark.parametrize(
@@ -228,7 +212,7 @@ def test_range_wider_than_its_quote_is_narrowed_to_the_quote(
 ) -> None:
     answer = answered(cite(start_line, end_line, quote))
 
-    verified = verify_answer(answer, [document_excerpt(DOCUMENT)])
+    verified = verify_answer(answer, [NOTES])
 
     [citation] = verified.citations
     assert (citation.start_line, citation.end_line) == narrowed
@@ -240,7 +224,7 @@ def test_narrowing_one_citation_keeps_the_others_as_they_are() -> None:
     exact = cite(1, 1, "The cat is orange.")
     answer = answered(exact, cite(1, 3, "Kočka je oranžová."))
 
-    verified = verify_answer(answer, [document_excerpt(DOCUMENT)])
+    verified = verify_answer(answer, [NOTES])
 
     assert verified.citations == [exact, cite(3, 3, "Kočka je oranžová.")]
 
@@ -300,7 +284,7 @@ def test_excerpts_of_one_file_that_touch_can_be_cited_as_one_range() -> None:
 
 
 def test_answered_without_citations_is_rejected() -> None:
-    assert verify_answer(answered(), [document_excerpt(DOCUMENT)]) == NOT_FOUND
+    assert verify_answer(answered(), [NOTES]) == NOT_FOUND
 
 
 def test_answered_without_excerpts_is_rejected() -> None:
@@ -311,9 +295,7 @@ def test_one_bad_citation_rejects_the_whole_answer() -> None:
     good = cite(1, 1, "The cat is orange.")
     bad = cite(2, 2, "The dog is purple.")
 
-    assert verify_answer(answered(good, bad), [document_excerpt(DOCUMENT)]) == (
-        NOT_FOUND
-    )
+    assert verify_answer(answered(good, bad), [NOTES]) == (NOT_FOUND)
 
 
 def test_not_found_from_gemini_gets_the_fixed_message_and_loses_its_citations(
@@ -325,7 +307,7 @@ def test_not_found_from_gemini_gets_the_fixed_message_and_loses_its_citations(
         citations=[cite(1, 1, "The cat is orange.")],
     )
 
-    assert verify_answer(answer, [document_excerpt(DOCUMENT)]) == NOT_FOUND
+    assert verify_answer(answer, [NOTES]) == NOT_FOUND
     assert caplog.records == []
 
 
@@ -338,7 +320,7 @@ def test_rejected_answer_logs_a_warning_without_its_content(
         citations=[cite(1, 1, "Private quote.", "private.txt")],
     )
 
-    verify_answer(answer, [document_excerpt(DOCUMENT)])
+    verify_answer(answer, [NOTES])
 
     assert [record.levelname for record in caplog.records] == ["WARNING"]
     assert "Private" not in caplog.text

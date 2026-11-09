@@ -1,9 +1,16 @@
 import pytest
 
-from context_lens.evaluation.cases import Question
+from context_lens.evaluation.cases import LineRange, Question
 from context_lens.evaluation.matching import contains_phrase
-from context_lens.evaluation.scoring import RunRecord, RunScore, score_run, summarize
+from context_lens.evaluation.scoring import (
+    RunRecord,
+    RunScore,
+    evidence_shown,
+    score_run,
+    summarize,
+)
 from context_lens.services.answering import NOT_FOUND_MESSAGE, Citation, ModelAnswer
+from context_lens.services.documents import Document
 
 NOT_FOUND = ModelAnswer(status="not_found", answer=NOT_FOUND_MESSAGE, citations=[])
 
@@ -26,9 +33,9 @@ UNANSWERABLE = make_question(
 )
 
 
-def cite(start_line: int, end_line: int) -> Citation:
+def cite(start_line: int, end_line: int, file: str = "handbook.md") -> Citation:
     return Citation(
-        file="handbook.md", start_line=start_line, end_line=end_line, quote="A quote."
+        file=file, start_line=start_line, end_line=end_line, quote="A quote."
     )
 
 
@@ -115,12 +122,79 @@ def test_evidence_counts_as_cited_when_a_citation_overlaps_it(
     assert score.correct == cited
 
 
-def test_extra_citations_are_counted_but_dont_make_the_answer_wrong() -> None:
-    final = answered("3 days.", cite(1, 1), cite(42, 43), cite(50, 52))
+def test_citation_of_another_file_is_not_evidence_even_on_the_right_lines() -> None:
+    final = answered("3 days.", cite(42, 43, "policy.md"))
 
     score = score_run(make_question(), final, final)
 
-    assert score.extra_citations == 2
+    assert score.evidence_cited == [False]
+    assert score.extra_citations == 1
+    assert not score.correct
+
+
+@pytest.mark.parametrize(
+    ("file", "cited"),
+    [
+        pytest.param("R&amp;D &quot;notes&quot;.md", True, id="as_shown"),
+        pytest.param('R&D "notes".md', True, id="as_uploaded"),
+        pytest.param("R&D &quot;notes&quot;.md", False, id="half_escaped"),
+        pytest.param('r&d "notes".md', False, id="other_case"),
+    ],
+)
+def test_citation_counts_when_it_names_the_document_as_shown_or_as_uploaded(
+    file: str, cited: bool
+) -> None:
+    question = make_question(document='R&D "notes".md')
+    final = answered("3 days.", cite(42, 43, file))
+
+    score = score_run(question, final, final)
+
+    assert score.evidence_cited == [cited]
+    assert score.extra_citations == (0 if cited else 1)
+
+
+@pytest.mark.parametrize(
+    ("citations", "evidence_cited", "extra_citations"),
+    [
+        pytest.param(
+            [cite(42, 43), cite(7, 7, "policy.md")], [True, True], 0, id="both_files"
+        ),
+        pytest.param(
+            [cite(42, 43), cite(7, 7)], [True, False], 1, id="other_lines_in_handbook"
+        ),
+        pytest.param(
+            [cite(42, 43, "policy.md"), cite(7, 7, "policy.md")],
+            [False, True],
+            1,
+            id="handbook_lines_in_policy",
+        ),
+    ],
+)
+def test_each_evidence_range_is_checked_against_citations_of_its_own_file(
+    citations: list[Citation], evidence_cited: list[bool], extra_citations: int
+) -> None:
+    question = make_question(
+        category="cross_document",
+        facts=[["3 days"], ["laptop"]],
+        evidence=[[42, 43], ["policy.md", 7, 7]],
+    )
+    final = answered("3 days, with a laptop.", *citations)
+
+    score = score_run(question, final, final)
+
+    assert score.evidence_cited == evidence_cited
+    assert score.extra_citations == extra_citations
+    assert score.correct == all(evidence_cited)
+
+
+def test_extra_citations_are_counted_but_dont_make_the_answer_wrong() -> None:
+    final = answered(
+        "3 days.", cite(1, 1), cite(42, 43), cite(50, 52), cite(42, 43, "policy.md")
+    )
+
+    score = score_run(make_question(), final, final)
+
+    assert score.extra_citations == 3
     assert score.correct
 
 
@@ -220,6 +294,63 @@ def test_answering_an_unanswerable_question_is_wrong() -> None:
     )
 
 
+# Ten lines, of which line 5 is blank.
+NOTES = Document(
+    id="notes.md",
+    filename="notes.md",
+    text="".join(f"Line {n}.\n" if n != 5 else "\n" for n in range(1, 11)),
+)
+OTHER = Document(id="other.md", filename="other.md", text="Other.\n" * 10)
+
+
+@pytest.mark.parametrize(
+    ("excerpts", "shown"),
+    [
+        pytest.param([("notes.md", 1, 10)], True, id="inside_an_excerpt"),
+        pytest.param([("notes.md", 3, 4)], True, id="exactly"),
+        pytest.param(
+            [("notes.md", 4, 6), ("notes.md", 1, 3)], True, id="across_two_excerpts"
+        ),
+        pytest.param([("notes.md", 1, 3)], False, id="only_its_start"),
+        pytest.param([("notes.md", 4, 10)], False, id="only_its_end"),
+        pytest.param([("notes.md", 1, 2), ("notes.md", 5, 10)], False, id="all_but_it"),
+        pytest.param([("other.md", 1, 10)], False, id="another_file"),
+        pytest.param([], False, id="nothing_shown"),
+    ],
+)
+def test_evidence_was_shown_when_every_line_of_it_was(
+    excerpts: list[tuple[str, int, int]], shown: bool
+) -> None:
+    evidence = [LineRange("notes.md", 3, 4)]
+    shown_lines = [LineRange(*lines) for lines in excerpts]
+
+    assert evidence_shown(evidence, shown_lines, {"notes.md": NOTES}) == [shown]
+
+
+@pytest.mark.parametrize(
+    ("excerpts", "shown"),
+    [
+        pytest.param([("notes.md", 1, 4), ("notes.md", 6, 9)], True, id="around_it"),
+        pytest.param([("notes.md", 1, 4)], False, id="only_before_it"),
+    ],
+)
+def test_blank_line_in_evidence_needs_no_showing(
+    excerpts: list[tuple[str, int, int]], shown: bool
+) -> None:
+    evidence = [LineRange("notes.md", 4, 6)]
+    shown_lines = [LineRange(*lines) for lines in excerpts]
+
+    assert evidence_shown(evidence, shown_lines, {"notes.md": NOTES}) == [shown]
+
+
+def test_each_evidence_range_is_shown_or_not_on_its_own() -> None:
+    evidence = [LineRange("notes.md", 3, 4), LineRange("other.md", 7, 7)]
+    excerpts = [LineRange("other.md", 1, 10), LineRange("notes.md", 4, 6)]
+    documents = {"notes.md": NOTES, "other.md": OTHER}
+
+    assert evidence_shown(evidence, excerpts, documents) == [False, True]
+
+
 def make_record(
     question: Question,
     final: ModelAnswer | None,
@@ -228,10 +359,14 @@ def make_record(
     repeat: int = 1,
     seconds: float = 1.0,
     tokens: tuple[int, int, int] = (0, 0, 0),
+    shown: list[bool] | None = None,
 ) -> RunRecord:
     # No final answer stands for a run that ended in a Gemini error.
     raw = final if raw is None else raw
     input_tokens, output_tokens, thought_tokens = tokens
+    if final is not None and shown is None:
+        # Unless a test says otherwise, Gemini was shown all the evidence.
+        shown = [True] * len(question.evidence)
     return RunRecord(
         question_id=question.id,
         repeat=repeat,
@@ -245,10 +380,13 @@ def make_record(
         citations=[] if final is None else final.citations,
         raw_status=None if raw is None else raw.status,
         raw_citations=None,
+        excerpts=[],
+        evidence_shown=shown,
         seconds=seconds,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         thought_tokens=thought_tokens,
+        embedded_characters=0,
         error="GeminiUnavailableError" if final is None else None,
         score=None if final is None else score_run(question, final, raw),
     )
@@ -265,6 +403,7 @@ def test_summary_of_no_runs_has_no_rates() -> None:
         "answerable_runs": 0,
         "answer_accuracy": no_rate,
         "citation_accuracy": no_rate,
+        "evidence_shown": no_rate,
         "false_not_found_rate": no_rate,
         "unanswerable_runs": 0,
         "not_found_accuracy": no_rate,
@@ -314,6 +453,25 @@ def test_summary_counts_each_kind_of_outcome() -> None:
     assert summary["unanswerable_runs"] == 2
     assert summary["not_found_accuracy"] == {"rate": 0.5, "count": 1, "of": 2}
     assert summary["rejected_by_verifier"] == {"rate": 1 / 6, "count": 1, "of": 6}
+
+
+def test_evidence_shown_counts_answerable_runs_shown_all_their_evidence() -> None:
+    question = make_question(
+        category="multi_fact",
+        facts=[["3 days"], ["Friday"]],
+        evidence=[[42, 43], [50, 50]],
+    )
+    records = [
+        make_record(question, NOT_FOUND, shown=[True, True]),
+        make_record(question, NOT_FOUND, repeat=2, shown=[True, False]),
+        make_record(question, NOT_FOUND, repeat=3, shown=[False, False]),
+        make_record(question, None, repeat=4),
+        make_record(UNANSWERABLE, NOT_FOUND),
+    ]
+
+    summary = summarize(records)
+
+    assert summary["evidence_shown"] == {"rate": 1 / 3, "count": 1, "of": 3}
 
 
 def test_answer_with_a_forbidden_phrase_counts_against_answer_accuracy() -> None:

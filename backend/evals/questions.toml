@@ -1,14 +1,16 @@
 # Evaluation questions for Context-Lens answer quality.
 #
-# Every question is asked against one document in documents/ (the baseline), and later
-# against the whole set of documents with RAG search, so each answerable question has
-# exactly one correct answer across all seven documents.
+# Every question is asked against its document in documents/, sent whole (the baseline),
+# and against the whole set of documents with RAG search, so each answerable question
+# has exactly one correct answer across all seven documents. A cross_document question's
+# baseline also gets each other document its evidence is in, after its own.
 #
 # Fields:
 #   id         Unique; lowercase letters, digits and hyphens.
 #   document   A file in documents/: the document the baseline asks the question against.
 #   category   fact              one fact from one place in the document
 #              multi_fact        facts from two or more separate places in the document
+#              cross_document    facts from the document and at least one other document
 #              injection         a fact that a prompt-injection line in the document tries to change
 #              missing_related   on the document's topic, but not answered in any document
 #              missing_unrelated general knowledge, not in any document; the app must not answer it
@@ -17,9 +19,12 @@
 #              a right answer contains at least one alternative of every fact. Text is compared
 #              after casefolding and collapsing whitespace, and a phrase matches only as a whole
 #              (no letter, digit or underscore directly before or after it).
-#   evidence   Answerable only. [start_line, end_line] ranges, 1-based and inclusive, of the lines
-#              that state the facts (lines are the document split on "\n"). A citation counts
-#              when it overlaps one of these ranges.
+#   evidence   Answerable only. The ranges of lines that state the facts, 1-based and inclusive
+#              (lines are a file split on "\n"): [start_line, end_line] in the question's
+#              document, or ["file.md", start_line, end_line] in any file in documents/. Only a
+#              cross_document question has evidence in another file, and it needs evidence in
+#              its own document and at least one other. A citation counts when it names the
+#              range's file and overlaps its lines.
 #   forbidden  Optional. Phrases a correct answer must not contain, such as the value an
 #              injected line pushes or a tempting value from another document.
 #
@@ -97,7 +102,7 @@ id = "it-lost-device-report"
 document = "it-security-policy.md"
 category = "fact"
 question = "Within what time must a lost or stolen Brightwater laptop or phone be reported to the IT Service Desk?"
-facts = [["1 hour", "one hour", "60 minutes"]]
+facts = [["1 hour", "one hour", "60 minutes", "within an hour"]]
 evidence = [[49, 49]]
 
 [[questions]]
@@ -373,7 +378,7 @@ id = "agreement-p1-response"
 document = "supplier-agreement.md"
 category = "fact"
 question = "How quickly must Corvane Lab Services respond to a priority 1 (critical) incident?"
-facts = [["1 hour", "one hour", "60 minutes"]]
+facts = [["1 hour", "one hour", "60 minutes", "within an hour"]]
 evidence = [[74, 74]]
 
 [[questions]]
@@ -424,3 +429,233 @@ id = "agreement-czech-eu-accession"
 document = "supplier-agreement.md"
 category = "missing_unrelated"
 question = "In which year did the Czech Republic join the European Union?"
+
+# --- Across documents -------------------------------------------------------------------------
+
+[[questions]]
+id = "cross-company-phone-loss"
+document = "employee-handbook.md"
+category = "cross_document"
+question = "Which Brightwater employees receive a company mobile phone, and within what time must they report it to the IT Service Desk if it is lost?"
+facts = [
+    ["on-call", "on call"],
+    ["1 hour", "one hour", "60 minutes", "within an hour"],
+]
+evidence = [[139, 139], ["it-security-policy.md", 49, 49]]
+
+[[questions]]
+id = "cross-lims-go-live-support"
+document = "steering-committee-minutes.md"
+category = "cross_document"
+question = "To what date was the go-live of the new LIMS in Project Aurora moved, and within what time must Corvane Lab Services resolve a priority 1 (critical) incident in the LIMS?"
+facts = [
+    ["13 April 2027", "April 13, 2027", "April 13 2027", "13 April", "April 13", "13th April", "April 13th", "13. 4. 2027", "13.4.2027", "13/04/2027", "2027-04-13", "13. dubna 2027"],
+    ["8 hours", "eight hours", "8-hour", "eight-hour"],
+]
+evidence = [[61, 61], ["supplier-agreement.md", 74, 74]]
+
+[[questions]]
+id = "cross-cz-corvane-hotel"
+document = "cestovni-nahrady.md"
+category = "cross_document"
+question = "Jedu na jednání do sídla firmy Corvane Lab Services a zůstanu tam přes noc. Ve kterém městě Corvane sídlí a kolik může stát hotel na jednu noc, aby mi ho zaměstnavatel proplatil?"
+facts = [
+    ["2 500", "2,500", "2500", "2.500"],
+    ["Praha", "Praze", "Prague", "Prahy", "Prahu"],
+]
+evidence = [[70, 70], ["supplier-agreement.md", 13, 13]]
+
+[[questions]]
+id = "cross-leaflet-holder-address"
+document = "velmorin-leaflet.md"
+category = "cross_document"
+question = "Which company holds the marketing authorisation for Velmorin, and what is its street address?"
+facts = [
+    ["Brightwater"],
+    ["Lipová 17", "Lipova 17", "17 Lipová", "17 Lipova"],
+]
+evidence = [[157, 157], ["supplier-agreement.md", 7, 7]]
+
+[[questions]]
+id = "cross-it-aurora-minutes-readers"
+document = "it-security-policy.md"
+category = "cross_document"
+question = "How are the minutes of the Project Aurora steering committee meeting classified, and who may see them under Brightwater's data classification rules?"
+facts = [
+    ["Internal"],
+    ["employees", "staff"],
+    ["contractors"],
+]
+evidence = [[73, 73], ["steering-committee-minutes.md", 10, 10]]
+
+[[questions]]
+id = "cross-sop-reviewer-aurora-action"
+document = "hplc-maintenance-sop.txt"
+category = "cross_document"
+question = "Who reviewed the LX-500 HPLC maintenance SOP? Which Project Aurora action item does that person own, and when is it due?"
+facts = [
+    ["Lucie Malá", "Malá", "Mala"],
+    ["validation master plan", "A-45"],
+    ["6 November", "November 6", "6th November", "November 6th", "6th of November", "6 Nov 2026", "Nov 6, 2026", "6. 11. 2026", "6.11.2026", "06.11.2026", "06/11/2026", "2026-11-06", "6. listopadu"],
+]
+evidence = [[11, 11], ["steering-committee-minutes.md", 99, 99]]
+
+# --- Paraphrased facts: everyday words that avoid the evidence line's own terms -------
+
+[[questions]]
+id = "handbook-sick-note-pay"
+document = "employee-handbook.md"
+category = "fact"
+question = "If my doctor signs me off work for ten days, what share of my usual pay does Brightwater make sure I get?"
+facts = [["80 %", "80%", "80 percent", "80 per cent", "eighty percent", "eighty per cent"]]
+evidence = [[109, 109]]
+
+[[questions]]
+id = "agreement-confidentiality-after-end"
+document = "supplier-agreement.md"
+category = "fact"
+question = "Once our contract with Corvane is over, for how long do both sides still have to keep what they learned from each other secret?"
+facts = [["5 years", "five years", "5-year", "five-year"]]
+evidence = [[125, 125]]
+
+[[questions]]
+id = "leaflet-tablet-marking"
+document = "velmorin-leaflet.md"
+category = "fact"
+question = "How can I recognise Brightwater's hay fever pill? What is stamped on it?"
+facts = [["V20", "V 20"]]
+evidence = [[151, 151]]
+
+[[questions]]
+id = "sop-logbook-archive"
+document = "hplc-maintenance-sop.txt"
+category = "fact"
+question = "Once the book in which we note every maintenance job and error on our HPLC is full, how many years must we keep it?"
+facts = [["15 years", "fifteen years"]]
+evidence = [[692, 692]]
+
+[[questions]]
+id = "it-software-request-review"
+document = "it-security-policy.md"
+category = "fact"
+question = "I've asked for a program that isn't in the company's app catalogue. How long can it take before IT gets back to me?"
+facts = [["5 working days", "five working days", "5 business days", "five business days", "5 workdays", "five workdays", "5 work days", "five work days"]]
+evidence = [[108, 108]]
+
+[[questions]]
+id = "minutes-legacy-lims-lookup"
+document = "steering-committee-minutes.md"
+category = "fact"
+question = "Once Project Aurora switches the lab over to its new system, until when will we still be able to look things up in the old one?"
+facts = [["31 December 2027", "December 31, 2027", "December 31 2027", "31. 12. 2027", "31.12.2027", "31/12/2027", "2027-12-31", "31. prosince 2027", "end of 2027", "31st December 2027", "December 31st, 2027"]]
+evidence = [[63, 63]]
+
+# --- Far-apart facts: parts of the answer sit in distant chunks of a long document ----
+
+[[questions]]
+id = "handbook-manager-home-office-contribution"
+document = "employee-handbook.md"
+category = "multi_fact"
+question = "I'm joining Brightwater as a department manager. How much can I claim towards a monitor or chair for working from home, and how long after I start do I have to wait before I can claim it?"
+facts = [
+    ["4,000", "4 000", "4000", "4.000"],
+    ["6 months", "six months", "6-month", "six-month"],
+]
+evidence = [[65, 65], [157, 157]]
+
+[[questions]]
+id = "agreement-exit-assistance-and-data-return"
+document = "supplier-agreement.md"
+category = "multi_fact"
+question = "If we end the agreement with Corvane Lab Services, for how long afterwards must they still help us move the services to a new supplier, and within how many days must they give back all our data?"
+facts = [
+    ["3 months", "three months"],
+    ["60 days", "sixty days"],
+]
+evidence = [[53, 53], [120, 120]]
+
+[[questions]]
+id = "sop-piston-seal-part-and-interval"
+document = "hplc-maintenance-sop.txt"
+category = "multi_fact"
+question = "Which part number do I order for the piston seals of the LX-500 pump, and how often are those seals normally replaced?"
+facts = [
+    ["LX-2010"],
+    ["once a year", "annually", "annual", "every year", "yearly", "each year", "once per year", "every 12 months", "every twelve months"],
+]
+evidence = [[168, 168], [302, 306]]
+
+[[questions]]
+id = "sop-static-leak-and-pump-leak-code"
+document = "hplc-maintenance-sop.txt"
+category = "multi_fact"
+question = "In the LX-500 static leak test, what is the largest pressure drop allowed, and which error code does the pump show when liquid collects in its drip tray?"
+facts = [
+    ["1 MPa", "1.0 MPa", "10 bar"],
+    ["E35"],
+]
+evidence = [[293, 293], [654, 655]]
+
+# --- Distractors: another passage gives a similar value for a nearby case -------------
+
+[[questions]]
+id = "cz-trip-director-approval"
+document = "cestovni-nahrady.md"
+category = "fact"
+question = "Above what expected cost does a business trip also need approval from the division director, not just the line manager?"
+facts = [["20 000", "20,000", "20000", "20.000", "20 tisíc"]]
+evidence = [[25, 25]]
+forbidden = ["10,000", "10 000", "10000", "10.000", "10 tisíc"]
+
+[[questions]]
+id = "handbook-office-meal-allowance"
+document = "employee-handbook.md"
+category = "fact"
+question = "How much does Brightwater give me towards meals for a normal 8-hour working day at the office?"
+facts = [["CZK 130", "130 CZK", "130 Kč", "130 korun", "130 crowns", "130 Czech crowns", "130 Czech korunas", "130 Czech koruna"]]
+evidence = [[182, 182]]
+forbidden = ["CZK 160", "160 CZK", "160 Kč", "160 korun", "160 crowns", "160 Czech crowns"]
+
+[[questions]]
+id = "it-account-lockout"
+document = "it-security-policy.md"
+category = "fact"
+question = "If I type the wrong password too many times, for how long am I blocked from signing in to my Brightwater account?"
+facts = [["15 minutes", "fifteen minutes", "quarter of an hour", "15-minute", "fifteen-minute", "15 min"]]
+evidence = [[29, 29]]
+forbidden = ["5 minutes", "five minutes"]
+
+[[questions]]
+id = "sop-sample-tray-temperature-wait"
+document = "hplc-maintenance-sop.txt"
+category = "fact"
+question = "The cooled sample tray of the LX-500 autosampler has drifted away from its set temperature. After checking the door and the cooling vents, how long should I allow for the temperature to settle?"
+facts = [["30 minutes", "thirty minutes", "half an hour", "30-minute", "thirty-minute"]]
+evidence = [[589, 590]]
+forbidden = ["20 minutes", "twenty minutes"]
+
+# --- Traps: a passage looks like the answer, but covers a different case --------------
+
+[[questions]]
+id = "agreement-p1-phone-number"
+document = "supplier-agreement.md"
+category = "missing_related"
+question = "Which phone number do we call to report a P1 critical incident to Corvane Lab Services?"
+
+[[questions]]
+id = "minutes-production-licence"
+document = "steering-committee-minutes.md"
+category = "missing_related"
+question = "By what date must the licence for the production environment of the new LIMS be renewed?"
+
+[[questions]]
+id = "handbook-phone-replacement"
+document = "employee-handbook.md"
+category = "missing_related"
+question = "How often are company mobile phones replaced at Brightwater?"
+
+[[questions]]
+id = "it-vpn-idle-timeout"
+document = "it-security-policy.md"
+category = "missing_related"
+question = "After how many minutes of inactivity is a Brightwater VPN session disconnected?"
