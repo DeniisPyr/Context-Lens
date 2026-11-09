@@ -1,8 +1,8 @@
 # Context-Lens
 
-Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing.
+Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing. When the answer depends on something the question doesn't say, it asks.
 
-> Work in progress: a FastAPI backend and a React frontend. Documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
+> Work in progress: a FastAPI backend and a React frontend. Documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. When the documents answer a question differently for different situations and the question doesn't say which one applies, Gemini asks one clarifying question, citing the lines that differ, and answers the user's reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
 
 ## Run locally
 
@@ -35,9 +35,9 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173, create a dataset, upload `.txt` or `.md` files into it (up to 1 MB each), and ask a question about the dataset. Click a citation's lines to read them in its document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+Then open http://localhost:5173, create a dataset, upload `.txt` or `.md` files into it (up to 1 MB each), and ask a question about the dataset. If the answer depends on something the question doesn't say, you get a question back, with the lines that show why, and a box to reply in. Click a citation's lines to read them in its document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 
-You can also call the API directly. Create a dataset and upload a file into it using the `id` from its response, then read the document, ask about it or delete it using the `id` from the upload response. Deleting the dataset deletes its documents too:
+You can also call the API directly. Create a dataset and upload a file into it using the `id` from its response, then read the document, ask about it or delete it using the `id` from the upload response. When an answer's `status` is `needs_clarification`, its `answer` is a question back: send the question again with that text and your reply in `clarification`. Deleting the dataset deletes its documents too:
 
 ```bash
 curl -X POST http://localhost:8000/api/datasets \
@@ -53,6 +53,11 @@ curl http://localhost:8000/api/documents/<id from the upload>
 curl -X POST http://localhost:8000/api/ask \
   -H "Content-Type: application/json" \
   -d '{"dataset_id": "<id from the dataset>", "question": "What do these notes say?"}'
+
+curl -X POST http://localhost:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"dataset_id": "<id from the dataset>", "question": "What do these notes say?",
+       "clarification": {"question": "<the answer that asked back>", "reply": "The ones from March."}}'
 
 curl -X DELETE http://localhost:8000/api/documents/<id from the upload>
 
@@ -106,16 +111,21 @@ A question is asked of a whole dataset, in four steps:
 3. **Answer:** Gemini answers from these excerpts only, and gives each claim a citation with the file, the lines and a quote copied from them.
 4. **Check:** each quote must be word for word in the document's real lines, and those lines must be among the ones Gemini was shown. A citation whose range is wider than its quote is narrowed to the lines the quote is on. If any citation fails, the whole answer is replaced with "not found".
 
+In step 3, Gemini can ask a clarifying question instead of answering, when the excerpts answer the question differently for different situations, the question doesn't say which one the user is in, and listing every answer wouldn't make a short, clear reply. "How do I report a problem?" is one: a lost laptop, a LIMS outage and a faulty instrument each have their own way. The clarifying question cites the lines that show the different answers, and step 4 checks those citations like an answer's.
+
+The reply is sent with the question and the clarifying question. Search then embeds the question and the reply together, so it looks for the lines about the situation the reply names, and the prompt ends with all three. This time Gemini can only answer or say "not found", because the answer format it's given has no status for asking again. So a user is asked one question at most, and the conversation can't loop.
+
 A dataset without chunks gets "not found" without asking Gemini. That includes documents uploaded before chunks existed and not yet indexed (see [Chunks and embeddings](#chunks-and-embeddings)).
 
 ## Evaluation
 
-`backend/evals/` holds a fixed set of 72 questions about 7 fictional documents, for measuring how well the app answers. The documents are an employee handbook, an IT security policy, steering committee minutes, a leaflet for a made-up medicine, a travel-expenses policy in Czech, a 726-line instrument maintenance SOP with 40 look-alike error codes, and a supplier agreement. Together they make one dataset of 95 chunks.
+`backend/evals/` holds a fixed set of 78 questions about 7 fictional documents, for measuring how well the app answers. The documents are an employee handbook, an IT security policy, steering committee minutes, a leaflet for a made-up medicine, a travel-expenses policy in Czech, a 726-line instrument maintenance SOP with 40 look-alike error codes, and a supplier agreement. Together they make one dataset of 95 chunks.
 
 - 52 questions have an answer. Each lists the facts a right answer must contain, with alternative phrasings, and the lines it must cite, in which file. Two ask about facts that a line in a document, addressed to AI assistants, tries to change, and six need two documents.
 - 20 have no answer in any of the documents, so the app must say "not found". Some ask about something next to what a document covers, and some are general knowledge that Gemini knows but must not use.
+- 6 need a clarifying question, such as "A test on our LX-500 just failed. What should I do?", where five tests each have their own procedure. Each comes with the user's reply, such as "It was the static leak test.", and the facts of the answer to it. Two have their situations in different documents, so search has to find both.
 
-The first 48 questions were written for the whole-document baseline, which got every one right. The other 24 are made to be hard for search but fair to a careful reader. Each one does one of these:
+Of the 72 questions that need no clarifying question, the first 48 were written for the whole-document baseline, which got every one right. The other 24 are made to be hard for search but fair to a careful reader. Each one does one of these:
 
 - needs two documents
 - uses everyday words instead of the document's own
@@ -123,12 +133,12 @@ The first 48 questions were written for the whole-document baseline, which got e
 - has a look-alike value nearby for another case
 - has no answer, although a passage covers something similar
 
-A run is correct when it answers with every fact, cites every expected line range in the right file and uses no forbidden phrase. For a question without an answer, it's correct when it says "not found". Grading is plain text matching with no second model as a judge, so the same answers always get the same scores. The set is checked on every test run: each expected fact must appear in the lines the question says to cite.
+A run is correct when it answers with every fact, cites every expected line range in the right file and uses no forbidden phrase. For a question without an answer, it's correct when it says "not found". A clarifying-question run is correct when Gemini asks back first and then answers the reply that way. When it asks, the evaluation sends the reply, as a user would. Every other question must be answered without a clarifying question, so asking where there's no need counts as wrong. Grading is plain text matching with no second model as a judge, so the same answers always get the same scores. The set is checked on every test run: each expected fact must appear in the lines the question says to cite.
 
 The evaluation answers in one of two ways:
 
 - **`rag`**, the default, answers as the app does, with the app's own code. Every document is chunked and embedded once at the start, for about half a cent. Then each question goes through the same search, excerpts, prompt and check as `POST /api/ask`. Only the store differs: the chunks are kept in memory and searched exactly by cosine distance, as Postgres does.
-- **`whole_document`** sends each question's documents whole: its own document, plus the other one for a question that needs two. That's how the app answered before search. It's also told which document holds the answer, which the app never is.
+- **`whole_document`** sends each question's documents whole: its own document, plus the other one for a question that needs two, and every document holding a situation for a clarifying question. That's how the app answered before search. It's also told which document holds the answer, which the app never is.
 
 To check the set and see how much text the prompts would send, without calling Gemini:
 
@@ -137,7 +147,7 @@ cd backend
 uv run python -m context_lens.evaluation --dry-run
 ```
 
-To run it, with the key from `backend/.env`. This calls Gemini once for each question and repeat, so it spends credits. At gemini-3.8-flash's prices in November 2026, 3 repeats cost about $0.75 for `rag` and $1.00 for `whole_document`:
+To run it, with the key from `backend/.env`. This calls Gemini once for each question and repeat, and twice when it asks back, so it spends credits. At gemini-3.8-flash's prices in November 2026, 3 repeats cost about $1.05 for `rag` and $1.45 for `whole_document`:
 
 ```bash
 uv run python -m context_lens.evaluation --repeats 3 --output evals/results/rag.json
@@ -155,37 +165,49 @@ The JSON report keeps every answer, citation and excerpt Gemini was shown, and t
 
 ### Results: search compared with whole documents
 
-From [evals/results/comparison.md](backend/evals/results/comparison.md), with gemini-3.8-flash and 3 repeats of each of the 72 questions:
+From [evals/results/comparison.md](backend/evals/results/comparison.md), with gemini-3.8-flash and 3 repeats of each question. One run of each method ended in a Gemini error (a timeout), so the rates leave it out. First, the 72 questions that need no clarifying question:
 
 | Measure | Whole documents | Search (`rag`) |
 | --- | --- | --- |
-| Correct | 100% (215/216) | 95% (205/215) |
-| Correct, questions that need two documents | 100% (18/18) | 61% (11/18) |
+| Correct | 100% (216/216) | 94% (203/216) |
+| Correct, questions that need two documents | 100% (18/18) | 50% (9/18) |
 | Correct, questions with facts in two places of one document | 100% (36/36) | 92% (33/36) |
-| Expected lines shown to Gemini | 100% (156/156) | 94% (146/155) |
+| Expected lines shown to Gemini | 100% (156/156) | 94% (147/156) |
 | "Not found" when there's no answer | 100% (60/60) | 100% (60/60) |
-| Median / p95 seconds | 3.3 / 5.7 | 4.5 / 8.2 |
-| Input tokens per question | 4,325 on average; 11,925 for the SOP | 2,392 on average; 2,337 for the SOP |
-| Output tokens per question, with thinking | 343 | 441 |
-| Cost per 1,000 questions | $4.53 | $3.45 |
+| Asked a clarifying question it didn't need | 0% (0/216) | 0% (0/216) |
+| Median / p95 seconds | 4.4 / 9.3 | 5.1 / 9.5 |
+| Input tokens per question | 4,408 on average; 12,008 for the SOP | 2,474 on average; 2,420 for the SOP |
+| Output tokens per question, with thinking | 368 | 501 |
+| Cost per 1,000 questions | $4.69 | $3.73 |
 
-One `rag` run ended in a Gemini error ("unavailable"), so the `rag` rates count 215 runs.
+Then the 6 questions that need one:
+
+| Measure | Whole documents | Search (`rag`) |
+| --- | --- | --- |
+| Asked back | 100% (17/17) | 71% (12/17) |
+| Then answered the reply right | 100% (17/17) | 100% (12/12) |
+| Median seconds, both questions | 20.8 | 22.1 |
+| Input tokens, both questions | 21,521 | 4,037 |
+| Cost per 1,000 | $26.08 | $14.82 |
 
 What this shows:
 
 - **Search misses the second half of a question.**
-  - All 10 wrong `rag` runs were questions whose answer sits in two places. The question is embedded once, so the 8 closest chunks match the part of it that dominates.
-  - In 9 of those runs, 3 questions each time, search never showed Gemini the second passage. For example, "Who reviewed the SOP, and which action item does that person own?" needs the reviewer's name to find the action item, and the name isn't in the question. Gemini then said "not found" or left that part out, instead of guessing.
-  - In the 10th run, both passages were shown and Gemini still said "not found".
+  - 9 of the 13 wrong `rag` runs on clear questions were questions whose answer sits in two places. The question is embedded once, so the 8 closest chunks match the part of it that dominates. For 3 questions, every time, search never showed Gemini the second passage. For example, "Who reviewed the SOP, and which action item does that person own?" needs the reviewer's name to find the action item, and the name isn't in the question. Gemini then said "not found" or left that part out, instead of guessing.
+  - A 4th question, "To what date was the go-live of the new LIMS moved, and within what time must Corvane resolve a priority 1 incident?", got "not found" in all 3 runs, although search showed both passages. Before Gemini could ask back, the same question was answered right in 2 of 3 runs, so the new instruction has likely made Gemini more careful there.
+  - In the last one, Gemini copied a line number from the prompt into the middle of its quote, so the quote wasn't word for word in the document, and the check rejected the answer.
+- **It doesn't ask when it needn't.** Neither method asked a clarifying question about any of the 72 clear questions, in 432 runs.
+- **It asks when it should, if search finds the situations.**
+  - With whole documents, Gemini asked every time, and answered every reply right.
+  - With search, when it asked, it answered every reply right too. It missed two questions. For "A test on our LX-500 just failed. What should I do?", search found the list of error codes rather than the five test procedures, and Gemini said "not found". For "What rules do I have to follow when handling the document I'm working on?", search found the handling rules but not the classification levels, and Gemini listed the rules for every level instead of asking which one the document has.
+  - Asking back takes two calls and longer thinking: about 22 seconds for the whole exchange, and 1.5 cents.
 - **It didn't answer what the documents don't say.** Both methods said "not found" for all 20 questions without an answer. That includes the ones where search returned a passage about a similar case.
 - **It's cheaper, and its cost doesn't grow with the documents.**
-  - Search sends 45% fewer input tokens. It sends about the same for the 726-line SOP as for a short leaflet.
-  - Gemini thinks a little longer over excerpts, so the saving here is 24% per question.
+  - Search sends 44% fewer input tokens. It sends about the same for the 726-line SOP as for a short leaflet.
+  - Gemini thinks a little longer over excerpts, so the saving here is 20% per question.
   - The bigger point is scale: a dataset of 100 documents can't be sent whole at all.
-- **It's about a second slower**, because of the embedding request and the longer thinking.
-- **The whole-document method isn't perfect either.** Its one wrong run quoted a heading from the line above its cited range, so the check rejected the answer.
 
-Searching once for each part of a question, or giving it more chunks, might fix the questions whose answer sits in two places, and this set can measure either change.
+Searching once for each part of a question, or giving it more chunks, might fix the questions whose answer sits in two places, and also show Gemini the situations it needs to see before it can ask back. This set can measure either change.
 
 ## Project structure
 
@@ -221,7 +243,7 @@ context_lens/
 ├── schemas/                 # API request and response models
 │   └── ask.py, datasets.py, documents.py, health.py
 └── services/                # logic, no FastAPI imports
-    ├── answering.py         # builds the prompt from excerpts, asks Gemini, verifies citations
+    ├── answering.py         # builds the prompt from excerpts and any reply, asks Gemini, verifies citations
     ├── chunking.py          # splits a document into chunks of lines
     ├── datasets.py          # what a dataset is, and its errors
     ├── documents.py         # validates uploads and splits text into lines
@@ -260,7 +282,7 @@ src/
 │   ├── health.ts              # asks the backend whether it's healthy
 │   └── request.ts             # sends a request and turns any failure into a message
 ├── components/
-│   ├── Answer.tsx             # shows one answer and its citations
+│   ├── Answer.tsx             # shows one answer or clarifying question, and its citations
 │   ├── ApiStatus.tsx          # shows whether the API is reachable
 │   ├── Ask.tsx                # asks a question about the selected dataset
 │   ├── ConfirmDelete.tsx      # a Delete button that asks first, inline
@@ -269,6 +291,7 @@ src/
 │   ├── Datasets.tsx           # chooses a dataset, offers to create one and to delete it
 │   ├── Documents.tsx          # shows the upload form and the document list, with Delete buttons
 │   ├── LineViewer.tsx         # shows a citation's lines in the document
+│   ├── ReplyForm.tsx          # replies to a clarifying question
 │   └── UploadForm.tsx         # chooses files, uploads them one by one and says how each went
 ├── hooks/
 │   ├── useDatasets.ts         # loads the dataset list
