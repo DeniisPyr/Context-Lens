@@ -1,0 +1,14 @@
+# Only what the image is built from. Everything else stays out of the build, such as
+# node_modules, dist and any .env.
+*
+!package.json
+!package-lock.json
+!index.html
+!tsconfig*.json
+!vite.config.ts
+!src/
+!nginx/
+
+# Not even inside the folders above.
+**/.env
+**/.env.*
