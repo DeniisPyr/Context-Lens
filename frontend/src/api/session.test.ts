@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { onSessionEnd } from './request.ts'
 import { getSession, logIn, logOut, MAX_PASSWORD_LENGTH } from './session.ts'
 
 afterEach(() => {
@@ -30,6 +31,8 @@ describe('getSession', () => {
 })
 
 describe('logIn', () => {
+  const wrongPassword = () => Response.json({ detail: 'Wrong password.' }, { status: 401 })
+
   it('posts the password as JSON and resolves on a 204', async () => {
     const fetchStub = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchStub)
@@ -46,9 +49,19 @@ describe('logIn', () => {
   })
 
   it('uses the message from the backend for a wrong password', async () => {
-    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => Response.json({ detail: 'Wrong password.' }, { status: 401 })))
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => wrongPassword()))
 
     await expect(logIn('guess')).rejects.toThrow('Wrong password.')
+  })
+
+  it('does not take the 401 for a wrong password as the end of a session', async () => {
+    const listener = vi.fn()
+    onTestFinished(onSessionEnd(listener))
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => wrongPassword()))
+
+    await expect(logIn('guess')).rejects.toThrow('Wrong password.')
+
+    expect(listener).not.toHaveBeenCalled()
   })
 
   it('falls back when a failed response is not JSON', async () => {

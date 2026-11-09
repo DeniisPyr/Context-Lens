@@ -25,6 +25,9 @@ const invoices = { id: 'i', name: 'Invoices' }
 
 const noContent = () => new Response(null, { status: 204 })
 const wrongPassword: Route = () => Response.json({ detail: 'Wrong password.' }, { status: 401 })
+// What every other route answers once the session has ended.
+const logInFirst = () => Response.json({ detail: 'Log in first.' }, { status: 401 })
+const sessionEnded = 'Your session has ended. Log in again.'
 
 // The page with this session and an API that answers: the password is right, logging out works, and there are two
 // datasets, Reports and Invoices, both empty.
@@ -83,6 +86,11 @@ async function findApp() {
 async function logInWith(user: UserEvent, password: string) {
   await user.type(passwordInput(), password)
   await user.click(logInButton())
+}
+
+async function createNamed(user: UserEvent, name: string) {
+  await user.type(nameInput(), name)
+  await user.click(screen.getByRole('button', { name: 'Create' }))
 }
 
 function expectNoLoginForm() {
@@ -408,5 +416,106 @@ describe('the Log out button', () => {
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2)
     expect(datasetSelect()).toHaveValue(invoices.id)
     expect(nameInput()).toHaveValue('')
+  })
+})
+
+describe('when the session ends while the app is open', () => {
+  it('goes back to the login form and says why when a later request gets a 401', async () => {
+    const user = userEvent.setup()
+    stubPage(loggedIn, { 'POST /api/datasets': logInFirst })
+
+    render(<App />)
+    await findApp()
+    await createNamed(user, 'Contracts')
+
+    expect(await findLoginForm()).toHaveValue('')
+    expect(screen.getByRole('alert')).toHaveTextContent(sessionEnded)
+    expect(screen.queryByText('Log in first.')).not.toBeInTheDocument()
+    expect(logOutButton()).not.toBeInTheDocument()
+    expectNoApp()
+  })
+
+  it('does not loop: it neither checks the session again nor reloads the datasets', async () => {
+    // The check keeps saying logged in, so a page that checked again on a 401 would show the app, load the datasets,
+    // get another 401, and go round.
+    const fetchStub = stubPage(loggedIn, { 'GET /api/datasets': logInFirst })
+
+    render(<App />)
+    await findLoginForm()
+    await act(async () => {})
+
+    expect(screen.getByRole('alert')).toHaveTextContent(sessionEnded)
+    expect(requestsTo(fetchStub, '/api/session')).toHaveLength(1)
+    expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(1)
+    expectNoApp()
+  })
+
+  it('takes a 401 from logging in for a wrong password, not for another ended session', async () => {
+    const user = userEvent.setup()
+    stubPage(loggedIn, { 'POST /api/datasets': logInFirst, 'POST /api/session': wrongPassword })
+
+    render(<App />)
+    await findApp()
+    await createNamed(user, 'Contracts')
+    await findLoginForm()
+    await logInWith(user, 'guess')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Wrong password.')
+    expect(screen.queryByText(sessionEnded)).not.toBeInTheDocument()
+    expect(passwordInput()).toHaveValue('guess')
+  })
+
+  it('starts the app over on the next login: the datasets load again and nothing from before is left', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage(loggedIn, { 'POST /api/datasets': logInFirst })
+
+    render(<App />)
+    await findApp()
+    await user.selectOptions(datasetSelect(), reports.id)
+    await createNamed(user, 'Contracts')
+    await findLoginForm()
+    await logInWith(user, 'secret')
+    await findApp()
+
+    expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2)
+    expect(datasetSelect()).toHaveValue(invoices.id)
+    expect(nameInput()).toHaveValue('')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(logOutButton()).toBeEnabled()
+  })
+
+  it('ignores a 401 that comes back after the user has logged out', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage(loggedIn, { 'POST /api/datasets': route })
+
+    render(<App />)
+    await findApp()
+    await createNamed(user, 'Contracts')
+    await user.click(logOutButton()!)
+    await findLoginForm()
+    await answer(logInFirst())
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await logInWith(user, 'secret')
+    await findApp()
+  })
+
+  it('asks for a login even when none was required at first, as after the backend got a password', async () => {
+    const user = userEvent.setup()
+    stubPage(noLogin, { 'POST /api/datasets': logInFirst })
+
+    render(<App />)
+    await findApp()
+    await createNamed(user, 'Contracts')
+
+    expect(await findLoginForm()).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(sessionEnded)
+
+    await logInWith(user, 'secret')
+    await findApp()
+
+    expect(logOutButton()).toBeEnabled()
   })
 })

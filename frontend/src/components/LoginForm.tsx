@@ -2,13 +2,16 @@ import { type SubmitEvent, useState } from 'react'
 import { logIn, MAX_PASSWORD_LENGTH } from '../api/session.ts'
 
 type Props = {
+  // Why the form is back, when the session ended by itself. It shows like an error until the user tries to log in.
+  notice: string | null
   onLoggedIn: () => void
 }
 
-export default function LoginForm({ onLoggedIn }: Props) {
+export default function LoginForm({ notice, onLoggedIn }: Props) {
   const [password, setPassword] = useState('')
   const [loggingIn, setLoggingIn] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Starts as the notice, which can't change while the form is here: App only ends a session that shows the app.
+  const [error, setError] = useState<string | null>(notice)
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()

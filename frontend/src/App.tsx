@@ -23,7 +23,7 @@ export default function App() {
           </button>
         </>
       )}
-      {session.status === 'loggedOut' && <LoginForm onLoggedIn={loggedIn} />}
+      {session.status === 'loggedOut' && <LoginForm notice={session.notice} onLoggedIn={loggedIn} />}
       {session.status === 'loggedIn' && <Workspace />}
     </main>
   )

@@ -14,7 +14,8 @@ export function getSession(signal: AbortSignal): Promise<Session> {
 }
 
 // The backend answers with a session cookie. It's HttpOnly, so this code never sees it, and the browser sends it with
-// every later request by itself, because the page and the API share an origin.
+// every later request by itself, because the page and the API share an origin. A wrong password gets a 401, which
+// here means just that, and not that a session ended.
 export function logIn(password: string): Promise<void> {
   return send(
     '/api/session',
@@ -24,6 +25,7 @@ export function logIn(password: string): Promise<void> {
       body: JSON.stringify({ password }),
     },
     'Could not log in.',
+    { loggingIn: true },
   )
 }
 

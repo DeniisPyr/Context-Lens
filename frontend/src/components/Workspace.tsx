@@ -4,8 +4,8 @@ import { useDatasets } from '../hooks/useDatasets.ts'
 import DatasetContents from './DatasetContents.tsx'
 import Datasets from './Datasets.tsx'
 
-// Everything behind the login. App takes it off the page when the user logs out, so the next login starts it over:
-// the datasets load again, and nothing picked, typed or answered before is left.
+// Everything behind the login. App takes it off the page when the user logs out or the session ends, so the next
+// login starts it over: the datasets load again, and nothing picked, typed or answered before is left.
 export default function Workspace() {
   const { datasets, error, add, remove } = useDatasets()
   // Only what the user picked. The selected dataset is worked out from it on every render, so a

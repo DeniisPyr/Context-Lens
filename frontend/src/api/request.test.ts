@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { send, sendDelete } from './request.ts'
+import { onSessionEnd, send, sendDelete } from './request.ts'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -82,5 +82,84 @@ describe('sendDelete', () => {
     respondWith(response)
 
     await expect(sendDelete('/api/x/1', 'fallback')).rejects.toBeInstanceOf(Error)
+  })
+})
+
+describe('onSessionEnd', () => {
+  const logInFirst = () => Response.json({ detail: 'Log in first.' }, { status: 401 })
+  let stopListening = () => {}
+
+  afterEach(() => {
+    stopListening()
+  })
+
+  function listen() {
+    const listener = vi.fn()
+    stopListening = onSessionEnd(listener)
+    return listener
+  }
+
+  it('tells the listener about a 401, and still rejects with the message from the backend', async () => {
+    const listener = listen()
+    respondWith(logInFirst())
+
+    await expect(send('/api/x', {}, 'fallback')).rejects.toThrow('Log in first.')
+
+    expect(listener).toHaveBeenCalledOnce()
+  })
+
+  it('tells it about a 401 from a delete too, which is not done', async () => {
+    const listener = listen()
+    respondWith(logInFirst())
+
+    await expect(sendDelete('/api/x/1', 'fallback')).rejects.toThrow('Log in first.')
+
+    expect(listener).toHaveBeenCalledOnce()
+  })
+
+  it.each<[string, () => Promise<Response>]>([
+    ['a 403', async () => Response.json({ detail: 'Forbidden' }, { status: 403 })],
+    ['a 404', async () => Response.json({ detail: 'Document not found.' }, { status: 404 })],
+    ['a 502 with no JSON', async () => new Response('Bad Gateway', { status: 502 })],
+    ['a dropped connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+  ])('does not tell it about %s', async (_name, response) => {
+    const listener = listen()
+    respondWith(response)
+
+    await expect(send('/api/x', {}, 'fallback')).rejects.toBeInstanceOf(Error)
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('does not tell it about the 401 that logging in gets for a wrong password', async () => {
+    const listener = listen()
+    respondWith(Response.json({ detail: 'Wrong password.' }, { status: 401 }))
+
+    await expect(send('/api/session', {}, 'fallback', { loggingIn: true })).rejects.toThrow('Wrong password.')
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('stops telling a listener once it is removed', async () => {
+    const listener = listen()
+    stopListening()
+    respondWith(logInFirst())
+
+    await expect(send('/api/x', {}, 'fallback')).rejects.toThrow('Log in first.')
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('keeps a newer listener when an older one is removed', async () => {
+    const older = listen()
+    const stopOlder = stopListening
+    const newer = listen()
+    stopOlder()
+    respondWith(logInFirst())
+
+    await expect(send('/api/x', {}, 'fallback')).rejects.toThrow('Log in first.')
+
+    expect(older).not.toHaveBeenCalled()
+    expect(newer).toHaveBeenCalledOnce()
   })
 })

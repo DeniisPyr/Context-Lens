@@ -10,8 +10,33 @@ class ResponseError extends Error {
   }
 }
 
+// The one listener told when the backend turns a request away with a 401 because there's no valid session: it expired,
+// the password changed, or the user logged out in another tab. A listener rather than an error for App to catch,
+// because each component catches its errors to show them, so App would never see one. This way components know
+// nothing about sessions: App listens and puts the login form in place of the app, and the component that failed goes
+// with it.
+let sessionEndListener: (() => void) | null = null
+
+// Sets the one listener, and returns a function that removes it again.
+export function onSessionEnd(listener: () => void): () => void {
+  sessionEndListener = listener
+  return () => {
+    if (sessionEndListener === listener) sessionEndListener = null
+  }
+}
+
+type Options = {
+  // True for the request that logs in: its 401 means a wrong password, not that a session ended.
+  loggingIn?: boolean
+}
+
 // Every failure becomes an Error whose message is what the user should read.
-export async function send<T>(url: string, init: RequestInit, fallback: string): Promise<T> {
+export async function send<T>(
+  url: string,
+  init: RequestInit,
+  fallback: string,
+  { loggingIn = false }: Options = {},
+): Promise<T> {
   let response: Response
   try {
     response = await fetch(url, init)
@@ -22,6 +47,7 @@ export async function send<T>(url: string, init: RequestInit, fallback: string):
     // The connection dropped, the request was aborted, or the response body wasn't JSON.
     throw new Error(fallback)
   }
+  if (response.status === 401 && !loggingIn) sessionEndListener?.()
   throw new ResponseError(await errorMessage(response, fallback), response.status)
 }
 
