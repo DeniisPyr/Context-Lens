@@ -2,8 +2,10 @@ import { useId, useState } from 'react'
 import type { Answer as AnswerResult, Citation, Clarification } from '../api/ask.ts'
 import LineViewer from './LineViewer.tsx'
 
-function lineLabel({ start_line, end_line }: Citation) {
-  return start_line === end_line ? `Line ${start_line}` : `Lines ${start_line}–${end_line}`
+// A PDF's reader finds a place in it by its page. A text file has only lines.
+function citationLabel({ start_line, end_line, start_page, end_page }: Citation) {
+  if (start_page === null) return start_line === end_line ? `Line ${start_line}` : `Lines ${start_line}–${end_line}`
+  return start_page === end_page ? `Page ${start_page}` : `Pages ${start_page}–${end_page}`
 }
 
 type Props = {
@@ -18,8 +20,8 @@ export default function Answer({ datasetName, question, clarification, result }:
   // One at a time. Ask removes this component while a new question is sent, and gives the answer to a reply a new
   // key, so a new answer starts closed.
   const [openIndex, setOpenIndex] = useState<number | null>(null)
-  // One answer can cite several files, and a lines button alone doesn't say which, so each is described by its
-  // filename for a screen reader moving from button to button.
+  // One answer can cite several files, and a lines or pages button alone doesn't say which, so each is described by
+  // its filename for a screen reader moving from button to button.
   const filenameId = useId()
 
   return (
@@ -53,7 +55,7 @@ export default function Answer({ datasetName, question, clarification, result }:
                     aria-describedby={`${filenameId}-${index}`}
                     onClick={() => setOpenIndex(openIndex === index ? null : index)}
                   >
-                    {lineLabel(citation)}
+                    {citationLabel(citation)}
                   </button>
                 </div>
                 <blockquote>{citation.quote}</blockquote>

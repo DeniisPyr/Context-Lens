@@ -26,6 +26,15 @@ const range = (from: number, to: number) => Array.from({ length: to - from + 1 }
 // A document whose line N says "line N", so a row's number can be checked against its text.
 const numberedLines = (count: number) => range(1, count).map((number) => `line ${number}`)
 
+// A PDF with pages of these many lines, as the backend sends it. Line N of page P says "page P line N".
+function pdf(...pageSizes: number[]) {
+  const pages = pageSizes.map((size, index) => range(1, size).map((number) => `page ${index + 1} line ${number}`))
+  const lines = pages.flat()
+  // Each page starts on the line after the ones before it, so a page with no text starts where the next one does.
+  const page_starts = pages.map((_, index) => 1 + pages.slice(0, index).flat().length)
+  return { id: '1', filename: 'report.pdf', line_count: lines.length, page_count: pages.length, lines, page_starts }
+}
+
 function stubFetch(respond: (init?: RequestInit) => Response | Promise<Response>) {
   const fetchStub = vi.fn<typeof fetch>(async (_url, init) => respond(init))
   vi.stubGlobal('fetch', fetchStub)
@@ -50,17 +59,33 @@ async function renderLoaded(cited: Citation, lines: string[]) {
   return result
 }
 
+// The viewer finds a citation by its lines, a PDF's too, so a citation in a PDF needs no pages here.
+async function renderPdf(cited: Citation, report: ReturnType<typeof pdf>) {
+  stubFetch(() => Response.json(report))
+  const result = render(<LineViewer citation={{ ...cited, filename: report.filename }} />)
+  await screen.findByRole('list')
+  return result
+}
+
 const rows = () => screen.getAllByRole('listitem')
 
-// Each row as its number and its text, both exactly as they are in the page.
-const shownRows = () =>
-  rows().map((row) => {
-    const [number, text] = row.children
-    return [number.textContent, text.textContent]
-  })
+// A row as the text of what it holds, exactly as it is in the page: a line's number and text, or a page's row.
+const contentOf = (row: Element) => Array.from(row.children, (child) => child.textContent)
+
+const shownRows = () => rows().map(contentOf)
 
 const rowsOfNumberedLines = (from: number, to: number) =>
   range(from, to).map((number) => [String(number), `line ${number}`])
+
+const pageRow = (page: number) => [`Page ${page}`]
+const emptyPageRow = (page: number) => [`Page ${page}`, 'No text on this page']
+const rowsOfPage = (page: number, from: number, to: number) =>
+  range(from, to).map((number) => [String(number), `page ${page} line ${number}`])
+
+const rowOfText = (text: string) => screen.getByText(text).closest('li')!
+const pageHeadings = () => screen.queryAllByRole('heading').map((heading) => heading.textContent)
+
+const citedRows = () => rows().filter((row) => row.getAttribute('aria-current') === 'true').map(contentOf)
 
 const rowOfLine = (number: number) => rows().find((row) => row.children[0].textContent === String(number))!
 
@@ -83,6 +108,14 @@ describe('loading the document', () => {
     const consoleError = vi.spyOn(console, 'error')
 
     await renderLoaded(citation, numberedLines(100))
+
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
+  it('shows the page rows of a PDF without a key warning', async () => {
+    const consoleError = vi.spyOn(console, 'error')
+
+    await renderPdf(citing(3), pdf(2, 0, 2, 0))
 
     expect(consoleError).not.toHaveBeenCalled()
   })
@@ -370,6 +403,127 @@ describe('the text of a line', () => {
     const { maxHeight, fontFamily } = window.getComputedStyle(list)
     expect(maxHeight).not.toBe('none')
     expect(fontFamily).toContain('monospace')
+  })
+})
+
+describe('the pages of a PDF', () => {
+  it('starts each page with its row and numbers the lines from 1 on each page', async () => {
+    await renderPdf(citing(6), pdf(4, 5))
+
+    expect(shownRows()).toEqual([pageRow(1), ...rowsOfPage(1, 1, 4), pageRow(2), ...rowsOfPage(2, 1, 5)])
+  })
+
+  it('makes each page row a heading, in a list still named for its lines', async () => {
+    await renderPdf(citing(6), pdf(4, 5))
+
+    expect(screen.getByRole('list', { name: 'Lines of report.pdf' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 4, name: 'Page 1' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 4, name: 'Page 2' })).toBeInTheDocument()
+    expect(pageHeadings()).toEqual(['Page 1', 'Page 2'])
+  })
+
+  it('gives a page with no text its row, which says so', async () => {
+    const report = pdf(4, 0, 3)
+    expect(report.page_starts).toEqual([1, 5, 5])
+
+    await renderPdf(citing(5), report)
+
+    expect(shownRows()).toEqual([
+      pageRow(1),
+      ...rowsOfPage(1, 1, 4),
+      emptyPageRow(2),
+      pageRow(3),
+      ...rowsOfPage(3, 1, 3),
+    ])
+  })
+
+  it('gives a first page with no text its row', async () => {
+    await renderPdf(citing(2), pdf(0, 3))
+
+    expect(shownRows()).toEqual([emptyPageRow(1), pageRow(2), ...rowsOfPage(2, 1, 3)])
+  })
+
+  it('gives a page with no text at the end its row once the window reaches the end', async () => {
+    const user = userEvent.setup()
+    await renderPdf(citing(5), pdf(25, 0))
+    expect(shownRows()).toEqual([pageRow(1), ...rowsOfPage(1, 1, 15)])
+
+    await user.click(laterButton()!)
+
+    expect(laterButton()).not.toBeInTheDocument()
+    expect(shownRows()).toEqual([pageRow(1), ...rowsOfPage(1, 1, 25), emptyPageRow(2)])
+  })
+
+  it('starts the window with the row of its page when the page starts above it', async () => {
+    await renderPdf(citing(45), pdf(30, 30))
+
+    expect(shownRows()).toEqual([pageRow(2), ...rowsOfPage(2, 5, 25)])
+  })
+
+  it('starts the window with a page with no text that starts on its first line', async () => {
+    await renderPdf(citing(31), pdf(20, 0, 20))
+
+    expect(earlierButton()).toBeInTheDocument()
+    expect(shownRows()).toEqual([emptyPageRow(2), pageRow(3), ...rowsOfPage(3, 1, 20)])
+  })
+
+  it('adds the row of a page that Show earlier lines brings into view', async () => {
+    const user = userEvent.setup()
+    await renderPdf(citing(45), pdf(30, 30))
+
+    await user.click(earlierButton()!)
+
+    expect(shownRows()).toEqual([pageRow(1), ...rowsOfPage(1, 25, 30), pageRow(2), ...rowsOfPage(2, 1, 25)])
+  })
+
+  it('adds the rows of the pages that Show later lines brings into view, with one that has no text', async () => {
+    const user = userEvent.setup()
+    await renderPdf(citing(10), pdf(20, 0, 20))
+    expect(shownRows()).toEqual([pageRow(1), ...rowsOfPage(1, 1, 20)])
+
+    await user.click(laterButton()!)
+
+    expect(shownRows()).toEqual([
+      pageRow(1),
+      ...rowsOfPage(1, 1, 20),
+      emptyPageRow(2),
+      pageRow(3),
+      ...rowsOfPage(3, 1, 10),
+    ])
+  })
+
+  it('marks the cited lines across a page boundary, and not the row of the page between them', async () => {
+    await renderPdf(citing(3, 6), pdf(4, 3))
+
+    expect(citedRows()).toEqual([...rowsOfPage(1, 3, 4), ...rowsOfPage(2, 1, 2)])
+    expect(rowOfText('Page 2')).not.toHaveAttribute('aria-current')
+    expect(window.getComputedStyle(rowOfText('Page 2')).backgroundColor).toBe('rgba(0, 0, 0, 0)')
+    expect(window.getComputedStyle(rowOfText('page 2 line 1')).backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
+  })
+
+  it('scrolls to the first cited line, not to the row of its page', async () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView')
+
+    await renderPdf(citing(5), pdf(4, 3))
+
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(scroll.mock.contexts[0]).toBe(rowOfText('page 2 line 1'))
+  })
+
+  it('leaves the page rows out of a copy, as it does the numbers', async () => {
+    await renderPdf(citing(5), pdf(4, 0, 3))
+
+    expect(rowOfText('Page 1')).toHaveStyle({ userSelect: 'none' })
+    expect(rowOfText('Page 2')).toHaveStyle({ userSelect: 'none' })
+  })
+
+  it('shows a text file with no page rows, its lines numbered through the whole file', async () => {
+    await renderLoaded(citing(95), numberedLines(100))
+
+    expect(pageHeadings()).toEqual([])
+    expect(screen.queryByText(/^Page /)).not.toBeInTheDocument()
+    expect(screen.queryByText('No text on this page')).not.toBeInTheDocument()
+    expect(shownRows()).toEqual(rowsOfNumberedLines(85, 100))
   })
 })
 

@@ -35,6 +35,26 @@ const notFound: AnswerResult = {
 
 const other: Citation = { ...oneLine, document_id: '2', filename: 'other.md', start_line: 2, end_line: 2 }
 
+// A PDF of four pages of two lines each, whose line N of page P says "page P line N".
+const report = {
+  id: '3',
+  filename: 'report.pdf',
+  line_count: 8,
+  page_count: 4,
+  lines: [1, 2, 3, 4].flatMap((page) => [`page ${page} line 1`, `page ${page} line 2`]),
+  page_starts: [1, 3, 5, 7],
+}
+const onePage: Citation = {
+  document_id: '3',
+  filename: 'report.pdf',
+  start_line: 5,
+  end_line: 6,
+  start_page: 3,
+  end_page: 3,
+  quote: 'all of page 3',
+}
+const twoPages: Citation = { ...onePage, start_line: 6, end_line: 7, end_page: 4, quote: 'pages 3 and 4' }
+
 const clarifying: AnswerResult = {
   status: 'needs_clarification',
   answer: 'Did you lose a company laptop or a phone?',
@@ -126,6 +146,20 @@ describe('an answer', () => {
     expect(second).toHaveAccessibleDescription('other.md')
   })
 
+  it('labels a citation in a PDF by its pages, and one in a text file by its lines', () => {
+    renderCitations(onePage, twoPages, oneLine, threeLines)
+
+    const labels = screen.getAllByRole('button').map((button) => button.textContent)
+    expect(labels).toEqual(['Page 3', 'Pages 3–4', 'Line 3', 'Lines 3–5'])
+  })
+
+  it('describes a pages button by its file, as it does a lines button', () => {
+    renderCitations(onePage, twoPages)
+
+    expect(lineButton('Page 3')).toHaveAccessibleDescription('report.pdf')
+    expect(lineButton('Pages 3–4')).toHaveAccessibleDescription('report.pdf')
+  })
+
   it('shows HTML as plain text', () => {
     const html = '<img src=x onerror=alert(1)>'
     const citation = { ...oneLine, filename: `${html}.txt`, quote: `${html} quote` }
@@ -184,6 +218,28 @@ describe('opening a citation', () => {
     expect(within(item).getByRole('blockquote').nextElementSibling).toContainElement(viewer)
     expect(fetchStub).toHaveBeenCalledTimes(1)
     expect(fetchStub.mock.calls[0][0]).toBe('/api/documents/1')
+  })
+
+  it('opens a citation in a PDF at its lines, under the rows of their pages', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubFetch(() => Response.json(report))
+    renderCitations(twoPages)
+
+    await user.click(lineButton('Pages 3–4'))
+
+    const item = citationOf(lineButton('Pages 3–4'))
+    const viewer = await within(item).findByRole('list', { name: 'Lines of report.pdf' })
+    const headings = within(viewer).getAllByRole('heading').map((heading) => heading.textContent)
+    expect(headings).toEqual(['Page 1', 'Page 2', 'Page 3', 'Page 4'])
+    const cited = within(viewer)
+      .getAllByRole('listitem')
+      .filter((row) => row.getAttribute('aria-current') === 'true')
+      .map((row) => Array.from(row.children, (child) => child.textContent))
+    expect(cited).toEqual([
+      ['2', 'page 3 line 2'],
+      ['1', 'page 4 line 1'],
+    ])
+    expect(fetchStub.mock.calls[0][0]).toBe('/api/documents/3')
   })
 
   it('closes the viewer when clicked again', async () => {

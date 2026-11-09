@@ -322,6 +322,25 @@ h2 {
   grid-template-columns: subgrid;
 }
 
+/* A page of a PDF starts with a row across both columns. Like a line number, it stays out of a copy of the lines. */
+.line-list .page-start {
+  display: block;
+  padding: 0.25rem 0.5rem 0;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.page-start h4 {
+  margin: 0;
+  font-size: inherit;
+}
+
+.page-start p {
+  margin: 0;
+  opacity: 0.7;
+  font-style: italic;
+}
+
 .line-list li[aria-current='true'] {
   background: light-dark(#ffe58a, #5c4a00);
   box-shadow: inset 3px 0 0 light-dark(#8a6d00, #ffd54f);
