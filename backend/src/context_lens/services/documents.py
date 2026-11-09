@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import PureWindowsPath
+from time import monotonic
 from typing import Protocol
 
 from pypdf import PasswordType, PdfReader
@@ -20,6 +21,12 @@ ALLOWED_EXTENSIONS = {".txt", ".md", ".pdf"}
 # pages at most, and only one with very little text a page, such as slides, has more
 # than this.
 MAX_PDF_PAGES = 1_000
+# A constant for the same reason. pypdf's own limits bound the work for each page, but
+# loosely: a page of a few kilobytes can take it seconds, and a 1 MB file can hold many
+# such pages. The time is checked after each page, so a worker thread is held for this
+# and one page more at most. That one page can still take several seconds, and the
+# thread can't be cancelled while it does.
+MAX_PDF_READING_SECONDS = 20
 
 # pypdf logs the problems it works around in a broken PDF, and some of its messages
 # quote the file, such as the text around something it couldn't parse. Document text
@@ -175,6 +182,7 @@ def _page_lines(text: str) -> list[str]:
 
 
 def _read_pdf(data: bytes, max_bytes: int) -> tuple[str, tuple[int, ...]]:
+    started = monotonic()
     with _pdf_errors():
         reader = PdfReader(BytesIO(data))
         # Many PDFs are encrypted with an empty password only so that their author can
@@ -208,6 +216,9 @@ def _read_pdf(data: bytes, max_bytes: int) -> tuple[str, tuple[int, ...]]:
             raise DocumentTooLargeError(
                 f"The text of the PDF must not be larger than {max_bytes:,} bytes."
             )
+        # Since the start, so that opening the file counts as well.
+        if monotonic() - started > MAX_PDF_READING_SECONDS:
+            raise DocumentTooLargeError("This PDF takes too long to read.")
         page_starts.append(len(lines) + 1)
         lines += page_lines
     if not any(line.strip() for line in lines):
@@ -246,8 +257,7 @@ async def add_upload(
 ) -> Document:
     # In a worker thread, so that the event loop goes on serving other requests while
     # a PDF is read: pypdf is pure Python, and a big PDF can take it a second or more.
-    # Our limits on the file, its pages and its text, and pypdf's own on the work for
-    # each page, bound how long.
+    # MAX_PDF_READING_SECONDS bounds how long, give or take one page.
     upload = await asyncio.to_thread(read_upload, filename, data, max_bytes)
     # Before Gemini, so that an upload the store is going to refuse costs nothing.
     await store.check_can_add(dataset_id, upload.filename, max_documents)

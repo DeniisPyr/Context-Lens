@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from io import BytesIO
+from itertools import count
 from traceback import format_exception
 from typing import Any
 from unittest.mock import ANY
@@ -39,6 +40,7 @@ LIMIT = 1_000_000
 NOT_A_PDF = "The file must be a valid PDF."
 ENCRYPTED = "The PDF must not be password-protected or encrypted."
 NO_TEXT = "This PDF has no text that can be read. Scanned pages aren't supported."
+TOO_SLOW = "This PDF takes too long to read."
 REPORT = [
     ["Quarterly report", "Sales rose by 4%."],
     [],
@@ -96,6 +98,13 @@ def record_pages_read(monkeypatch: pytest.MonkeyPatch) -> list[int]:
 
 def extract_as(monkeypatch: pytest.MonkeyPatch, extract: Callable[[], str]) -> None:
     monkeypatch.setattr(PageObject, "extract_text", lambda page, **kwargs: extract())
+
+
+def slow_clock(monkeypatch: pytest.MonkeyPatch, seconds: float) -> None:
+    # Each reading of the clock is this much later than the one before, as if each page
+    # took that long, without the test waiting for it.
+    readings = count(step=seconds)
+    monkeypatch.setattr(documents, "monotonic", lambda: next(readings))
 
 
 def test_text_of_the_pages_is_read_in_their_order() -> None:
@@ -354,6 +363,30 @@ def test_pdf_over_the_real_page_limit_is_refused() -> None:
     assert str(error.value) == "The PDF must not have more than 1,000 pages."
 
 
+def test_pdf_that_takes_too_long_in_all_is_refused_after_the_page_that_ends_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    read = record_pages_read(monkeypatch)
+    # Each page is well within the limit, but the third ends 24 seconds in.
+    slow_clock(monkeypatch, 8)
+
+    with pytest.raises(DocumentTooLargeError) as error:
+        read_upload("report.pdf", pdf_file(lines_on_pages(1, 1, 1, 1, 1)), LIMIT)
+
+    assert str(error.value) == TOO_SLOW
+    assert read == [0, 1, 2]
+
+
+def test_pdf_read_in_exactly_the_time_limit_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slow_clock(monkeypatch, documents.MAX_PDF_READING_SECONDS / 2)
+
+    upload = read_upload("report.pdf", pdf_file(lines_on_pages(1, 1)), LIMIT)
+
+    assert upload.page_starts == (1, 2)
+
+
 def test_file_size_is_checked_before_the_pdf_is_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -481,6 +514,23 @@ def test_pdf_with_too_many_pages_is_refused(
     assert response.status_code == 413
     assert response.json() == {"detail": "The PDF must not have more than 2 pages."}
     assert client.get(documents_url).json() == []
+
+
+def test_pdf_that_takes_too_long_to_read_is_refused(
+    client: TestClient,
+    documents_url: str,
+    fake_gemini: FakeGemini,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slow_clock(monkeypatch, documents.MAX_PDF_READING_SECONDS + 1)
+    fake_gemini.embedded.clear()
+
+    response = upload(client, documents_url)
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": TOO_SLOW}
+    assert client.get(documents_url).json() == []
+    assert fake_gemini.embedded == []
 
 
 @pytest.mark.usefixtures("clean_database")
