@@ -4,6 +4,7 @@ from collections.abc import Callable
 from io import BytesIO
 from traceback import format_exception
 from typing import Any
+from unittest.mock import ANY
 
 import pytest
 from conftest import (
@@ -25,6 +26,7 @@ from sqlalchemy import URL
 
 from context_lens.dependencies import get_document_store
 from context_lens.services import documents
+from context_lens.services.answering import Citation, ModelAnswer
 from context_lens.services.documents import (
     Document,
     DocumentTooLargeError,
@@ -507,10 +509,12 @@ def test_uploading_a_pdf_logs_nothing_from_its_text(
     assert "Private" not in caplog.text
 
 
-def ask(client: TestClient, documents_url: str) -> None:
+def ask(client: TestClient, documents_url: str) -> Response:
     dataset_id = dataset_id_of(documents_url)
     question = {"dataset_id": dataset_id, "question": "Which pets are there?"}
-    assert client.post("/api/ask", json=question).status_code == 200
+    response = client.post("/api/ask", json=question)
+    assert response.status_code == 200
+    return response
 
 
 def test_prompt_shows_a_pdf_exactly_as_it_shows_a_text_file(
@@ -550,3 +554,158 @@ def test_pdf_documents_and_their_pages_survive_an_app_restart(
 
     assert document.text == REPORT_TEXT
     assert document.page_starts == (1, 3, 3)
+
+
+def test_summary_of_a_pdf_has_its_page_count(
+    client: TestClient, documents_url: str
+) -> None:
+    pdf = upload(client, documents_url).json()
+    text = upload(client, documents_url, b"one\ntwo\n", "notes.txt").json()
+
+    assert pdf == {
+        "id": ANY,
+        "filename": "report.pdf",
+        "line_count": 4,
+        "page_count": 3,
+    }
+    assert text["page_count"] is None
+    assert client.get(documents_url).json() == [pdf, text]
+
+
+def test_detail_of_a_pdf_has_the_line_each_page_starts_on(
+    client: TestClient, documents_url: str
+) -> None:
+    pdf = upload(client, documents_url).json()
+    text = upload(client, documents_url, b"one\ntwo\n", "notes.txt").json()
+
+    pdf_detail = client.get(f"/api/documents/{pdf['id']}").json()
+    text_detail = client.get(f"/api/documents/{text['id']}").json()
+
+    assert pdf_detail == {
+        **pdf,
+        "lines": [line for page in REPORT for line in page],
+        "page_starts": [1, 3, 3],
+    }
+    assert text_detail == {**text, "lines": ["one", "two"], "page_starts": None}
+
+
+def answered(*citations: Citation) -> ModelAnswer:
+    return ModelAnswer(status="answered", answer="An answer.", citations=[*citations])
+
+
+def pages_cited(response: Response) -> list[tuple[str, int, int, int, int]]:
+    return [
+        (
+            citation["filename"],
+            citation["start_line"],
+            citation["end_line"],
+            citation["start_page"],
+            citation["end_page"],
+        )
+        for citation in response.json()["citations"]
+    ]
+
+
+def test_citation_gives_the_page_of_each_of_its_ends(
+    client: TestClient, documents_url: str, fake_gemini: FakeGemini
+) -> None:
+    fake_gemini.answer = answered(
+        Citation(file="report.pdf", start_line=1, end_line=1, quote="Quarterly"),
+        # From the end of the first page, over the empty second, to the third.
+        Citation(
+            file="report.pdf",
+            start_line=2,
+            end_line=3,
+            quote="Sales rose by 4%. Costs (mostly travel) fell.",
+        ),
+        Citation(file="report.pdf", start_line=4, end_line=4, quote="café"),
+    )
+    upload(client, documents_url)
+
+    response = ask(client, documents_url)
+
+    assert response.json()["status"] == "answered"
+    assert pages_cited(response) == [
+        ("report.pdf", 1, 1, 1, 1),
+        ("report.pdf", 2, 3, 1, 3),
+        ("report.pdf", 4, 4, 3, 3),
+    ]
+
+
+def test_pages_follow_a_citation_narrowed_to_its_quote(
+    client: TestClient, documents_url: str, fake_gemini: FakeGemini
+) -> None:
+    fake_gemini.answer = answered(
+        Citation(file="report.pdf", start_line=2, end_line=3, quote="travel")
+    )
+    upload(client, documents_url)
+
+    response = ask(client, documents_url)
+
+    assert pages_cited(response) == [("report.pdf", 3, 3, 3, 3)]
+
+
+def test_citation_of_a_text_file_has_no_pages(
+    client: TestClient, documents_url: str, fake_gemini: FakeGemini
+) -> None:
+    fake_gemini.answer = answered(
+        Citation(file="notes.txt", start_line=1, end_line=2, quote="cat is orange"),
+        Citation(file="report.pdf", start_line=1, end_line=1, quote="Quarterly"),
+    )
+    upload(client, documents_url, b"The cat is orange.\nIt sleeps.\n", "notes.txt")
+    upload(client, documents_url)
+
+    response = ask(client, documents_url)
+
+    assert pages_cited(response) == [
+        ("notes.txt", 1, 1, None, None),
+        ("report.pdf", 1, 1, 1, 1),
+    ]
+
+
+def test_clarifying_question_gives_the_pages_of_its_citations(
+    client: TestClient, documents_url: str, fake_gemini: FakeGemini
+) -> None:
+    fake_gemini.answer = ModelAnswer(
+        status="needs_clarification",
+        answer="Which part?",
+        citations=[Citation(file="report.pdf", start_line=4, end_line=4, quote="žár")],
+    )
+    upload(client, documents_url)
+
+    response = ask(client, documents_url)
+
+    assert response.json()["status"] == "needs_clarification"
+    assert pages_cited(response) == [("report.pdf", 4, 4, 3, 3)]
+
+
+def test_pages_of_citations_cost_no_query_of_their_own(
+    client: TestClient,
+    documents_url: str,
+    fake_gemini: FakeGemini,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_gemini.answer = answered(
+        Citation(file="report.pdf", start_line=4, end_line=4, quote="café")
+    )
+    document_id = upload(client, documents_url).json()["id"]
+    store = get_document_store(Request({"type": "http", "app": client.app}))
+    loads: list[tuple[str, object]] = []
+    get, get_many = store.get, store.get_many
+
+    async def recording_get(document_id: str) -> Document | None:
+        loads.append(("get", document_id))
+        return await get(document_id)
+
+    async def recording_get_many(document_ids: list[str]) -> list[Document]:
+        loads.append(("get_many", document_ids))
+        return await get_many(document_ids)
+
+    monkeypatch.setattr(store, "get", recording_get)
+    monkeypatch.setattr(store, "get_many", recording_get_many)
+
+    response = ask(client, documents_url)
+
+    assert pages_cited(response) == [("report.pdf", 4, 4, 3, 3)]
+    # Only the load that checks the citations.
+    assert loads == [("get_many", [document_id])]

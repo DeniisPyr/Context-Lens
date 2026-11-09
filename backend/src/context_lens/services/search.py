@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from bisect import bisect_right
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from context_lens.clients.gemini import GeminiClient
@@ -32,6 +33,18 @@ class DatasetAnswer:
     answer: ModelAnswer
     # What Gemini was shown, so that each citation's file leads back to its document.
     excerpts: list[Excerpt]
+    # Where the pages of each cited PDF start, by its document's id. From the documents
+    # loaded to check the citations, so that the pages cost no query of their own.
+    page_starts: dict[str, tuple[int, ...]] = field(default_factory=dict)
+
+    def page_of(self, document_id: str, line: int) -> int | None:
+        page_starts = self.page_starts.get(document_id)
+        if page_starts is None:
+            # Only PDFs are in there, so this is a text file, which has no pages.
+            return None
+        # The last page that starts on or before the line. A page without text starts
+        # on the same line as the page after it, so it's never the one.
+        return bisect_right(page_starts, line)
 
 
 class ChunkSearch(Protocol):
@@ -104,9 +117,9 @@ def with_real_lines(
     ]
 
 
-async def _excerpts_to_check(
+async def _cited_documents(
     answer: ModelAnswer, excerpts: list[Excerpt], documents: DocumentLookup
-) -> list[Excerpt]:
+) -> list[Document]:
     if answer.status == "not_found":
         # Verification gives the fixed not_found answer without looking at any.
         return []
@@ -118,7 +131,7 @@ async def _excerpts_to_check(
         if citation.file in sources
     )
     # After Gemini, in the store's own transaction, so that no connection waits for it.
-    return with_real_lines(excerpts, await documents.get_many([*document_ids]))
+    return await documents.get_many([*document_ids])
 
 
 def _search_text(question: str, clarification: Clarification | None) -> str:
@@ -152,5 +165,13 @@ async def answer_from_dataset(
     answer = await ask_about_excerpts(
         question, excerpts, gemini, clarification=clarification
     )
-    checked = await _excerpts_to_check(answer, excerpts, documents)
-    return DatasetAnswer(answer=verify_answer(answer, checked), excerpts=excerpts)
+    cited = await _cited_documents(answer, excerpts, documents)
+    return DatasetAnswer(
+        answer=verify_answer(answer, with_real_lines(excerpts, cited)),
+        excerpts=excerpts,
+        page_starts={
+            document.id: document.page_starts
+            for document in cited
+            if document.page_starts is not None
+        },
+    )

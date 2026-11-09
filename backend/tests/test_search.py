@@ -1,6 +1,9 @@
-from context_lens.services.answering import Excerpt
+import pytest
+
+from context_lens.services.answering import Excerpt, not_found_answer
 from context_lens.services.documents import Document
 from context_lens.services.search import (
+    DatasetAnswer,
     FoundChunk,
     excerpts_from_chunks,
     with_real_lines,
@@ -140,3 +143,26 @@ def test_excerpts_of_a_document_not_loaded_are_left_out() -> None:
     assert with_real_lines(shown, [document]) == [
         Excerpt(document_id="doc-b", filename="b.md", lines={1: "b one"})
     ]
+
+
+@pytest.mark.parametrize(
+    ("line", "page"),
+    [(1, 1), (4, 1), (5, 3), (7, 3), (8, 4), (9, 4)],
+)
+def test_line_is_on_the_last_page_that_starts_before_it_or_on_it(
+    line: int, page: int
+) -> None:
+    # Pages of 4, 0, 3 and 2 lines: the second page has none, so it's never the one.
+    answer = DatasetAnswer(
+        answer=not_found_answer(), excerpts=[], page_starts={"doc-a": (1, 5, 5, 8)}
+    )
+
+    assert answer.page_of("doc-a", line) == page
+
+
+def test_line_of_a_document_without_page_starts_is_on_no_page() -> None:
+    answer = DatasetAnswer(
+        answer=not_found_answer(), excerpts=[], page_starts={"doc-a": (1, 3)}
+    )
+
+    assert answer.page_of("doc-b", 1) is None

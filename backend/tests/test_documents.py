@@ -60,7 +60,12 @@ def test_upload_returns_the_document_summary(
     response = upload(client, documents_url, text.encode(), "poznámky.txt")
 
     assert response.status_code == 201
-    assert response.json() == {"id": ANY, "filename": "poznámky.txt", "line_count": 2}
+    assert response.json() == {
+        "id": ANY,
+        "filename": "poznámky.txt",
+        "line_count": 2,
+        "page_count": None,
+    }
     assert stored_document(client, response).text == text
 
 
@@ -254,6 +259,7 @@ def test_summary_can_be_built_without_the_text() -> None:
         "id": "1",
         "filename": "a.txt",
         "line_count": 7,
+        "page_count": None,
     }
 
 
@@ -374,7 +380,9 @@ def test_read_returns_the_document_with_its_lines(
         "id": uploaded["id"],
         "filename": "poznámky.txt",
         "line_count": 2,
+        "page_count": None,
         "lines": ["Příliš žluťoučký", "kůň"],
+        "page_starts": None,
     }
 
 
@@ -591,7 +599,7 @@ def test_document_survives_an_app_restart(
         answer = ask(after_restart, documents_url, "Which colour?").json()
 
     assert listed == [uploaded]
-    assert read == {**uploaded, "lines": ["The cat is orange."]}
+    assert read == {**uploaded, "lines": ["The cat is orange."], "page_starts": None}
     assert answer["status"] == "answered"
     assert answer["citations"][0]["filename"] == "cat.txt"
     assert "1: The cat is orange." in fake_gemini.prompts[0]

@@ -778,14 +778,26 @@ def test_migrated_documents_work_through_the_api(
 
     assert dataset["name"] == "My documents"
     assert listed == [
-        {"id": str(first), "filename": "notes.txt", "line_count": 1},
-        {"id": str(second), "filename": "notes (2).txt", "line_count": 1},
+        {
+            "id": str(first),
+            "filename": "notes.txt",
+            "line_count": 1,
+            "page_count": None,
+        },
+        {
+            "id": str(second),
+            "filename": "notes (2).txt",
+            "line_count": 1,
+            "page_count": None,
+        },
     ]
     assert read["lines"] == ["The cat is orange."]
+    assert read["page_starts"] is None
     assert before_indexing["status"] == "not_found"
     assert indexed == 0
     assert answer["status"] == "answered"
     assert answer["citations"][0]["document_id"] == str(first)
+    assert answer["citations"][0]["start_page"] is None
     assert again.status_code == 409
     assert new_name.status_code == 201
 
