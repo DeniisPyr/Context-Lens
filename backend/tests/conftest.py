@@ -98,16 +98,17 @@ class FakeGemini:
         self.vectors: dict[str, list[float]] = {}
         self.closed = False
 
-    async def ask(
-        self, prompt: str, system_instruction: str, response_model: type[BaseModel]
-    ) -> ModelAnswer:
+    async def ask[T: BaseModel](
+        self, prompt: str, system_instruction: str, response_model: type[T]
+    ) -> T:
         self.prompts.append(prompt)
         self.system_instructions.append(system_instruction)
         self.response_models.append(response_model)
         self.during_call()
         if self.error is not None:
             raise self.error
-        return self.answer
+        # As the model asked for, the way the real client reads Gemini's output.
+        return response_model.model_validate(self.answer.model_dump())
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         self.embedded.append(texts)

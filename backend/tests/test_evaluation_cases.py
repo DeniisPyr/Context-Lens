@@ -42,6 +42,24 @@ REMOTE_DAYS_AND_DRESS = {
     "facts": [["3 days"], ["dress well"]],
     "evidence": [[2, 2], ["rules.md", 2, 2]],
 }
+# Each office opens at its own time, so the question can't be answered until the user
+# says which office they mean. The handbook has an opening time too.
+OFFICES = "# Offices\nPrague opens at 8:00.\nBrno opens at 9:00.\n"
+WITH_OFFICES = {"handbook.md": HANDBOOK.encode(), "offices.md": OFFICES.encode()}
+OPENING_TIME = {
+    "id": "offices-opening-time",
+    "document": "offices.md",
+    "category": "clarify",
+    "question": "When does the office open?",
+    "reply": "I work in Brno.",
+    "facts": [["9:00", "nine"]],
+    "evidence": [[3, 3]],
+    "cases": [[2, 3], ["handbook.md", 3, 3]],
+}
+
+
+def without(question: dict[str, object], key: str) -> dict[str, object]:
+    return {name: value for name, value in question.items() if name != key}
 
 
 def as_toml(*questions: dict[str, object]) -> str:
@@ -390,10 +408,173 @@ def test_evidence_in_a_hidden_file_is_an_error(tmp_path: Path) -> None:
     )
 
 
+def test_clarify_question_has_its_reply_and_the_cases_it_cant_tell_apart(
+    tmp_path: Path,
+) -> None:
+    question = OPENING_TIME | {"reply": "  I work in Brno.\n"}
+    folder = write_set(tmp_path / "evals", as_toml(question), WITH_OFFICES)
+
+    [loaded] = load_question_set(folder).questions
+
+    assert loaded.reply == "I work in Brno."
+    assert loaded.evidence == [LineRange("offices.md", 3, 3)]
+    assert loaded.cases == [
+        LineRange("offices.md", 2, 3),
+        LineRange("handbook.md", 3, 3),
+    ]
+    assert loaded.files == ["offices.md", "handbook.md"]
+    assert not loaded.answerable
+
+
+def test_other_questions_have_no_reply_or_cases(tmp_path: Path) -> None:
+    folder = write_set(tmp_path / "evals", as_toml(REMOTE_DAYS, PARKING))
+
+    questions = load_question_set(folder).questions
+
+    assert [(question.reply, question.cases) for question in questions] == [
+        (None, []),
+        (None, []),
+    ]
+
+
+def test_files_of_a_clarify_question_end_with_those_its_cases_are_in() -> None:
+    question = Question.model_validate(
+        OPENING_TIME
+        | {
+            "evidence": [["b.md", 1, 1], [3, 3]],
+            "cases": [["c.md", 1, 1], ["b.md", 2, 2], [2, 2], ["a.md", 1, 1]],
+        }
+    )
+
+    assert question.files == ["offices.md", "b.md", "c.md", "a.md"]
+
+
+@pytest.mark.parametrize(
+    ("question", "message"),
+    [
+        pytest.param(
+            without(OPENING_TIME, "reply"),
+            "a clarify question needs a reply",
+            id="no_reply",
+        ),
+        pytest.param(
+            OPENING_TIME | {"reply": " \n"}, "reply: String", id="blank_reply"
+        ),
+        pytest.param(
+            OPENING_TIME | {"reply": "Brno" * 501},
+            "reply: String should have at most 2000 characters",
+            id="reply_longer_than_the_api_takes",
+        ),
+        pytest.param(
+            without(OPENING_TIME, "cases"),
+            "a clarify question needs cases",
+            id="no_cases",
+        ),
+        pytest.param(
+            OPENING_TIME | {"cases": []},
+            "a clarify question needs cases",
+            id="empty_cases",
+        ),
+        pytest.param(
+            OPENING_TIME | {"cases": [[2, 2], [3]]},
+            "cases: entry 2 must be [start, end] or [file, start, end]",
+            id="case_not_a_pair",
+        ),
+        pytest.param(
+            OPENING_TIME | {"cases": "2-3"}, "cases: Input", id="cases_not_a_list"
+        ),
+        pytest.param(
+            OPENING_TIME | {"cases": [[3, 2]]},
+            "case [3, 2] in offices.md ends before it starts",
+            id="case_backwards",
+        ),
+        pytest.param(
+            OPENING_TIME | {"cases": [[0, 2]]},
+            "case [0, 2] is outside offices.md, which has 3 lines",
+            id="case_from_line_zero",
+        ),
+        pytest.param(
+            OPENING_TIME | {"cases": [[2, 4]]},
+            "case [2, 4] is outside offices.md, which has 3 lines",
+            id="case_past_the_end",
+        ),
+        pytest.param(
+            OPENING_TIME | {"cases": [[2, 3], ["handbook.md", 3, 4]]},
+            "case [3, 4] is outside handbook.md, which has 3 lines",
+            id="case_past_the_end_of_another_file",
+        ),
+        pytest.param(
+            OPENING_TIME | {"cases": [[2, 3], ["missing.md", 1, 1]]},
+            "missing.md is not in",
+            id="case_in_a_missing_file",
+        ),
+        pytest.param(
+            OPENING_TIME | {"facts": []},
+            "a clarify question needs facts",
+            id="no_facts",
+        ),
+        pytest.param(
+            OPENING_TIME | {"evidence": []},
+            "a clarify question needs evidence",
+            id="no_evidence",
+        ),
+        pytest.param(
+            OPENING_TIME | {"evidence": [[3, 3], ["handbook.md", 3, 3]]},
+            "a clarify question can only have evidence in its own document, offices.md",
+            id="evidence_in_another_file_too",
+        ),
+        pytest.param(
+            OPENING_TIME | {"evidence": [["handbook.md", 3, 3]], "facts": [["8:00"]]},
+            "a clarify question can only have evidence in its own document, offices.md",
+            id="evidence_only_in_another_file",
+        ),
+        pytest.param(
+            OPENING_TIME | {"evidence": [[2, 2]]},
+            "the fact 9:00 / nine is not in its evidence lines",
+            id="fact_only_in_a_case",
+        ),
+    ],
+)
+def test_invalid_clarify_question_is_an_error_naming_it(
+    tmp_path: Path, question: dict[str, object], message: str
+) -> None:
+    folder = write_set(tmp_path / "evals", as_toml(question), WITH_OFFICES)
+
+    error = load_error(folder)
+
+    assert error.startswith("Question offices-opening-time: ")
+    assert message in error
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        pytest.param(REMOTE_DAYS | {"reply": "Brno."}, id="fact_with_a_reply"),
+        pytest.param(REMOTE_DAYS | {"cases": [[2, 2]]}, id="fact_with_cases"),
+        pytest.param(
+            REMOTE_DAYS_AND_DRESS | {"reply": "Brno."}, id="cross_document_with_a_reply"
+        ),
+        pytest.param(PARKING | {"reply": "Brno."}, id="unanswerable_with_a_reply"),
+        pytest.param(PARKING | {"cases": [[2, 2]]}, id="unanswerable_with_cases"),
+    ],
+)
+def test_only_a_clarify_question_has_a_reply_or_cases(
+    tmp_path: Path, question: dict[str, object]
+) -> None:
+    folder = write_set(tmp_path / "evals", as_toml(question), TWO_DOCUMENTS)
+
+    error = load_error(folder)
+
+    assert error == (
+        f"Question {question['id']}: a {question['category']} question can't have "
+        "a reply or cases."
+    )
+
+
 def test_question_without_an_id_is_named_by_its_position(
     tmp_path: Path,
 ) -> None:
-    question = {key: value for key, value in REMOTE_DAYS.items() if key != "id"}
+    question = without(REMOTE_DAYS, "id")
     folder = write_set(tmp_path / "evals", as_toml(PARKING, question))
 
     error = load_error(folder)

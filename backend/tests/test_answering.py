@@ -1,10 +1,17 @@
 import pytest
+from conftest import FakeGemini
+from pydantic import ValidationError
 
 from context_lens.services.answering import (
     NOT_FOUND_MESSAGE,
+    SYSTEM_INSTRUCTION,
+    AnswerStatus,
     Citation,
+    Clarification,
     Excerpt,
     ModelAnswer,
+    ModelAnswerToReply,
+    ask_about_excerpts,
     build_prompt,
     verify_answer,
 )
@@ -40,10 +47,32 @@ POLICY = Excerpt(
 )
 EXCERPTS = [HANDBOOK_START, HANDBOOK_LATER, POLICY]
 
+# Different answers for different situations, which a question may not say.
+LEAVE = Excerpt(
+    document_id="doc-4",
+    filename="leave.md",
+    lines={
+        10: "Full-time staff get 25 days of leave a year.",
+        11: "Part-time staff get 15.",
+        12: "Leave carries over to March.",
+    },
+)
+PART_TIME = Clarification(
+    question="Do you work full-time or part-time?", reply="Part-time."
+)
+
 
 def answered(*citations: Citation) -> ModelAnswer:
     return ModelAnswer(
         status="answered", answer="An answer.", citations=list(citations)
+    )
+
+
+def clarifying(*citations: Citation) -> ModelAnswer:
+    return ModelAnswer(
+        status="needs_clarification",
+        answer="Do you work full-time or part-time?",
+        citations=list(citations),
     )
 
 
@@ -68,6 +97,22 @@ def test_prompt_shows_each_excerpt_with_its_file_and_line_numbers() -> None:
         "</excerpt>\n"
         "\n"
         "Question: How many days?"
+    )
+
+
+def test_reply_prompt_ends_with_the_question_what_was_asked_and_the_reply() -> None:
+    prompt = build_prompt("How many days of leave?", [LEAVE], clarification=PART_TIME)
+
+    assert prompt == (
+        '<excerpt file="leave.md" lines="10-12">\n'
+        "10: Full-time staff get 25 days of leave a year.\n"
+        "11: Part-time staff get 15.\n"
+        "12: Leave carries over to March.\n"
+        "</excerpt>\n"
+        "\n"
+        "Question: How many days of leave?\n"
+        "Your clarifying question: Do you work full-time or part-time?\n"
+        "The user's reply: Part-time."
     )
 
 
@@ -311,11 +356,91 @@ def test_not_found_from_gemini_gets_the_fixed_message_and_loses_its_citations(
     assert caplog.records == []
 
 
+def test_gemini_may_answer_find_nothing_or_ask_a_clarifying_question() -> None:
+    status = ModelAnswer.model_json_schema()["properties"]["status"]
+
+    assert status["enum"] == ["answered", "not_found", "needs_clarification"]
+
+
+@pytest.mark.parametrize("status", ["not_found", "needs_clarification"])
+def test_instruction_says_when_to_use_each_status_other_than_answered(
+    status: str,
+) -> None:
+    assert f"use status {status}" in SYSTEM_INSTRUCTION
+
+
+def test_verified_clarifying_question_keeps_its_question_and_citations() -> None:
+    question = clarifying(
+        cite(10, 10, "Full-time staff get 25 days", "leave.md"),
+        cite(11, 11, "Part-time staff get 15.", "leave.md"),
+    )
+
+    assert verify_answer(question, [LEAVE]) == question
+
+
+def test_clarifying_question_without_citations_is_rejected() -> None:
+    assert verify_answer(clarifying(), [LEAVE]) == NOT_FOUND
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param(cite(11, 11, "Part-time staff get 20.", "leave.md"), id="quote"),
+        pytest.param(cite(12, 12, "Part-time staff get 15.", "leave.md"), id="line"),
+        pytest.param(cite(9, 9, "Leave", "leave.md"), id="line_not_shown"),
+        pytest.param(cite(11, 11, "Part-time staff get 15."), id="file_not_shown"),
+    ],
+)
+def test_clarifying_question_with_an_unverifiable_citation_is_rejected(
+    bad: Citation,
+) -> None:
+    good = cite(10, 10, "Full-time staff get 25 days", "leave.md")
+
+    assert verify_answer(clarifying(good, bad), [LEAVE]) == NOT_FOUND
+
+
+def test_clarifying_question_citation_wider_than_its_quote_is_narrowed() -> None:
+    question = clarifying(cite(10, 12, "Part-time staff get 15.", "leave.md"))
+
+    verified = verify_answer(question, [LEAVE])
+
+    assert verified == clarifying(cite(11, 11, "Part-time staff get 15.", "leave.md"))
+
+
+def test_answer_to_a_reply_cannot_be_another_clarifying_question() -> None:
+    status = ModelAnswerToReply.model_json_schema()["properties"]["status"]
+
+    assert status["enum"] == ["answered", "not_found"]
+    with pytest.raises(ValidationError):
+        ModelAnswerToReply.model_validate(
+            {"status": "needs_clarification", "answer": "Which?", "citations": []}
+        )
+
+
+@pytest.mark.anyio
+async def test_reply_asks_for_an_answer_to_it_and_returns_a_model_answer() -> None:
+    gemini = FakeGemini()
+    gemini.answer = ModelAnswer(
+        status="answered",
+        answer="15 days.",
+        citations=[cite(11, 11, "Part-time staff get 15.", "leave.md")],
+    )
+
+    answer = await ask_about_excerpts(
+        "How many days of leave?", [LEAVE], gemini, clarification=PART_TIME
+    )
+
+    assert gemini.response_models == [ModelAnswerToReply]
+    # Equal only as a ModelAnswer, so that verification gets what it always does.
+    assert answer == gemini.answer
+
+
+@pytest.mark.parametrize("status", ["answered", "needs_clarification"])
 def test_rejected_answer_logs_a_warning_without_its_content(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, status: AnswerStatus
 ) -> None:
     answer = ModelAnswer(
-        status="answered",
+        status=status,
         answer="Private answer.",
         citations=[cite(1, 1, "Private quote.", "private.txt")],
     )

@@ -178,7 +178,8 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.ask-form label {
+.ask-form label,
+.reply-form label {
   display: block;
   margin-bottom: 0.75rem;
 }
@@ -186,7 +187,8 @@ h2 {
 /* width: 100% stops a long name from widening a control past the page. */
 .dataset-choice select,
 .dataset-form input,
-.ask-form textarea {
+.ask-form textarea,
+.reply-form textarea {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -194,12 +196,18 @@ h2 {
   font: inherit;
 }
 
-.ask-form textarea {
+.ask-form textarea,
+.reply-form textarea {
   resize: vertical;
 }
 
-.ask-form [role='alert'] {
+.ask-form [role='alert'],
+.reply-form [role='alert'] {
   margin: 0.5rem 0 0;
+}
+
+.reply-form {
+  margin-top: 1rem;
 }
 
 .answer {

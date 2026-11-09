@@ -3,7 +3,8 @@
 # Every question is asked against its document in documents/, sent whole (the baseline),
 # and against the whole set of documents with RAG search, so each answerable question
 # has exactly one correct answer across all seven documents. A cross_document question's
-# baseline also gets each other document its evidence is in, after its own.
+# baseline also gets each other document its evidence is in, after its own, and a clarify
+# question's gets each other document its cases are in, after those.
 #
 # Fields:
 #   id         Unique; lowercase letters, digits and hyphens.
@@ -14,19 +15,27 @@
 #              injection         a fact that a prompt-injection line in the document tries to change
 #              missing_related   on the document's topic, but not answered in any document
 #              missing_unrelated general knowledge, not in any document; the app must not answer it
+#              clarify           the documents answer it differently for situations the question
+#                                doesn't tell apart; a correct run asks which one applies, then
+#                                answers the reply
 #   question   The question, as a user would ask it.
-#   facts      Answerable only. Each inner list is one fact, given as alternative phrasings;
-#              a right answer contains at least one alternative of every fact. Text is compared
-#              after casefolding and collapsing whitespace, and a phrase matches only as a whole
-#              (no letter, digit or underscore directly before or after it).
-#   evidence   Answerable only. The ranges of lines that state the facts, 1-based and inclusive
-#              (lines are a file split on "\n"): [start_line, end_line] in the question's
-#              document, or ["file.md", start_line, end_line] in any file in documents/. Only a
-#              cross_document question has evidence in another file, and it needs evidence in
-#              its own document and at least one other. A citation counts when it names the
-#              range's file and overlaps its lines.
+#   facts      Answerable and clarify only. Each inner list is one fact, given as alternative
+#              phrasings; a right answer contains at least one alternative of every fact. Text is
+#              compared after casefolding and collapsing whitespace, and a phrase matches only as
+#              a whole (no letter, digit or underscore directly before or after it). A clarify
+#              question's facts are of the answer to its reply.
+#   evidence   Answerable and clarify only. The ranges of lines that state the facts, 1-based
+#              and inclusive (lines are a file split on "\n"): [start_line, end_line] in the
+#              question's document, or ["file.md", start_line, end_line] in any file in
+#              documents/. Only a cross_document question has evidence in another file, and it
+#              needs evidence in its own document and at least one other. A citation counts
+#              when it names the range's file and overlaps its lines.
 #   forbidden  Optional. Phrases a correct answer must not contain, such as the value an
 #              injected line pushes or a tempting value from another document.
+#   reply      Clarify only, and required there. What the user replies to the clarifying
+#              question, whatever Gemini asks; at most 2000 characters, as in the app.
+#   cases      Clarify only, and at least one. The ranges of lines that show the situations the
+#              question can't tell apart, written like evidence and in any file in documents/.
 #
 # All documents and everything in them (company, people, products, the medicine) are fictional.
 
@@ -659,3 +668,107 @@ id = "it-vpn-idle-timeout"
 document = "it-security-policy.md"
 category = "missing_related"
 question = "After how many minutes of inactivity is a Brightwater VPN session disconnected?"
+
+# --- Clarifying questions: the question doesn't say which situation applies ---------------
+
+[[questions]]
+id = "clarify-problem-reporting"
+document = "supplier-agreement.md"
+category = "clarify"
+question = "How do I report a problem?"
+cases = [
+    ["it-security-policy.md", 49, 50],
+    ["it-security-policy.md", 96, 97],
+    ["it-security-policy.md", 130, 130],
+    ["hplc-maintenance-sop.txt", 491, 493],
+    ["hplc-maintenance-sop.txt", 124, 124],
+    [82, 82],
+]
+reply = "The LIMS is completely down."
+facts = [
+    [
+        "service portal", "support portal", "Corvane's portal", "Corvane portal",
+        "Supplier's portal", "supplier portal", "Corvane Lab Services' portal",
+        "Corvane Lab Services portal", "Corvane Lab Services's portal",
+    ],
+    ["by phone", "over the phone", "on the phone", "by telephone", "telephonically", "phone call",
+     "phone Corvane", "phone the Supplier", "call Corvane", "call the Supplier", "call them"],
+]
+evidence = [[82, 82]]
+
+[[questions]]
+id = "clarify-approval-usb"
+document = "it-security-policy.md"
+category = "clarify"
+question = "Whose approval do I need?"
+cases = [
+    ["employee-handbook.md", 39, 39],
+    ["employee-handbook.md", 58, 58],
+    ["employee-handbook.md", 77, 77],
+    ["employee-handbook.md", 129, 130],
+    ["cestovni-nahrady.md", 22, 25],
+    [89, 90],
+    [107, 108],
+]
+reply = "I need to use a USB drive on my company laptop."
+facts = [["Information Security Officer", "security officer", "ISO"]]
+evidence = [[89, 90]]
+
+[[questions]]
+id = "clarify-lx500-pressure-error"
+document = "hplc-maintenance-sop.txt"
+category = "clarify"
+question = "Our LX-500 is showing a pressure error. What should I do?"
+cases = [[515, 518], [520, 522], [524, 527], [529, 532], [542, 545], [547, 550]]
+reply = "The display shows E07."
+facts = [
+    [
+        "pressure zero routine", "pressure zero", "zero routine", "pressure-zero",
+        "zero the pressure", "pressure zeroing", "zeroing routine",
+    ],
+    ["purge valve"],
+]
+evidence = [[524, 527]]
+
+[[questions]]
+id = "clarify-lx500-my-responsibilities"
+document = "hplc-maintenance-sop.txt"
+category = "clarify"
+question = "What am I responsible for under the LX-500 maintenance SOP?"
+cases = [[62, 66], [68, 73], [75, 80], [82, 86], [88, 92]]
+reply = "I'm one of the operators who run samples on it."
+facts = [
+    ["daily and weekly", "daily/weekly", "daily & weekly", "daily and the weekly"],
+    ["logbook", "logbooks", "log book", "log-book"],
+]
+evidence = [[77, 80]]
+
+[[questions]]
+id = "clarify-lx500-failed-test"
+document = "hplc-maintenance-sop.txt"
+category = "clarify"
+question = "A test on our LX-500 just failed. What should I do?"
+cases = [[247, 249], [276, 278], [292, 294], [346, 352], [649, 652]]
+reply = "It was the static leak test."
+facts = [
+    ["fittings", "fitting", "connections"],
+    ["service provider", "service engineer"],
+]
+evidence = [[294, 294]]
+
+[[questions]]
+id = "clarify-it-document-handling"
+document = "it-security-policy.md"
+category = "clarify"
+question = "What rules do I have to follow when handling the document I'm working on?"
+cases = [[72, 72], [73, 73], [81, 81], [82, 84]]
+reply = "It's marked Confidential."
+facts = [
+    [
+        "confidentiality agreement", "confidentiality agreements",
+        "non-disclosure agreement", "non-disclosure agreements", "non-disclosure", "nondisclosure",
+        "NDA", "NDAs",
+    ],
+    ["shredding", "shred", "shredded", "shredder", "shredders"],
+]
+evidence = [[81, 81], [84, 84]]

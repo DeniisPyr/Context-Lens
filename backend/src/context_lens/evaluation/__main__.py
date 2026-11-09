@@ -15,6 +15,7 @@ from context_lens.clients.gemini import GeminiClient
 from context_lens.evaluation.cases import (
     CATEGORIES,
     InvalidQuestionSetError,
+    Question,
     QuestionSet,
     load_question_set,
     select_questions,
@@ -31,10 +32,15 @@ from context_lens.evaluation.methods import (
 from context_lens.evaluation.report import Report, build_report, render_markdown
 from context_lens.evaluation.runner import GeminiWithUsage, build_index, run_questions
 from context_lens.evaluation.scoring import RunRecord
+from context_lens.services.answering import Clarification
 from context_lens.services.indexing import IndexingError
 from context_lens.settings import Settings
 
 CHARACTERS_PER_TOKEN = 4
+# What Gemini asks back isn't known before a run, so a clarify question's second prompt
+# is estimated with a clarifying question this long: the most the API takes back from a
+# user, and far more than the one short question Gemini is told to ask.
+CLARIFYING_QUESTION_ALLOWANCE = 4000
 # Read from the class, so that a dry run needs no Settings() and so no Gemini key.
 DEFAULT_CHUNKS_PER_QUESTION: int = Settings.model_fields["chunks_per_question"].default
 SETTINGS_HELP = (
@@ -156,11 +162,25 @@ def _prompt_size(characters: int, bound: str = "") -> list[str]:
     ]
 
 
+def _prompts(question: Question) -> list[Clarification | None]:
+    # What each prompt a run can send comes with: nothing for the first, and for a
+    # clarify question's second, its reply to a clarifying question of the allowance.
+    if question.reply is None:
+        return [None]
+    allowance = "?" * CLARIFYING_QUESTION_ALLOWANCE
+    return [None, Clarification(question=allowance, reply=question.reply)]
+
+
 def _rag_plan(question_set: QuestionSet, repeats: int, chunks: int | None) -> list[str]:
     plan = plan_index(question_set.documents.values())
+    # The second prompt of a clarify run is bounded as the first is: whatever its
+    # search finds, it's no longer than the largest chunks would make it.
     characters = repeats * sum(
-        prompt_characters_at_most(question, plan.chunks, chunks)
+        prompt_characters_at_most(
+            question, plan.chunks, chunks, clarification=clarification
+        )
         for question in question_set.questions
+        for clarification in _prompts(question)
     )
     return [
         f"Chunks to embed: {len(plan.chunks)}",
@@ -171,10 +191,18 @@ def _rag_plan(question_set: QuestionSet, repeats: int, chunks: int | None) -> li
 
 def _whole_document_plan(question_set: QuestionSet, repeats: int) -> list[str]:
     method = WholeDocuments(question_set.documents)
+    prompts = [
+        (question, clarification)
+        for question in question_set.questions
+        for clarification in _prompts(question)
+    ]
     characters = repeats * sum(
-        method.prompt_characters(question) for question in question_set.questions
+        method.prompt_characters(question, clarification=clarification)
+        for question, clarification in prompts
     )
-    return _prompt_size(characters)
+    # Exact, unless a clarify question's second prompt is in it with the allowance.
+    clarifies = any(clarification is not None for _, clarification in prompts)
+    return _prompt_size(characters, ", at most" if clarifies else "")
 
 
 def describe_plan(
@@ -190,12 +218,20 @@ def describe_plan(
     questions = question_set.questions
     counts = Counter(question.category for question in questions)
     count = len(questions)
+    runs = count * repeats
+    # A clarify run sends its reply in a second prompt, when Gemini asks for one.
+    clarify_runs = counts["clarify"] * repeats
+    prompts = (
+        f"Prompts, at most: {runs + clarify_runs} "
+        f"(runs + a second for each clarify run's reply: {runs} + {clarify_runs})"
+    )
     lines = [
         heading,
         f"Questions: {count}",
         *(f"  {category}: {counts[category]}" for category in CATEGORIES),
         f"Documents: {len(question_set.documents)}",
-        f"Runs: {count * repeats} (questions × repeats: {count} × {repeats})",
+        f"Runs: {runs} (questions × repeats: {count} × {repeats})",
+        prompts,
         *size,
     ]
     return "\n".join(lines)

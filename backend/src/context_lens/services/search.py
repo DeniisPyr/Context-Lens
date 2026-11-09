@@ -3,6 +3,7 @@ from typing import Protocol
 
 from context_lens.clients.gemini import GeminiClient
 from context_lens.services.answering import (
+    Clarification,
     Excerpt,
     ModelAnswer,
     ask_about_excerpts,
@@ -106,7 +107,7 @@ def with_real_lines(
 async def _excerpts_to_check(
     answer: ModelAnswer, excerpts: list[Excerpt], documents: DocumentLookup
 ) -> list[Excerpt]:
-    if answer.status != "answered":
+    if answer.status == "not_found":
         # Verification gives the fixed not_found answer without looking at any.
         return []
     sources = sources_by_name(excerpts)
@@ -120,6 +121,14 @@ async def _excerpts_to_check(
     return with_real_lines(excerpts, await documents.get_many([*document_ids]))
 
 
+def _search_text(question: str, clarification: Clarification | None) -> str:
+    if clarification is None:
+        return question
+    # The reply says which situation the user is in, so the search looks for the lines
+    # about that one.
+    return f"{question}\n{clarification.reply}"
+
+
 async def answer_from_dataset(
     question: str,
     dataset_id: str,
@@ -127,16 +136,21 @@ async def answer_from_dataset(
     documents: DocumentLookup,
     gemini: GeminiClient,
     limit: int,
+    *,
+    clarification: Clarification | None = None,
 ) -> DatasetAnswer:
     # Before Gemini, so that a question the store is going to refuse costs nothing.
     await chunks.check_can_search(dataset_id)
+    search_text = _search_text(question, clarification)
     # Between the store's transactions, so that no connection waits for Gemini.
-    [embedding] = await gemini.embed([query_embedding_text(question)])
+    [embedding] = await gemini.embed([query_embedding_text(search_text)])
     found = await chunks.search(dataset_id, embedding, limit)
     if not found:
         # Nothing to answer from, such as in an empty dataset, so Gemini isn't asked.
         return DatasetAnswer(answer=not_found_answer(), excerpts=[])
     excerpts = excerpts_from_chunks(found)
-    answer = await ask_about_excerpts(question, excerpts, gemini)
+    answer = await ask_about_excerpts(
+        question, excerpts, gemini, clarification=clarification
+    )
     checked = await _excerpts_to_check(answer, excerpts, documents)
     return DatasetAnswer(answer=verify_answer(answer, checked), excerpts=excerpts)

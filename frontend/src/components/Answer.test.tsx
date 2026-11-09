@@ -31,6 +31,12 @@ const notFound: AnswerResult = {
 
 const other: Citation = { ...oneLine, document_id: '2', filename: 'other.md', start_line: 2, end_line: 2 }
 
+const clarifying: AnswerResult = {
+  status: 'needs_clarification',
+  answer: 'Did you lose a company laptop or a phone?',
+  citations: [oneLine, { ...threeLines, document_id: '2', filename: 'other.md' }],
+}
+
 const lines = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`)
 
 function stubFetch(respond: (url: string, init?: RequestInit) => Response | Promise<Response>) {
@@ -420,5 +426,110 @@ describe('when the dataset does not hold the answer', () => {
     render(<Answer datasetName="Reports" question="Why?" result={notFound} />)
 
     expect(screen.getByText(notFound.answer)).toHaveStyle({ fontStyle: 'italic' })
+  })
+})
+
+describe('a clarifying question', () => {
+  it("shows the question with the lines that answer differently, under Why I'm asking", () => {
+    render(<Answer datasetName="Reports" question="What do I do?" result={clarifying} />)
+
+    expect(screen.getByText('You asked about Reports: What do I do?')).toBeInTheDocument()
+    expect(screen.getByText(clarifying.answer)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: "Why I'm asking" })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Sources' })).not.toBeInTheDocument()
+    const [first, second] = screen.getAllByRole('listitem')
+    expect(within(first).getByText('notes.txt')).toBeInTheDocument()
+    expect(within(first).getByRole('button', { name: 'Line 3' })).toHaveAccessibleDescription('notes.txt')
+    expect(within(first).getByRole('blockquote')).toHaveTextContent('the third line')
+    expect(within(second).getByText('other.md')).toBeInTheDocument()
+    expect(within(second).getByRole('button', { name: 'Lines 3–5' })).toHaveAccessibleDescription('other.md')
+    expect(within(second).getByRole('blockquote')).toHaveTextContent('three whole lines')
+  })
+
+  it('looks like an answer, not like a missing one', () => {
+    render(<Answer datasetName="Reports" question="What do I do?" result={clarifying} />)
+
+    const text = screen.getByText(clarifying.answer)
+    expect(text).not.toHaveStyle({ fontStyle: 'italic' })
+    expect(text).toHaveStyle({ whiteSpace: 'pre-wrap' })
+  })
+
+  it('opens the lines of a source in the viewer, as an answer does', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubDocuments()
+    render(<Answer datasetName="Reports" question="What do I do?" result={clarifying} />)
+
+    await user.click(lineButton())
+
+    const viewer = await findViewerIn(citationOf(lineButton()))
+    expect(within(viewer).getByText('line 3').closest('li')).toHaveAttribute('aria-current', 'true')
+    expect(fetchStub.mock.calls.map(([url]) => url)).toEqual(['/api/documents/1'])
+  })
+
+  it('shows HTML as plain text', () => {
+    const html = '<img src=x onerror=alert(1)>'
+
+    const { container } = render(
+      <Answer datasetName="Reports" question="Why?" result={{ ...clarifying, answer: `${html} question` }} />,
+    )
+
+    expect(screen.getByText(`${html} question`)).toBeInTheDocument()
+    expect(container.querySelector('img')).toBeNull()
+  })
+})
+
+describe('the answer to a reply', () => {
+  const clarification = { question: clarifying.answer, reply: 'A laptop.' }
+
+  function renderReply(result: AnswerResult) {
+    render(<Answer datasetName="Reports" question="What do I do?" clarification={clarification} result={result} />)
+  }
+
+  it('shows the question, the clarifying question and the reply above the answer', () => {
+    renderReply(answered(oneLine))
+
+    expect(screen.getAllByRole('paragraph').map((paragraph) => paragraph.textContent)).toEqual([
+      'You asked about Reports: What do I do?',
+      'I asked: Did you lose a company laptop or a phone?',
+      'You replied: A laptop.',
+      'The answer.',
+    ])
+    expect(screen.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
+    expect(screen.getByRole('blockquote')).toHaveTextContent('the third line')
+  })
+
+  it('shows the exchange above a missing answer too', () => {
+    renderReply(notFound)
+
+    expect(screen.getAllByRole('paragraph').map((paragraph) => paragraph.textContent)).toEqual([
+      'You asked about Reports: What do I do?',
+      'I asked: Did you lose a company laptop or a phone?',
+      'You replied: A laptop.',
+      notFound.answer,
+    ])
+  })
+
+  it('shows no exchange on the answer to a question', () => {
+    render(<Answer datasetName="Reports" question="Why?" result={answered(oneLine)} />)
+
+    expect(screen.queryByText(/I asked/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/You replied/)).not.toBeInTheDocument()
+  })
+
+  it('keeps line breaks in the exchange, and shows HTML in it as plain text', () => {
+    const html = '<img src=x onerror=alert(1)>'
+    const withHtml = { question: `${html}\nquestion`, reply: `${html}\nreply` }
+
+    const { container } = render(
+      <Answer datasetName="Reports" question="Why?" clarification={withHtml} result={answered(oneLine)} />,
+    )
+
+    const asked = screen.getByText(/I asked/)
+    const replied = screen.getByText(/You replied/)
+    expect(asked.textContent).toBe(`I asked: ${html}\nquestion`)
+    expect(replied.textContent).toBe(`You replied: ${html}\nreply`)
+    expect(asked).toHaveStyle({ whiteSpace: 'pre-wrap' })
+    expect(replied).toHaveStyle({ whiteSpace: 'pre-wrap' })
+    expect(container.querySelector('img')).toBeNull()
   })
 })

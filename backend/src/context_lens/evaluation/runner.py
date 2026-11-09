@@ -10,7 +10,12 @@ from context_lens.evaluation.cases import LineRange, Question, QuestionSet
 from context_lens.evaluation.dataset import ChunkIndex, IndexInfo, index_documents
 from context_lens.evaluation.methods import Method
 from context_lens.evaluation.scoring import RunRecord, evidence_shown, score_run
-from context_lens.services.answering import Excerpt, ModelAnswer
+from context_lens.services.answering import (
+    Clarification,
+    Excerpt,
+    ModelAnswer,
+    ModelAnswerToReply,
+)
 from context_lens.services.search import DatasetAnswer
 
 type OnResult = Callable[[RunRecord, int, int], None]
@@ -24,6 +29,23 @@ class GeminiWithUsage(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
+def _as_model_answer(answer: BaseModel) -> ModelAnswer:
+    # The answer to a reply is asked for in a model that can't be another question.
+    if isinstance(answer, ModelAnswerToReply):
+        return answer.to_model_answer()
+    if isinstance(answer, ModelAnswer):
+        return answer
+    raise TypeError(f"Gemini was asked for a {type(answer).__name__}, not an answer.")
+
+
+def _sum(first: TokenUsage, second: TokenUsage) -> TokenUsage:
+    return TokenUsage(
+        input_tokens=first.input_tokens + second.input_tokens,
+        output_tokens=first.output_tokens + second.output_tokens,
+        thought_tokens=first.thought_tokens + second.thought_tokens,
+    )
+
+
 class RecordingGemini:
     # A method returns only the verified answer, so this keeps what Gemini said before
     # verification, and what it cost.
@@ -33,16 +55,16 @@ class RecordingGemini:
         self.usage = TokenUsage()
         self.embedded_characters = 0
 
-    async def ask(
-        self,
-        prompt: str,
-        system_instruction: str,
-        response_model: type[ModelAnswer],
-    ) -> ModelAnswer:
-        answer, self.usage = await self._gemini.ask_with_usage(
+    async def ask[T: BaseModel](
+        self, prompt: str, system_instruction: str, response_model: type[T]
+    ) -> T:
+        answer, usage = await self._gemini.ask_with_usage(
             prompt, system_instruction, response_model
         )
-        self.raw_answer = answer
+        # Added up, since a clarify run can ask twice and both cost. The raw answer is
+        # the last one's, as the verified answer the record keeps is.
+        self.usage = _sum(self.usage, usage)
+        self.raw_answer = _as_model_answer(answer)
         return answer
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
@@ -70,6 +92,18 @@ def _line_range(excerpt: Excerpt) -> LineRange:
     return LineRange(excerpt.filename, min(excerpt.lines), max(excerpt.lines))
 
 
+def _shown(result: DatasetAnswer) -> list[LineRange]:
+    return [_line_range(excerpt) for excerpt in result.excerpts]
+
+
+def _reply_to(question: Question, first: ModelAnswer) -> Clarification | None:
+    # Only a clarify question has a reply, and like a user of the app, the run gives it
+    # only when Gemini asks.
+    if question.reply is None or first.status != "needs_clarification":
+        return None
+    return Clarification(question=first.answer, reply=question.reply)
+
+
 async def _run_once(
     question: Question,
     repeat: int,
@@ -78,24 +112,49 @@ async def _run_once(
     gemini: GeminiWithUsage,
 ) -> RunRecord:
     recorder = RecordingGemini(gemini)
+    first: DatasetAnswer | None = None
+    clarification: Clarification | None = None
     result: DatasetAnswer | None = None
     error: str | None = None
     started = time.perf_counter()
     try:
-        result = await method.answer(question, recorder)
+        first = await method.answer(question, recorder)
+        clarification = _reply_to(question, first.answer)
+        if clarification is None:
+            result = first
+        else:
+            result = await method.answer(
+                question, recorder, clarification=clarification
+            )
     except GeminiError as exc:
         error = type(exc).__name__
     seconds = time.perf_counter() - started
 
     final = None if result is None else result.answer
-    excerpts = [] if result is None else result.excerpts
-    shown = [_line_range(excerpt) for excerpt in excerpts]
+    shown = [] if result is None else _shown(result)
     documents = question_set.documents
     shown_evidence = (
         None if result is None else evidence_shown(question.evidence, shown, documents)
     )
-    raw = recorder.raw_answer
-    score = None if final is None else score_run(question, final, raw)
+    # Of the first prompt: that's where Gemini decides whether to ask.
+    shown_cases = (
+        None
+        if first is None
+        else evidence_shown(question.cases, _shown(first), documents)
+    )
+    # Whatever the category, so that a run that asked needlessly shows what it asked.
+    clarifying = (
+        first.answer
+        if first is not None and first.answer.status == "needs_clarification"
+        else None
+    )
+    # Not the first prompt's when the second ended in a Gemini error.
+    raw = None if result is None else recorder.raw_answer
+    score = (
+        None
+        if final is None
+        else score_run(question, final, raw, asked=clarifying is not None)
+    )
     rejected = score is not None and score.rejected_by_verifier
     return RunRecord(
         question_id=question.id,
@@ -105,13 +164,18 @@ async def _run_once(
         question=question.question,
         facts=question.facts,
         evidence=question.evidence,
+        cases=question.cases,
         status=None if final is None else final.status,
         answer=None if final is None else final.answer,
         citations=[] if final is None else final.citations,
         raw_status=None if raw is None else raw.status,
         raw_citations=raw.citations if raw is not None and rejected else None,
+        clarification=None if clarifying is None else clarifying.answer,
+        clarification_citations=[] if clarifying is None else clarifying.citations,
+        reply=None if clarification is None else clarification.reply,
         excerpts=shown,
         evidence_shown=shown_evidence,
+        cases_shown=shown_cases,
         seconds=round(seconds, 3),
         input_tokens=recorder.usage.input_tokens,
         output_tokens=recorder.usage.output_tokens,
