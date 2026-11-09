@@ -106,7 +106,7 @@ def with_real_lines(
 async def _excerpts_to_check(
     answer: ModelAnswer, excerpts: list[Excerpt], documents: DocumentLookup
 ) -> list[Excerpt]:
-    if answer.status != "answered":
+    if answer.status == "not_found":
         # Verification gives the fixed not_found answer without looking at any.
         return []
     sources = sources_by_name(excerpts)

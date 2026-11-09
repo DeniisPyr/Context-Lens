@@ -2,6 +2,8 @@ import pytest
 
 from context_lens.services.answering import (
     NOT_FOUND_MESSAGE,
+    SYSTEM_INSTRUCTION,
+    AnswerStatus,
     Citation,
     Excerpt,
     ModelAnswer,
@@ -40,10 +42,29 @@ POLICY = Excerpt(
 )
 EXCERPTS = [HANDBOOK_START, HANDBOOK_LATER, POLICY]
 
+# Different answers for different situations, which a question may not say.
+LEAVE = Excerpt(
+    document_id="doc-4",
+    filename="leave.md",
+    lines={
+        10: "Full-time staff get 25 days of leave a year.",
+        11: "Part-time staff get 15.",
+        12: "Leave carries over to March.",
+    },
+)
+
 
 def answered(*citations: Citation) -> ModelAnswer:
     return ModelAnswer(
         status="answered", answer="An answer.", citations=list(citations)
+    )
+
+
+def clarifying(*citations: Citation) -> ModelAnswer:
+    return ModelAnswer(
+        status="needs_clarification",
+        answer="Do you work full-time or part-time?",
+        citations=list(citations),
     )
 
 
@@ -311,11 +332,63 @@ def test_not_found_from_gemini_gets_the_fixed_message_and_loses_its_citations(
     assert caplog.records == []
 
 
+def test_gemini_may_answer_find_nothing_or_ask_a_clarifying_question() -> None:
+    status = ModelAnswer.model_json_schema()["properties"]["status"]
+
+    assert status["enum"] == ["answered", "not_found", "needs_clarification"]
+
+
+@pytest.mark.parametrize("status", ["not_found", "needs_clarification"])
+def test_instruction_says_when_to_use_each_status_other_than_answered(
+    status: str,
+) -> None:
+    assert f"use status {status}" in SYSTEM_INSTRUCTION
+
+
+def test_verified_clarifying_question_keeps_its_question_and_citations() -> None:
+    question = clarifying(
+        cite(10, 10, "Full-time staff get 25 days", "leave.md"),
+        cite(11, 11, "Part-time staff get 15.", "leave.md"),
+    )
+
+    assert verify_answer(question, [LEAVE]) == question
+
+
+def test_clarifying_question_without_citations_is_rejected() -> None:
+    assert verify_answer(clarifying(), [LEAVE]) == NOT_FOUND
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param(cite(11, 11, "Part-time staff get 20.", "leave.md"), id="quote"),
+        pytest.param(cite(12, 12, "Part-time staff get 15.", "leave.md"), id="line"),
+        pytest.param(cite(9, 9, "Leave", "leave.md"), id="line_not_shown"),
+        pytest.param(cite(11, 11, "Part-time staff get 15."), id="file_not_shown"),
+    ],
+)
+def test_clarifying_question_with_an_unverifiable_citation_is_rejected(
+    bad: Citation,
+) -> None:
+    good = cite(10, 10, "Full-time staff get 25 days", "leave.md")
+
+    assert verify_answer(clarifying(good, bad), [LEAVE]) == NOT_FOUND
+
+
+def test_clarifying_question_citation_wider_than_its_quote_is_narrowed() -> None:
+    question = clarifying(cite(10, 12, "Part-time staff get 15.", "leave.md"))
+
+    verified = verify_answer(question, [LEAVE])
+
+    assert verified == clarifying(cite(11, 11, "Part-time staff get 15.", "leave.md"))
+
+
+@pytest.mark.parametrize("status", ["answered", "needs_clarification"])
 def test_rejected_answer_logs_a_warning_without_its_content(
-    caplog: pytest.LogCaptureFixture,
+    caplog: pytest.LogCaptureFixture, status: AnswerStatus
 ) -> None:
     answer = ModelAnswer(
-        status="answered",
+        status=status,
         answer="Private answer.",
         citations=[cite(1, 1, "Private quote.", "private.txt")],
     )

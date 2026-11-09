@@ -91,6 +91,12 @@ def answered(*citations: Citation) -> ModelAnswer:
     return ModelAnswer(status="answered", answer="An answer.", citations=[*citations])
 
 
+def clarifying(*citations: Citation) -> ModelAnswer:
+    return ModelAnswer(
+        status="needs_clarification", answer="Which file?", citations=[*citations]
+    )
+
+
 @dataclass(frozen=True)
 class Pets:
     dataset_id: str
@@ -219,6 +225,70 @@ def test_citation_of_something_gemini_was_not_shown_returns_not_found(
     unseen: Citation,
 ) -> None:
     fake_gemini.answer = answered(citation("b.md", 2, 2, "Line 2 of b.md"), unseen)
+
+    response = ask(client_finding_four, pets.dataset_id)
+
+    assert response.status_code == 200
+    assert response.json() == NOT_FOUND
+
+
+def test_clarifying_question_is_returned_with_citations_to_the_documents(
+    client_finding_four: TestClient, fake_gemini: FakeGemini, pets: Pets
+) -> None:
+    across_two_lines = "slovo Line 4 of a.txt"
+    fake_gemini.answer = clarifying(
+        citation("b.md", 2, 2, "Line 2 of b.md"),
+        citation("a.txt", 3, 4, across_two_lines),
+    )
+
+    response = ask(client_finding_four, pets.dataset_id)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "needs_clarification",
+        "answer": "Which file?",
+        "citations": [
+            {
+                "document_id": pets.b_id,
+                "filename": "b.md",
+                "start_line": 2,
+                "end_line": 2,
+                "quote": "Line 2 of b.md",
+            },
+            {
+                "document_id": pets.a_id,
+                "filename": "a.txt",
+                "start_line": 3,
+                "end_line": 4,
+                "quote": across_two_lines,
+            },
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    "citations",
+    [
+        pytest.param([], id="no_citations"),
+        pytest.param(
+            [
+                citation("b.md", 2, 2, "Line 2 of b.md"),
+                citation("a.txt", 2, 2, "Line 2 of a.txt"),
+            ],
+            id="a_line_not_shown",
+        ),
+        pytest.param(
+            [citation("c.txt", 1, 1, "The parrot is green.")], id="document_not_found"
+        ),
+    ],
+)
+def test_clarifying_question_without_verified_citations_returns_not_found(
+    client_finding_four: TestClient,
+    fake_gemini: FakeGemini,
+    pets: Pets,
+    citations: list[Citation],
+) -> None:
+    fake_gemini.answer = clarifying(*citations)
 
     response = ask(client_finding_four, pets.dataset_id)
 
