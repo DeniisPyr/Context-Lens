@@ -5,7 +5,14 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from conftest import NO_CHUNKS, FakeGemini, StartApp, direction, run_sql
+from conftest import (
+    NO_CHUNKS,
+    FakeGemini,
+    StartApp,
+    direction,
+    fake_embedding,
+    run_sql,
+)
 from fastapi import Request
 from fastapi.testclient import TestClient
 from httpx2 import Response
@@ -24,6 +31,7 @@ from context_lens.services.answering import (
     SYSTEM_INSTRUCTION,
     Citation,
     ModelAnswer,
+    ModelAnswerToReply,
 )
 from context_lens.services.chunking import split_into_chunks
 from context_lens.services.documents import Document
@@ -33,6 +41,7 @@ from context_lens.services.embeddings import (
 )
 
 QUESTION = "Which pets are there?"
+CLARIFICATION = {"question": "In which file?", "reply": "In notes.txt."}
 NOT_FOUND = {"status": "not_found", "answer": NOT_FOUND_MESSAGE, "citations": []}
 # Lines too long for one chunk, so each is stored in pieces: this one in four, cut
 # between words, and the one without spaces in two, cut in the middle of a "word".
@@ -65,6 +74,22 @@ def upload(
 def ask(client: TestClient, dataset_id: str, question: str = QUESTION) -> Response:
     return client.post(
         "/api/ask", json={"dataset_id": dataset_id, "question": question}
+    )
+
+
+def send_reply(
+    client: TestClient,
+    dataset_id: str,
+    clarification: object = CLARIFICATION,
+    question: str = QUESTION,
+) -> Response:
+    return client.post(
+        "/api/ask",
+        json={
+            "dataset_id": dataset_id,
+            "question": question,
+            "clarification": clarification,
+        },
     )
 
 
@@ -451,6 +476,43 @@ def test_question_is_embedded_once_in_the_query_format(
     ]
 
 
+def test_reply_is_embedded_once_with_the_question_in_the_query_format(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    dataset_id = new_dataset(client)
+    upload(client, dataset_id)
+    fake_gemini.embedded.clear()
+
+    send_reply(
+        client,
+        dataset_id,
+        {"question": " Which cat?\n", "reply": "\tThe big one. "},
+        "  What colour is the cat?\n",
+    )
+
+    # Not the clarifying question, which says only what Gemini didn't know.
+    assert fake_gemini.embedded == [
+        ["task: search result | query: What colour is the cat?\nThe big one."]
+    ]
+
+
+def test_reply_finds_the_chunks_nearest_to_the_question_with_the_reply(
+    client_finding_four: TestClient, fake_gemini: FakeGemini, pets: Pets
+) -> None:
+    # Line 5 of b.md is far from the question alone, but this puts it at no angle at
+    # all to the question with the reply.
+    line = long_line("b.md", 5)
+    search_text = f"{QUESTION}\n{CLARIFICATION['reply']}"
+    fake_gemini.vectors[query_embedding_text(search_text)] = fake_embedding(
+        document_embedding_text("b.md", line)
+    )
+
+    send_reply(client_finding_four, pets.dataset_id)
+
+    [prompt] = fake_gemini.prompts
+    assert f"\n5: {line}\n" in prompt
+
+
 def test_eight_chunks_per_question_by_default(
     client: TestClient, fake_gemini: FakeGemini
 ) -> None:
@@ -543,6 +605,50 @@ def test_prompt_holds_only_that_datasets_chunks_and_the_stripped_question(
     )
 
 
+def test_reply_prompt_ends_with_the_stripped_question_what_was_asked_and_the_reply(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    dataset_id = new_dataset(client)
+    upload(client, dataset_id, "The cat is orange.")
+
+    response = send_reply(
+        client,
+        dataset_id,
+        {"question": " Which cat?\n", "reply": "\tThe big one. "},
+        "  What colour is the cat?\n",
+    )
+
+    assert response.status_code == 200
+    [prompt] = fake_gemini.prompts
+    assert prompt == (
+        '<excerpt file="notes.txt" lines="1-1">\n'
+        "1: The cat is orange.\n"
+        "</excerpt>\n"
+        "\n"
+        "Question: What colour is the cat?\n"
+        "Your clarifying question: Which cat?\n"
+        "The user's reply: The big one."
+    )
+
+
+def test_null_clarification_asks_as_a_question_without_one(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    dataset_id = new_dataset(client)
+    upload(client, dataset_id)
+    fake_gemini.embedded.clear()
+    ask(client, dataset_id)
+
+    response = send_reply(client, dataset_id, None)
+
+    assert response.status_code == 200
+    first, second = fake_gemini.prompts
+    assert second == first
+    first, second = fake_gemini.embedded
+    assert second == first
+    assert fake_gemini.response_models == [ModelAnswer, ModelAnswer]
+
+
 def test_prompt_numbers_each_line_of_a_chunk(
     client: TestClient, fake_gemini: FakeGemini
 ) -> None:
@@ -571,13 +677,16 @@ def test_prompt_numbering_matches_the_line_count_from_the_upload(
     assert '"1-2">\n1: one\x0cstill one\n2: two\n</excerpt>' in prompt
 
 
+@pytest.mark.parametrize("send", [ask, send_reply], ids=["question", "reply"])
 def test_gemini_receives_the_system_instruction(
-    client: TestClient, fake_gemini: FakeGemini
+    client: TestClient,
+    fake_gemini: FakeGemini,
+    send: Callable[[TestClient, str], Response],
 ) -> None:
     dataset_id = new_dataset(client)
     upload(client, dataset_id)
 
-    ask(client, dataset_id)
+    send(client, dataset_id)
 
     assert fake_gemini.system_instructions == [SYSTEM_INSTRUCTION]
 
@@ -591,6 +700,54 @@ def test_gemini_is_asked_for_a_model_answer(
     ask(client, dataset_id)
 
     assert fake_gemini.response_models == [ModelAnswer]
+
+
+def test_reply_asks_gemini_for_an_answer_that_cannot_ask_again(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    dataset_id = new_dataset(client)
+    upload(client, dataset_id)
+
+    send_reply(client, dataset_id)
+
+    assert fake_gemini.response_models == [ModelAnswerToReply]
+
+
+def test_answer_to_a_reply_is_returned_with_citations_to_the_document(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    dataset_id = new_dataset(client)
+    document_id = upload(client, dataset_id)
+
+    response = send_reply(client, dataset_id)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "answered",
+        "answer": "The cat is orange.",
+        "citations": [
+            {
+                "document_id": document_id,
+                "filename": "notes.txt",
+                "start_line": 1,
+                "end_line": 1,
+                "quote": "The cat is orange.",
+            }
+        ],
+    }
+
+
+def test_answer_to_a_reply_with_a_bad_citation_returns_not_found(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    fake_gemini.answer = answered(citation("notes.txt", 1, 1, "The cat is purple."))
+    dataset_id = new_dataset(client)
+    upload(client, dataset_id)
+
+    response = send_reply(client, dataset_id)
+
+    assert response.status_code == 200
+    assert response.json() == NOT_FOUND
 
 
 def store_without_chunks(client: TestClient, dataset_id: str) -> None:
@@ -748,6 +905,62 @@ def test_longest_allowed_question_is_accepted(
     assert fake_gemini.prompts[0].endswith(question)
 
 
+@pytest.mark.parametrize(
+    "clarification",
+    [
+        pytest.param({"reply": "In notes.txt."}, id="no_question"),
+        pytest.param({"question": "In which file?"}, id="no_reply"),
+        pytest.param({"question": "", "reply": "In notes.txt."}, id="empty_question"),
+        pytest.param(
+            {"question": " \t\n", "reply": "In notes.txt."},
+            id="whitespace_only_question",
+        ),
+        pytest.param(
+            {"question": "x" * 4001, "reply": "In notes.txt."}, id="question_too_long"
+        ),
+        pytest.param({"question": "In which file?", "reply": ""}, id="empty_reply"),
+        pytest.param(
+            {"question": "In which file?", "reply": " \t\n"},
+            id="whitespace_only_reply",
+        ),
+        pytest.param(
+            {"question": "In which file?", "reply": "x" * 2001}, id="reply_too_long"
+        ),
+        pytest.param("In notes.txt.", id="not_an_object"),
+    ],
+)
+def test_invalid_clarification_is_rejected_without_calling_gemini(
+    client: TestClient, fake_gemini: FakeGemini, clarification: object
+) -> None:
+    dataset_id = new_dataset(client)
+    upload(client, dataset_id)
+    fake_gemini.embedded.clear()
+
+    response = send_reply(client, dataset_id, clarification)
+
+    assert response.status_code == 422
+    assert fake_gemini.embedded == []
+    assert fake_gemini.prompts == []
+
+
+def test_longest_allowed_clarification_is_accepted(
+    client: TestClient, fake_gemini: FakeGemini
+) -> None:
+    dataset_id = new_dataset(client)
+    upload(client, dataset_id)
+    # Gemini's question may be longer than the user's own.
+    clarification = {"question": "x" * 4000, "reply": "y" * 2000}
+
+    response = send_reply(client, dataset_id, clarification)
+
+    assert response.status_code == 200
+    assert fake_gemini.embedded[-1] == [
+        query_embedding_text(f"{QUESTION}\n{'y' * 2000}")
+    ]
+    assert f"\nYour clarifying question: {'x' * 4000}\n" in fake_gemini.prompts[0]
+    assert fake_gemini.prompts[0].endswith(f"\nThe user's reply: {'y' * 2000}")
+
+
 GEMINI_FAILURES = [
     pytest.param(
         GeminiUnavailableError("Busy."),
@@ -808,6 +1021,25 @@ def test_asking_logs_nothing_from_the_question_documents_or_answer(
 
     assert response.json() == NOT_FOUND
     # Only that the answer was rejected.
+    assert "Citation verification failed" in caplog.text
+    assert "Private" not in caplog.text
+
+
+def test_replying_logs_nothing_from_the_clarifying_question_or_reply(
+    client: TestClient, fake_gemini: FakeGemini, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake_gemini.answer = ModelAnswer(
+        status="answered",
+        answer="Private answer.",
+        citations=[citation("notes.txt", 1, 1, "Private quote.")],
+    )
+    dataset_id = new_dataset(client)
+    upload(client, dataset_id, "Private text.")
+    clarification = {"question": "Private clarifying question?", "reply": "Private."}
+
+    response = send_reply(client, dataset_id, clarification, "Private question?")
+
+    assert response.json() == NOT_FOUND
     assert "Citation verification failed" in caplog.text
     assert "Private" not in caplog.text
 

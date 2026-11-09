@@ -48,6 +48,19 @@ class ModelAnswer(BaseModel):
     citations: list[Citation]
 
 
+class ModelAnswerToReply(BaseModel):
+    # Without needs_clarification, so that Gemini can't answer a reply with another
+    # question, and the user is asked one at most.
+    status: Literal["answered", "not_found"]
+    answer: str
+    citations: list[Citation]
+
+    def to_model_answer(self) -> ModelAnswer:
+        return ModelAnswer(
+            status=self.status, answer=self.answer, citations=self.citations
+        )
+
+
 def file_as_shown(filename: str) -> str:
     # How the prompt names a file, and so what a citation of it says. Escaped the XML
     # way because filenames are user input, and a quote mark in one would end the
@@ -67,6 +80,13 @@ class Excerpt:
         return file_as_shown(self.filename)
 
 
+@dataclass(frozen=True)
+class Clarification:
+    # The clarifying question Gemini asked, as the app returned it, and the user's reply.
+    question: str
+    reply: str
+
+
 def _format_excerpt(excerpt: Excerpt) -> str:
     numbers = sorted(excerpt.lines)
     numbered_lines = "\n".join(
@@ -78,9 +98,21 @@ def _format_excerpt(excerpt: Excerpt) -> str:
     )
 
 
-def build_prompt(question: str, excerpts: list[Excerpt]) -> str:
+def build_prompt(
+    question: str,
+    excerpts: list[Excerpt],
+    *,
+    clarification: Clarification | None = None,
+) -> str:
     context = "\n\n".join(_format_excerpt(excerpt) for excerpt in excerpts)
-    return f"{context}\n\nQuestion: {question}"
+    prompt = f"{context}\n\nQuestion: {question}"
+    if clarification is None:
+        return prompt
+    # Gemini keeps nothing between requests, so it's told what it asked.
+    return (
+        f"{prompt}\nYour clarifying question: {clarification.question}\n"
+        f"The user's reply: {clarification.reply}"
+    )
 
 
 def not_found_answer() -> ModelAnswer:
@@ -168,9 +200,15 @@ def verify_answer(answer: ModelAnswer, excerpts: list[Excerpt]) -> ModelAnswer:
 
 
 async def ask_about_excerpts(
-    question: str, excerpts: list[Excerpt], gemini: GeminiClient
+    question: str,
+    excerpts: list[Excerpt],
+    gemini: GeminiClient,
+    *,
+    clarification: Clarification | None = None,
 ) -> ModelAnswer:
     # Gemini's answer as it is, before verification.
-    return await gemini.ask(
-        build_prompt(question, excerpts), SYSTEM_INSTRUCTION, ModelAnswer
-    )
+    prompt = build_prompt(question, excerpts, clarification=clarification)
+    if clarification is None:
+        return await gemini.ask(prompt, SYSTEM_INSTRUCTION, ModelAnswer)
+    answer = await gemini.ask(prompt, SYSTEM_INSTRUCTION, ModelAnswerToReply)
+    return answer.to_model_answer()

@@ -1,12 +1,17 @@
 import pytest
+from conftest import FakeGemini
+from pydantic import ValidationError
 
 from context_lens.services.answering import (
     NOT_FOUND_MESSAGE,
     SYSTEM_INSTRUCTION,
     AnswerStatus,
     Citation,
+    Clarification,
     Excerpt,
     ModelAnswer,
+    ModelAnswerToReply,
+    ask_about_excerpts,
     build_prompt,
     verify_answer,
 )
@@ -52,6 +57,9 @@ LEAVE = Excerpt(
         12: "Leave carries over to March.",
     },
 )
+PART_TIME = Clarification(
+    question="Do you work full-time or part-time?", reply="Part-time."
+)
 
 
 def answered(*citations: Citation) -> ModelAnswer:
@@ -89,6 +97,22 @@ def test_prompt_shows_each_excerpt_with_its_file_and_line_numbers() -> None:
         "</excerpt>\n"
         "\n"
         "Question: How many days?"
+    )
+
+
+def test_reply_prompt_ends_with_the_question_what_was_asked_and_the_reply() -> None:
+    prompt = build_prompt("How many days of leave?", [LEAVE], clarification=PART_TIME)
+
+    assert prompt == (
+        '<excerpt file="leave.md" lines="10-12">\n'
+        "10: Full-time staff get 25 days of leave a year.\n"
+        "11: Part-time staff get 15.\n"
+        "12: Leave carries over to March.\n"
+        "</excerpt>\n"
+        "\n"
+        "Question: How many days of leave?\n"
+        "Your clarifying question: Do you work full-time or part-time?\n"
+        "The user's reply: Part-time."
     )
 
 
@@ -381,6 +405,34 @@ def test_clarifying_question_citation_wider_than_its_quote_is_narrowed() -> None
     verified = verify_answer(question, [LEAVE])
 
     assert verified == clarifying(cite(11, 11, "Part-time staff get 15.", "leave.md"))
+
+
+def test_answer_to_a_reply_cannot_be_another_clarifying_question() -> None:
+    status = ModelAnswerToReply.model_json_schema()["properties"]["status"]
+
+    assert status["enum"] == ["answered", "not_found"]
+    with pytest.raises(ValidationError):
+        ModelAnswerToReply.model_validate(
+            {"status": "needs_clarification", "answer": "Which?", "citations": []}
+        )
+
+
+@pytest.mark.anyio
+async def test_reply_asks_for_an_answer_to_it_and_returns_a_model_answer() -> None:
+    gemini = FakeGemini()
+    gemini.answer = ModelAnswer(
+        status="answered",
+        answer="15 days.",
+        citations=[cite(11, 11, "Part-time staff get 15.", "leave.md")],
+    )
+
+    answer = await ask_about_excerpts(
+        "How many days of leave?", [LEAVE], gemini, clarification=PART_TIME
+    )
+
+    assert gemini.response_models == [ModelAnswerToReply]
+    # Equal only as a ModelAnswer, so that verification gets what it always does.
+    assert answer == gemini.answer
 
 
 @pytest.mark.parametrize("status", ["answered", "needs_clarification"])

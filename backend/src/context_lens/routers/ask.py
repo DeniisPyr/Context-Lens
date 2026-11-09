@@ -27,5 +27,6 @@ async def ask_question(
         documents,
         gemini,
         settings.chunks_per_question,
+        clarification=body.to_clarification(),
     )
     return AskResponse.from_answer(answer)
