@@ -23,7 +23,7 @@ export default function Ask({ datasetId, datasetName, hasDocuments }: Props) {
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The question is kept with the answer because the form stays editable. The dataset can't change under it:
-  // App starts this section over for another dataset.
+  // Workspace starts this section over for another dataset.
   const [result, setResult] = useState<Result | null>(null)
   // True while a reply is on its way. No new question goes out meanwhile, so its answer can't replace a newer one.
   const [replying, setReplying] = useState(false)

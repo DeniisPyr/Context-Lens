@@ -26,6 +26,7 @@ function stubPage(datasets: (typeof reports)[], routes: Record<string, Route> = 
   const emptyLists = Object.fromEntries(datasets.map(({ id }) => [listOf(id), () => Response.json([])]))
   return stubRoutes({
     'GET /api/health': () => Response.json({ status: 'ok' }),
+    'GET /api/session': () => Response.json({ login_required: false, logged_in: true }),
     'GET /api/datasets': () => Response.json(datasets),
     ...emptyLists,
     ...routes,
@@ -101,10 +102,11 @@ describe('before any dataset exists', () => {
     expect(nameInput()).toBeInTheDocument()
   })
 
-  it('says nothing while the first load is running', () => {
-    stubPage([], { 'GET /api/datasets': rejectsOnAbort })
+  it('says nothing while the first load is running', async () => {
+    const fetchStub = stubPage([], { 'GET /api/datasets': rejectsOnAbort })
 
     render(<App />)
+    await waitFor(() => expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(1))
 
     expect(screen.queryByText(startMessage)).not.toBeInTheDocument()
     expectNoDocumentsOrAsk()
@@ -130,10 +132,12 @@ describe('before any dataset exists', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(detail)
   })
 
-  it('aborts the first load on unmount', () => {
+  it('aborts the first load on unmount', async () => {
     const fetchStub = stubPage([], { 'GET /api/datasets': rejectsOnAbort })
 
     const { unmount } = render(<App />)
+    // The datasets load once the session check has answered.
+    await waitFor(() => expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(1))
     const signal = requestsTo(fetchStub, '/api/datasets')[0][1]?.signal
     expect(signal?.aborted).toBe(false)
 
@@ -150,6 +154,7 @@ describe('before any dataset exists', () => {
         <App />
       </StrictMode>,
     )
+    await waitFor(() => expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2))
     await act(async () => {})
 
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2)
@@ -411,6 +416,7 @@ describe('creating a dataset', () => {
     })
 
     render(<App />)
+    await screen.findByRole('textbox', { name: 'New dataset name' })
     await createNamed(user, 'Reports')
     await screen.findByText('No documents yet.')
 
