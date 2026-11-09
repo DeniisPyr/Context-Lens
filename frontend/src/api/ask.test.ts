@@ -23,6 +23,25 @@ describe('askQuestion', () => {
     expect(init.method).toBe('POST')
     expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
     expect(JSON.parse(init.body as string)).toEqual({ dataset_id: 'd1', question: 'How long is it?' })
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('clarification')
+  })
+
+  it('posts a reply with the question it clarifies', async () => {
+    const fetchStub = vi.fn<typeof fetch>(async () => Response.json(answer))
+    vi.stubGlobal('fetch', fetchStub)
+    const clarification = { question: 'Did you lose a laptop or a phone?', reply: 'A laptop.' }
+
+    await expect(askQuestion('d1', 'What do I do?', clarification)).resolves.toEqual(answer)
+
+    const [url, init = {}] = fetchStub.mock.calls[0]
+    expect(url).toBe('/api/ask')
+    expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
+    expect(JSON.parse(init.body as string)).toEqual({
+      dataset_id: 'd1',
+      question: 'What do I do?',
+      clarification: { question: 'Did you lose a laptop or a phone?', reply: 'A laptop.' },
+    })
   })
 
   it('uses the message from the backend when detail is a string', async () => {

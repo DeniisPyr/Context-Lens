@@ -71,6 +71,12 @@ const askButton = () => screen.getByRole('button', { name: 'Ask' })
 
 const askRequests = (fetchStub: ReturnType<typeof stubRoutes>) =>
   fetchStub.mock.calls.filter(([url]) => url === '/api/ask')
+const askBodies = (fetchStub: ReturnType<typeof stubRoutes>) =>
+  askRequests(fetchStub).map(([, init]) => JSON.parse(init?.body as string))
+
+const replyBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Your reply' })
+const replyButton = () => screen.getByRole('button', { name: 'Reply' })
+const replyForm = () => within(replyBox().form!)
 
 async function renderPage() {
   render(<App />)
@@ -82,6 +88,18 @@ async function ask(user: UserEvent, question = 'Why?') {
   await user.click(questionBox())
   await user.paste(question)
   await user.click(askButton())
+}
+
+// Asks, and waits for the clarifying question by its reply box.
+async function askAndGetClarifyingQuestion(user: UserEvent, question = 'What do I do?') {
+  await ask(user, question)
+  await screen.findByRole('textbox', { name: 'Your reply' })
+}
+
+async function reply(user: UserEvent, text = 'A laptop.') {
+  await user.click(replyBox())
+  await user.paste(text)
+  await user.click(replyButton())
 }
 
 async function sendFile(user: UserEvent, filename: string) {
@@ -102,6 +120,12 @@ function listThatChanges(...lists: (typeof notes)[][]): Route {
 }
 
 const postUpload: Route = () => Response.json(latest, { status: 201 })
+
+// The POST route for answers that change: each question or reply gets the next answer, and the last one stays.
+function answersInTurn(...answers: object[]): Route {
+  let request = 0
+  return () => Response.json(answers[Math.min(request++, answers.length - 1)])
+}
 
 // A route that gives these responses first, then waits until the test calls answer().
 function waitingRoute(...first: Response[]) {
@@ -240,6 +264,7 @@ describe('asking', () => {
       dataset_id: reports.id,
       question: 'first line\nsecond line',
     })
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('clarification')
   })
 
   it('shows the answer with its citations and lets the user ask again', async () => {
@@ -705,5 +730,283 @@ describe('when a document is deleted', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Document not found.')
     expect(screen.getByText('The answer.')).toBeInTheDocument()
+  })
+})
+
+describe('a clarifying question', () => {
+  it('has a reply box below its sources, limited like the question', async () => {
+    const user = userEvent.setup()
+    stubPage([notes], { 'POST /api/ask': () => Response.json(clarifying) })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+
+    expect(screen.getByRole('article').nextElementSibling).toBe(replyBox().form)
+    expect(replyBox()).toHaveAttribute('maxlength', '2000')
+    expect(replyBox()).toHaveValue('')
+    expect(replyBox()).toHaveStyle({ width: '100%', boxSizing: 'border-box' })
+    expect(replyButton()).toBeEnabled()
+  })
+
+  it('sends the reply with the question as asked and the clarifying question exactly as it came', async () => {
+    const user = userEvent.setup()
+    // Spaces and a line break around it, so trimming it on the way back can't pass.
+    const asked = { ...clarifying, answer: ' Did you lose a company laptop\nor a phone? ' }
+    const fetchStub = stubPage([notes], { 'POST /api/ask': answersInTurn(asked, answered) })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user, '  What do I do?  ')
+    // The reply goes with the question it clarifies, not with what's in the box now.
+    await user.type(questionBox(), ' And when?')
+    await reply(user, '  A laptop.\n ')
+    await screen.findByText('The answer.')
+
+    const requests = askRequests(fetchStub)
+    expect(requests).toHaveLength(2)
+    const [url, init = {}] = requests[1]
+    expect(url).toBe('/api/ask')
+    expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
+    expect(JSON.parse(init.body as string)).toEqual({
+      dataset_id: reports.id,
+      question: 'What do I do?',
+      clarification: { question: ' Did you lose a company laptop\nor a phone? ', reply: 'A laptop.' },
+    })
+  })
+
+  it('is followed by the answer, with the whole exchange above it and no reply box', async () => {
+    const user = userEvent.setup()
+    stubPage([notes], { 'POST /api/ask': answersInTurn(clarifying, answered) })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await reply(user)
+    await screen.findByText('The answer.')
+
+    const answer = within(screen.getByRole('article'))
+    expect(answer.getAllByRole('paragraph').map((paragraph) => paragraph.textContent)).toEqual([
+      'You asked about Reports: What do I do?',
+      'I asked: Did you lose a company laptop or a phone?',
+      'You replied: A laptop.',
+      'The answer.',
+    ])
+    expect(answer.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
+    expect(answer.queryByRole('heading', { name: "Why I'm asking" })).not.toBeInTheDocument()
+    expect(answer.getAllByRole('blockquote').map((quote) => quote.textContent)).toEqual([
+      'the third line',
+      'three more lines',
+    ])
+    expect(screen.queryByRole('textbox', { name: 'Your reply' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Repl/ })).not.toBeInTheDocument()
+    expect(askButton()).toBeEnabled()
+  })
+
+  it('gets no second reply box, even when the answer to the reply asks again', async () => {
+    const user = userEvent.setup()
+    const again = { ...clarifying, answer: 'Which laptop?' }
+    const fetchStub = stubPage([notes], { 'POST /api/ask': answersInTurn(clarifying, again) })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await reply(user)
+
+    expect(await screen.findByText('Which laptop?')).toBeInTheDocument()
+    expect(screen.getByText('You replied: A laptop.')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Your reply' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Repl/ })).not.toBeInTheDocument()
+    expect(askRequests(fetchStub)).toHaveLength(2)
+  })
+
+  it('leaves its open citation behind: the answer to the reply starts with every citation closed', async () => {
+    const user = userEvent.setup()
+    const lines = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`)
+    stubPage([notes], {
+      'POST /api/ask': answersInTurn(clarifying, answered),
+      'GET /api/documents/1': () => Response.json({ ...notes, lines }),
+    })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await user.click(screen.getByRole('button', { name: 'Line 2' }))
+    await screen.findByRole('list', { name: 'Lines of notes.txt' })
+    await reply(user)
+    await screen.findByText('The answer.')
+
+    expect(screen.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Lines 4–6' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryAllByRole('list', { name: /^Lines of/ })).toHaveLength(0)
+  })
+
+  it('stops the browser from submitting the reply form itself', async () => {
+    const user = userEvent.setup()
+    stubPage([notes], { 'POST /api/ask': () => Response.json(clarifying) })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+
+    // fireEvent returns false when the handler called preventDefault.
+    expect(fireEvent.submit(replyBox().form!)).toBe(false)
+  })
+})
+
+describe('a reply with no text', () => {
+  it.each([
+    ['empty', ''],
+    ['only whitespace', '  \n\t '],
+  ])('shows an alert and sends nothing when it is %s', async (_name, text) => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([notes], { 'POST /api/ask': () => Response.json(clarifying) })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await user.click(replyBox())
+    if (text) await user.paste(text)
+    await user.click(replyButton())
+
+    expect(replyForm().getByRole('alert')).toHaveTextContent('Type a reply first.')
+    expect(askRequests(fetchStub)).toHaveLength(1)
+    expect(replyButton()).toBeEnabled()
+    expect(screen.getByText(clarifying.answer)).toBeInTheDocument()
+  })
+
+  it('clears the alert when a real reply is sent', async () => {
+    const user = userEvent.setup()
+    stubPage([notes], { 'POST /api/ask': answersInTurn(clarifying, answered) })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await user.click(replyButton())
+    await screen.findByRole('alert')
+    await reply(user)
+    await screen.findByText('The answer.')
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+})
+
+describe('while waiting for the answer to a reply', () => {
+  it('disables Reply and Ask and says so, and keeps the clarifying question and the question box', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute(Response.json(clarifying))
+    stubPage([notes], { 'POST /api/ask': route })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await reply(user)
+
+    expect(screen.getByRole('button', { name: 'Replying…' })).toBeDisabled()
+    expect(askButton()).toBeDisabled()
+    expect(screen.getByText(clarifying.answer)).toBeInTheDocument()
+    await user.type(questionBox(), ' And when?')
+    expect(questionBox()).toHaveValue('What do I do? And when?')
+
+    answer(Response.json(answered))
+
+    expect(await screen.findByText('You replied: A laptop.')).toBeInTheDocument()
+    expect(askButton()).toBeEnabled()
+  })
+
+  it('enables Reply and Ask again after a failure', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute(Response.json(clarifying))
+    stubPage([notes], { 'POST /api/ask': route })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await reply(user)
+    answer(new Response('Bad Gateway', { status: 502 }))
+
+    await screen.findByRole('alert')
+    expect(replyButton()).toBeEnabled()
+    expect(askButton()).toBeEnabled()
+  })
+})
+
+describe('when a reply fails', () => {
+  const detail = 'Gemini could not answer this question.'
+
+  it.each<[string, Route, string]>([
+    ['a 502 with a detail', () => Response.json({ detail }, { status: 502 }), detail],
+    ['a 502 with no JSON', () => new Response('Bad Gateway', { status: 502 }), 'Could not get an answer.'],
+    ['a dropped connection', () => Promise.reject(new TypeError('Failed to fetch')), 'Could not get an answer.'],
+  ])('shows the message by the reply box after %s, and keeps what was asked', async (_name, failure, message) => {
+    const user = userEvent.setup()
+    const post = vi.fn<Route>().mockResolvedValueOnce(Response.json(clarifying)).mockImplementationOnce(failure)
+    stubPage([notes], { 'POST /api/ask': post })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await reply(user, ' A laptop.\n')
+
+    expect(await replyForm().findByRole('alert')).toHaveTextContent(message)
+    // As typed: only what's sent is trimmed.
+    expect(replyBox()).toHaveValue(' A laptop.\n')
+    expect(screen.getByText(clarifying.answer)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: "Why I'm asking" })).toBeInTheDocument()
+    expect(screen.getAllByRole('blockquote')).toHaveLength(2)
+    expect(screen.queryByText(/You replied/)).not.toBeInTheDocument()
+  })
+
+  it('sends the same reply again, and shows its answer without the error', async () => {
+    const user = userEvent.setup()
+    const post = vi
+      .fn<Route>()
+      .mockResolvedValueOnce(Response.json(clarifying))
+      .mockResolvedValueOnce(new Response('Bad Gateway', { status: 502 }))
+      .mockResolvedValueOnce(Response.json(answered))
+    const fetchStub = stubPage([notes], { 'POST /api/ask': post })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await reply(user)
+    await screen.findByRole('alert')
+    await user.click(replyButton())
+
+    expect(await screen.findByText('You replied: A laptop.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    const [, failed, retried] = askBodies(fetchStub)
+    expect(retried).toEqual(failed)
+    expect(retried.clarification).toEqual({ question: clarifying.answer, reply: 'A laptop.' })
+  })
+})
+
+describe('a new question after a clarifying question', () => {
+  it('clears the exchange, and is sent with no clarification', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([notes], { 'POST /api/ask': answersInTurn(clarifying, answered) })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await reply(user)
+    await screen.findByText('You replied: A laptop.')
+    await ask(user, 'How?')
+    await screen.findByText('You asked about Reports: How?')
+
+    expect(screen.queryByText(/I asked/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/You replied/)).not.toBeInTheDocument()
+    expect(screen.queryByText('You asked about Reports: What do I do?')).not.toBeInTheDocument()
+    const bodies = askBodies(fetchStub)
+    expect(bodies).toHaveLength(3)
+    expect(bodies[2]).toEqual({ dataset_id: reports.id, question: 'How?' })
+    expect(bodies[2]).not.toHaveProperty('clarification')
+  })
+
+  it('takes the clarifying question and the typed reply away as soon as it is sent', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute(Response.json(clarifying))
+    stubPage([notes], { 'POST /api/ask': route })
+
+    await renderPage()
+    await askAndGetClarifyingQuestion(user)
+    await user.type(replyBox(), 'A laptop.')
+    await ask(user, 'How?')
+
+    expect(screen.queryByRole('article')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Your reply' })).not.toBeInTheDocument()
+
+    answer(Response.json(clarifying))
+
+    expect(await screen.findByText('You asked about Reports: How?')).toBeInTheDocument()
+    expect(replyBox()).toHaveValue('')
   })
 })

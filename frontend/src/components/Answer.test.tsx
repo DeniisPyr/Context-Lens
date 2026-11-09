@@ -477,3 +477,59 @@ describe('a clarifying question', () => {
     expect(container.querySelector('img')).toBeNull()
   })
 })
+
+describe('the answer to a reply', () => {
+  const clarification = { question: clarifying.answer, reply: 'A laptop.' }
+
+  function renderReply(result: AnswerResult) {
+    render(<Answer datasetName="Reports" question="What do I do?" clarification={clarification} result={result} />)
+  }
+
+  it('shows the question, the clarifying question and the reply above the answer', () => {
+    renderReply(answered(oneLine))
+
+    expect(screen.getAllByRole('paragraph').map((paragraph) => paragraph.textContent)).toEqual([
+      'You asked about Reports: What do I do?',
+      'I asked: Did you lose a company laptop or a phone?',
+      'You replied: A laptop.',
+      'The answer.',
+    ])
+    expect(screen.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
+    expect(screen.getByRole('blockquote')).toHaveTextContent('the third line')
+  })
+
+  it('shows the exchange above a missing answer too', () => {
+    renderReply(notFound)
+
+    expect(screen.getAllByRole('paragraph').map((paragraph) => paragraph.textContent)).toEqual([
+      'You asked about Reports: What do I do?',
+      'I asked: Did you lose a company laptop or a phone?',
+      'You replied: A laptop.',
+      notFound.answer,
+    ])
+  })
+
+  it('shows no exchange on the answer to a question', () => {
+    render(<Answer datasetName="Reports" question="Why?" result={answered(oneLine)} />)
+
+    expect(screen.queryByText(/I asked/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/You replied/)).not.toBeInTheDocument()
+  })
+
+  it('keeps line breaks in the exchange, and shows HTML in it as plain text', () => {
+    const html = '<img src=x onerror=alert(1)>'
+    const withHtml = { question: `${html}\nquestion`, reply: `${html}\nreply` }
+
+    const { container } = render(
+      <Answer datasetName="Reports" question="Why?" clarification={withHtml} result={answered(oneLine)} />,
+    )
+
+    const asked = screen.getByText(/I asked/)
+    const replied = screen.getByText(/You replied/)
+    expect(asked.textContent).toBe(`I asked: ${html}\nquestion`)
+    expect(replied.textContent).toBe(`You replied: ${html}\nreply`)
+    expect(asked).toHaveStyle({ whiteSpace: 'pre-wrap' })
+    expect(replied).toHaveStyle({ whiteSpace: 'pre-wrap' })
+    expect(container.querySelector('img')).toBeNull()
+  })
+})
