@@ -9,6 +9,7 @@ import time
 import zlib
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from io import BytesIO
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -17,6 +18,8 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
+from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 from sqlalchemy import URL, create_engine, make_url, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
@@ -41,6 +44,55 @@ type StartApp = Callable[[], AbstractContextManager[TestClient]]
 # For tests about documents, where their chunks and the limit on them don't matter.
 NO_CHUNKS: list[EmbeddedChunk] = []
 MAX_DOCUMENTS = 100
+
+
+# One of the fonts every PDF reader has built in, so a test PDF needs no font file.
+HELVETICA = DictionaryObject(
+    {
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"),
+        NameObject("/Encoding"): NameObject("/WinAnsiEncoding"),
+    }
+)
+
+
+def content_stream(operators: bytes) -> DecodedStreamObject:
+    stream = DecodedStreamObject()
+    stream.set_data(operators)
+    return stream
+
+
+def pdf_string(line: str) -> bytes:
+    # WinAnsiEncoding is Windows-1252. A literal string escapes its own delimiters.
+    escaped = line.encode("cp1252").replace(b"\\", b"\\\\")
+    return b"(" + escaped.replace(b"(", b"\\(").replace(b")", b"\\)") + b")"
+
+
+def pdf_writer(pages: list[list[str]]) -> PdfWriter:
+    # Each page draws its lines one under another, which pypdf reads back as lines.
+    writer = PdfWriter()
+    for lines in pages:
+        page = writer.add_blank_page(width=595, height=842)
+        fonts = DictionaryObject({NameObject("/F1"): HELVETICA})
+        page[NameObject("/Resources")] = DictionaryObject({NameObject("/Font"): fonts})
+        shown = b"".join(pdf_string(line) + b" Tj T* " for line in lines)
+        page.replace_contents(
+            content_stream(b"BT /F1 12 Tf 14 TL 72 800 Td " + shown + b"ET")
+        )
+        # As most PDFs are, so that a file can hold more text than its own size.
+        page.compress_content_streams()
+    return writer
+
+
+def pdf_bytes(writer: PdfWriter) -> bytes:
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
+def pdf_file(pages: list[list[str]]) -> bytes:
+    return pdf_bytes(pdf_writer(pages))
 
 
 def fake_embedding(text: str) -> list[float]:

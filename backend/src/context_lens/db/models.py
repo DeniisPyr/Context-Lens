@@ -2,7 +2,16 @@ from datetime import datetime
 from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, MetaData, Text, UniqueConstraint, func
+from sqlalchemy import (
+    ARRAY,
+    DateTime,
+    ForeignKey,
+    Integer,
+    MetaData,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from context_lens.services.embeddings import EMBEDDING_DIMENSIONS
@@ -47,6 +56,9 @@ class DocumentRow(Base):
     )
     # Stored so that listing documents doesn't have to read and split every text.
     line_count: Mapped[int]
+    # As Document has them: NULL for a text file, which every document stored before
+    # PDFs is.
+    page_starts: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))
 
 
 class ChunkRow(Base):

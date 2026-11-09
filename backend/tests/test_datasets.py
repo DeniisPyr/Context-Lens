@@ -407,11 +407,11 @@ def test_list_of_a_bad_or_unknown_dataset_is_a_404(
 @pytest.mark.parametrize(
     ("dataset_id", "filename", "content", "status"),
     [
-        ("not-a-uuid", "notes.pdf", b"hello", 415),
+        ("not-a-uuid", "notes.docx", b"hello", 415),
         ("not-a-uuid", "notes.txt", b"caf\xe9", 415),
         ("not-a-uuid", "notes.txt", b"", 422),
         ("not-a-uuid", "notes.txt", b"x" * 1_000_001, 413),
-        (NO_SUCH_DATASET, "notes.pdf", b"hello", 415),
+        (NO_SUCH_DATASET, "notes.docx", b"hello", 415),
         (NO_SUCH_DATASET, "notes.txt", b"", 422),
     ],
 )

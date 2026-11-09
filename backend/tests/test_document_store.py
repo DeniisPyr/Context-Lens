@@ -130,8 +130,48 @@ async def test_list_in_dataset_returns_the_documents_without_their_text(
     )
 
     assert await store.list_in_dataset(dataset_id) == [
-        DocumentInfo(id=first.id, filename="a.txt", line_count=1),
-        DocumentInfo(id=second.id, filename="b.txt", line_count=2),
+        DocumentInfo(id=first.id, filename="a.txt", line_count=1, page_count=None),
+        DocumentInfo(id=second.id, filename="b.txt", line_count=2, page_count=None),
+    ]
+
+
+async def test_page_starts_are_stored_and_read_back(
+    store: DocumentStore, dataset_id: str
+) -> None:
+    pdf = await store.add(
+        dataset_id,
+        "report.pdf",
+        "one\ntwo\nthree\n",
+        NO_CHUNKS,
+        MAX_DOCUMENTS,
+        page_starts=(1, 3, 3),
+    )
+    text = await store.add(dataset_id, "notes.txt", "one\n", NO_CHUNKS, MAX_DOCUMENTS)
+
+    assert pdf.page_starts == (1, 3, 3)
+    assert text.page_starts is None
+    assert await store.get(pdf.id) == pdf
+    assert await store.get(text.id) == text
+    found = await store.get_many([pdf.id, text.id])
+    assert sorted(found, key=lambda document: document.filename) == [text, pdf]
+
+
+async def test_list_in_dataset_counts_the_pages_of_a_pdf_only(
+    store: DocumentStore, dataset_id: str
+) -> None:
+    pdf = await store.add(
+        dataset_id,
+        "report.pdf",
+        "one\ntwo\n",
+        NO_CHUNKS,
+        MAX_DOCUMENTS,
+        page_starts=(1, 2, 3),
+    )
+    text = await store.add(dataset_id, "notes.txt", "one\n", NO_CHUNKS, MAX_DOCUMENTS)
+
+    assert await store.list_in_dataset(dataset_id) == [
+        DocumentInfo(id=pdf.id, filename="report.pdf", line_count=2, page_count=3),
+        DocumentInfo(id=text.id, filename="notes.txt", line_count=1, page_count=None),
     ]
 
 

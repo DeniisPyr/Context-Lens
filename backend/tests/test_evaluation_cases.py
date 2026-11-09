@@ -641,8 +641,13 @@ def test_missing_documents_folder_is_an_error(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("filename", "content", "message"),
     [
-        pytest.param("handbook.pdf", HANDBOOK.encode(), "Only .txt and .md", id="pdf"),
-        pytest.param("handbook", HANDBOOK.encode(), "Only .txt and .md", id="no_ext"),
+        pytest.param(
+            "handbook.docx", HANDBOOK.encode(), "Only .txt, .md and .pdf", id="docx"
+        ),
+        pytest.param(
+            "handbook", HANDBOOK.encode(), "Only .txt, .md and .pdf", id="no_ext"
+        ),
+        pytest.param("handbook.pdf", HANDBOOK.encode(), "valid PDF", id="not_a_pdf"),
         pytest.param("handbook.md", b"caf\xe9", "UTF-8", id="invalid_utf8"),
         pytest.param("handbook.md", b"a\x00b", "NUL", id="nul_character"),
         pytest.param("handbook.md", b"", "empty", id="empty_file"),
@@ -667,13 +672,14 @@ def test_documents_follow_the_upload_rules(
 def test_documents_no_question_is_about_follow_the_upload_rules_too(
     tmp_path: Path,
 ) -> None:
-    documents = {"handbook.md": HANDBOOK.encode(), "notes.pdf": b"%PDF-1.7"}
+    documents = {"handbook.md": HANDBOOK.encode(), "notes.docx": b"PK"}
     folder = write_set(tmp_path / "evals", as_toml(REMOTE_DAYS), documents)
 
     error = load_error(folder)
 
     assert error == (
-        f"{folder / 'documents' / 'notes.pdf'}: Only .txt and .md files are accepted."
+        f"{folder / 'documents' / 'notes.docx'}: "
+        "Only .txt, .md and .pdf files are accepted."
     )
 
 
