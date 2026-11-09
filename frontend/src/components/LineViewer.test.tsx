@@ -10,13 +10,15 @@ const citation: Citation = {
   filename: 'notes.txt',
   start_line: 50,
   end_line: 50,
+  start_page: null,
+  end_page: null,
   quote: 'line 50',
 }
 
 const citing = (start_line: number, end_line = start_line): Citation => ({ ...citation, start_line, end_line })
 
 function detail(lines: string[]) {
-  return { id: '1', filename: 'notes.txt', line_count: lines.length, lines }
+  return { id: '1', filename: 'notes.txt', line_count: lines.length, page_count: null, lines, page_starts: null }
 }
 
 const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, index) => from + index)

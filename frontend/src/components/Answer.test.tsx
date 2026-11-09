@@ -9,6 +9,8 @@ const oneLine: Citation = {
   filename: 'notes.txt',
   start_line: 3,
   end_line: 3,
+  start_page: null,
+  end_page: null,
   quote: 'the third line',
 }
 const threeLines: Citation = {
@@ -16,6 +18,8 @@ const threeLines: Citation = {
   filename: 'notes.txt',
   start_line: 3,
   end_line: 5,
+  start_page: null,
+  end_page: null,
   quote: 'three whole lines',
 }
 
@@ -39,6 +43,11 @@ const clarifying: AnswerResult = {
 
 const lines = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`)
 
+// A text file holding those lines, as the backend sends it.
+function textFile(id: string, filename: string) {
+  return { id, filename, line_count: lines.length, page_count: null, lines, page_starts: null }
+}
+
 function stubFetch(respond: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const fetchStub = vi.fn<typeof fetch>(async (url, init) => respond(String(url), init))
   vi.stubGlobal('fetch', fetchStub)
@@ -46,7 +55,7 @@ function stubFetch(respond: (url: string, init?: RequestInit) => Response | Prom
 }
 
 function stubDocuments() {
-  return stubFetch(() => Response.json({ id: '1', filename: 'notes.txt', line_count: lines.length, lines }))
+  return stubFetch(() => Response.json(textFile('1', 'notes.txt')))
 }
 
 // Like the real fetch: never answers by itself, and rejects once aborted.
@@ -325,11 +334,7 @@ describe('when a citation cannot be opened', () => {
     ['a dropped connection', () => Promise.reject(new TypeError('Failed to fetch')), 'Could not load the document.'],
   ])('shows the message under it after %s and the rest of the answer stays usable', async (_name, failure, message) => {
     const user = userEvent.setup()
-    stubFetch((url) =>
-      url === '/api/documents/1'
-        ? failure()
-        : Response.json({ id: '2', filename: 'other.md', line_count: lines.length, lines }),
-    )
+    stubFetch((url) => (url === '/api/documents/1' ? failure() : Response.json(textFile('2', 'other.md'))))
     renderCitations(oneLine, other)
 
     await user.click(lineButton())

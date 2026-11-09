@@ -4,7 +4,17 @@ import { askQuestion } from './ask.ts'
 const answer = {
   status: 'answered',
   answer: 'Two lines.',
-  citations: [{ document_id: '1', filename: 'notes.txt', start_line: 1, end_line: 2, quote: 'one two' }],
+  citations: [
+    {
+      document_id: '1',
+      filename: 'notes.txt',
+      start_line: 1,
+      end_line: 2,
+      start_page: null,
+      end_page: null,
+      quote: 'one two',
+    },
+  ],
 }
 
 afterEach(() => {

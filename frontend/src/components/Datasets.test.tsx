@@ -192,7 +192,7 @@ describe('the Dataset select', () => {
   it('loads the documents of the dataset the user chooses', async () => {
     const user = userEvent.setup()
     const fetchStub = stubPage([reports, invoices], {
-      [listOf(reports.id)]: () => Response.json([{ id: '1', filename: 'report.txt', line_count: 3 }]),
+      [listOf(reports.id)]: () => Response.json([{ id: '1', filename: 'report.txt', line_count: 3, page_count: null }]),
     })
 
     render(<App />)
@@ -205,7 +205,7 @@ describe('the Dataset select', () => {
 
   it('keeps an explicit choice when a file is uploaded, which only reloads the documents', async () => {
     const user = userEvent.setup()
-    const report = { id: '1', filename: 'report.txt', line_count: 1 }
+    const report = { id: '1', filename: 'report.txt', line_count: 1, page_count: null }
     const fetchStub = stubPage([reports, invoices], {
       [listOf(reports.id)]: listThatChanges([], [report]),
       [`POST ${documentsPath(reports.id)}`]: () => Response.json(report, { status: 201 }),
@@ -508,8 +508,8 @@ describe('creating a dataset', () => {
 })
 
 describe('switching to another dataset', () => {
-  const oldDocument = { id: 'old', filename: 'old.txt', line_count: 3 }
-  const newDocument = { id: 'new', filename: 'new.txt', line_count: 3 }
+  const oldDocument = { id: 'old', filename: 'old.txt', line_count: 3, page_count: null }
+  const newDocument = { id: 'new', filename: 'new.txt', line_count: 3, page_count: null }
   const answered = { status: 'answered', answer: 'The old answer.', citations: [] }
 
   // Starts on Invoices, the newest, which holds a document.
@@ -719,7 +719,8 @@ describe('switching to another dataset', () => {
 })
 
 describe('during an upload run', () => {
-  const uploaded = () => Response.json({ id: '1', filename: 'a.txt', line_count: 1 }, { status: 201 })
+  const uploaded = () =>
+    Response.json({ id: '1', filename: 'a.txt', line_count: 1, page_count: null }, { status: 201 })
 
   async function startRun(user: UserEvent, ...filenames: string[]) {
     await user.upload(
@@ -788,7 +789,7 @@ describe('during an upload run', () => {
     const user = userEvent.setup()
     const { route, answer } = postsAnsweredByTheTest()
     stubPage([reports], {
-      [listOf(reports.id)]: listThatChanges([], [{ id: '1', filename: 'a.txt', line_count: 1 }]),
+      [listOf(reports.id)]: listThatChanges([], [{ id: '1', filename: 'a.txt', line_count: 1, page_count: null }]),
       [`POST ${documentsPath(reports.id)}`]: route,
     })
 
@@ -1034,7 +1035,7 @@ describe('deleting a dataset', () => {
     const user = userEvent.setup()
     const { route, answer } = waitingRoute()
     stubPage([reports, invoices], {
-      [listOf(invoices.id)]: () => Response.json([{ id: '1', filename: 'a.txt', line_count: 1 }]),
+      [listOf(invoices.id)]: () => Response.json([{ id: '1', filename: 'a.txt', line_count: 1, page_count: null }]),
       'GET /api/datasets': listThatChanges([reports, invoices], [reports]),
       'DELETE /api/datasets/i': route,
     })

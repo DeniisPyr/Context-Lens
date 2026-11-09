@@ -3,8 +3,12 @@ import { send } from './request.ts'
 export type Citation = {
   document_id: string
   filename: string
+  // Counted through the whole document, a PDF's too, so the line viewer can find them.
   start_line: number
   end_line: number
+  // Only a PDF's: the pages holding start_line and end_line. Both are null for a text file.
+  start_page: number | null
+  end_page: number | null
   quote: string
 }
 

@@ -113,13 +113,13 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-/* A basis of 0, so that a long filename wraps beside the line count instead of pushing it onto the next line. */
+/* A basis of 0, so that a long filename wraps beside its length instead of pushing it onto the next line. */
 .document-name {
   flex: 1 1 0;
   min-width: 0;
 }
 
-.line-count {
+.document-length {
   flex-shrink: 0;
   opacity: 0.7;
 }

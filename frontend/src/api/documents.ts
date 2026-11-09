@@ -4,10 +4,15 @@ export type DocumentSummary = {
   id: string
   filename: string
   line_count: number
+  // Only a PDF has pages. A text file's is null.
+  page_count: number | null
 }
 
 export type DocumentDetail = DocumentSummary & {
   lines: string[]
+  // Only a PDF's: page_starts[i] is the line that page i + 1 starts on, counted from 1 through the whole document. A
+  // page with no text starts where the next one does, and one at the end starts after the last line.
+  page_starts: number[] | null
 }
 
 export function listDocuments(datasetId: string, signal: AbortSignal): Promise<DocumentSummary[]> {
