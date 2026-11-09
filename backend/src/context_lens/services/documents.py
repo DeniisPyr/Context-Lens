@@ -7,7 +7,7 @@ from io import BytesIO
 from pathlib import PureWindowsPath
 from typing import Protocol
 
-from pypdf import PdfReader
+from pypdf import PasswordType, PdfReader
 
 from context_lens.clients.gemini import GeminiClient
 from context_lens.services.indexing import EmbeddedChunk, index_lines
@@ -177,10 +177,13 @@ def _page_lines(text: str) -> list[str]:
 def _read_pdf(data: bytes, max_bytes: int) -> tuple[str, tuple[int, ...]]:
     with _pdf_errors():
         reader = PdfReader(BytesIO(data))
-        encrypted = reader.is_encrypted
-    # Even one that opens without a password, as many do: encryption is how the
-    # author of a PDF restricts copying its text.
-    if encrypted:
+        # Many PDFs are encrypted with an empty password only so that their author can
+        # restrict copying or printing, and those open without one, as in any viewer.
+        opened = (
+            not reader.is_encrypted
+            or reader.decrypt("") is not PasswordType.NOT_DECRYPTED
+        )
+    if not opened:
         raise UnsupportedDocumentError(
             "The PDF must not be password-protected or encrypted."
         )

@@ -213,18 +213,53 @@ def test_any_error_in_reading_is_a_refusal_without_the_error(
 
 
 @pytest.mark.parametrize(
-    "content",
+    "options",
     [
-        pytest.param(encrypted_pdf("secret"), id="password"),
-        pytest.param(encrypted_pdf(""), id="opens_without_a_password"),
-        pytest.param(encrypted_pdf("secret", algorithm="AES-256"), id="aes"),
+        pytest.param({}, id="rc4"),
+        pytest.param({"algorithm": "AES-128"}, id="aes_128"),
+        pytest.param({"algorithm": "AES-256"}, id="aes_256"),
     ],
 )
-def test_encrypted_pdf_is_refused(content: bytes) -> None:
+def test_encrypted_pdf_that_opens_without_a_password_is_read(
+    options: dict[str, str],
+) -> None:
+    writer = pdf_writer(REPORT)
+    # Restricted only by an owner password, as a PDF that mustn't be copied often is.
+    writer.encrypt("", "owner password", **options)
+
+    upload = read_upload("report.pdf", pdf_bytes(writer), LIMIT)
+
+    assert upload.text == REPORT_TEXT
+    assert upload.page_starts == (1, 3, 3)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param({}, id="rc4"),
+        pytest.param({"algorithm": "AES-256"}, id="aes_256"),
+    ],
+)
+def test_pdf_that_needs_a_password_is_refused(options: dict[str, str]) -> None:
     with pytest.raises(UnsupportedDocumentError) as error:
-        read_upload("report.pdf", content, LIMIT)
+        read_upload("report.pdf", encrypted_pdf("secret", **options), LIMIT)
 
     assert str(error.value) == ENCRYPTED
+
+
+def test_limits_apply_to_a_pdf_that_opens_without_a_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(documents, "MAX_PDF_PAGES", 2)
+    too_many_pages = pdf_writer(lines_on_pages(1, 1, 1))
+    too_many_pages.encrypt("", "owner password")
+    too_much_text = pdf_writer([[LONG_LINE] * 10] * 2)
+    too_much_text.encrypt("", "owner password", algorithm="AES-256")
+
+    with pytest.raises(DocumentTooLargeError, match="more than 2 pages"):
+        read_upload("report.pdf", pdf_bytes(too_many_pages), LIMIT)
+    with pytest.raises(DocumentTooLargeError, match="The text of the PDF"):
+        read_upload("report.pdf", pdf_bytes(too_much_text), 3_000)
 
 
 @pytest.mark.parametrize(
@@ -368,6 +403,20 @@ def stored_document(client: TestClient, document_id: str) -> Document:
     document = client.portal.call(store.get, document_id)
     assert document is not None
     return document
+
+
+def test_pdf_that_opens_without_a_password_is_uploaded(
+    client: TestClient, documents_url: str
+) -> None:
+    writer = pdf_writer(REPORT)
+    writer.encrypt("", "owner password", algorithm="AES-256")
+
+    response = upload(client, documents_url, pdf_bytes(writer))
+
+    assert response.status_code == 201
+    document = stored_document(client, response.json()["id"])
+    assert document.text == REPORT_TEXT
+    assert document.page_starts == (1, 3, 3)
 
 
 @pytest.mark.parametrize("filename", ["report.pdf", "REPORT.PDF", "Report.Pdf"])
