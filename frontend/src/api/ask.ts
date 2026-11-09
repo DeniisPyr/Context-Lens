@@ -9,7 +9,9 @@ export type Citation = {
 }
 
 export type Answer = {
-  status: 'answered' | 'not_found'
+  // needs_clarification: the documents answer the question differently depending on something it doesn't say. The
+  // answer is then a question back to the user, and the citations are the lines that differ.
+  status: 'answered' | 'not_found' | 'needs_clarification'
   answer: string
   citations: Citation[]
 }

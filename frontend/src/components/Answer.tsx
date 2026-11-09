@@ -29,7 +29,8 @@ export default function Answer({ datasetName, question, result }: Props) {
       ) : (
         <>
           <p className="answer-text">{result.answer}</p>
-          <h3>Sources</h3>
+          {/* A clarifying question cites the lines that give different answers: they're why it asks. */}
+          <h3>{result.status === 'needs_clarification' ? "Why I'm asking" : 'Sources'}</h3>
           <ul className="citation-list">
             {/* Keyed by position: two citations can be identical, and this list never reorders. */}
             {result.citations.map((citation, index) => (

@@ -39,6 +39,14 @@ const notFound = {
   answer: "Sorry, I can't find anything related to your question in the documents you provided.",
   citations: [],
 }
+const clarifying = {
+  status: 'needs_clarification',
+  answer: 'Did you lose a company laptop or a phone?',
+  citations: [
+    { document_id: '1', filename: 'notes.txt', start_line: 2, end_line: 2, quote: 'a lost laptop' },
+    { document_id: '1', filename: 'notes.txt', start_line: 7, end_line: 8, quote: 'a lost phone' },
+  ],
+}
 
 // The page with one dataset, Reports, holding these documents and, by default, an API that answers.
 function stubPage(documents: (typeof notes)[], routes: Record<string, Route> = {}) {
@@ -269,6 +277,26 @@ describe('asking', () => {
     expect(answer.queryByRole('heading', { name: 'Sources' })).not.toBeInTheDocument()
     expect(answer.queryByRole('list')).not.toBeInTheDocument()
     expect(answer.queryByRole('blockquote')).not.toBeInTheDocument()
+  })
+
+  it('shows a clarifying question with the lines it asks about, and not as a missing answer', async () => {
+    const user = userEvent.setup()
+    stubPage([notes], { 'POST /api/ask': () => Response.json(clarifying) })
+
+    await renderPage()
+    await ask(user, 'What do I do?')
+
+    const answer = within(await screen.findByRole('article'))
+    expect(answer.getByText('You asked about Reports: What do I do?')).toBeInTheDocument()
+    expect(answer.getByText(clarifying.answer)).not.toHaveStyle({ fontStyle: 'italic' })
+    expect(answer.getByRole('heading', { name: "Why I'm asking" })).toBeInTheDocument()
+    expect(answer.getByText('Line 2')).toBeInTheDocument()
+    expect(answer.getByText('Lines 7–8')).toBeInTheDocument()
+    expect(answer.getAllByRole('blockquote').map((quote) => quote.textContent)).toEqual([
+      'a lost laptop',
+      'a lost phone',
+    ])
+    expect(askButton()).toBeEnabled()
   })
 
   it('shows HTML in the dataset name, question, answer, filename and quote as plain text', async () => {
