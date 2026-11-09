@@ -1,50 +1,52 @@
 # Answer quality: whole_document, gemini-3.8-flash
 
-48 questions about 7 documents (set sha256:bf47d7fcc7fb767e64fc5ea1b62ad4271ff49811666020c7c620ab1e24c6d551), 3 repeats, concurrency 1, started 2026-11-06T10:44:16+00:00, took 674.6 s.
+72 questions about 7 documents (set sha256:a99a1993da3e0496282e3b3055adef75b9428689d6c06aa53ad63278d9cae67a), 3 repeats, concurrency 1, started 2026-11-09T01:26:29+00:00, took 790.9 s.
 
 ## Summary
 
 | Measure | Value |
 | --- | --- |
-| Questions | 48 |
-| Runs | 144 |
+| Questions | 72 |
+| Runs | 216 |
 | Gemini errors | 0 |
-| Correct | 100% (144/144) |
-| Answer accuracy | 100% (96/96) |
-| Citation accuracy | 100% (96/96) |
-| False not found | 0% (0/96) |
-| Not found accuracy | 100% (48/48) |
-| Rejected by the verifier | 0% (0/144) |
-| Median seconds | 3.5 |
-| p95 seconds | 7.9 |
-| Max seconds | 52.3 |
-| Mean input tokens | 3941 |
-| Mean output tokens, with thinking | 347 |
-| Total input tokens | 567450 |
-| Total output tokens, with thinking | 49916 |
+| Correct | 100% (215/216) |
+| Answer accuracy | 99% (155/156) |
+| Citation accuracy | 99% (155/156) |
+| Evidence shown to Gemini | 100% (156/156) |
+| False not found | 1% (1/156) |
+| Not found accuracy | 100% (60/60) |
+| Rejected by the verifier | 0% (1/216) |
+| Median seconds | 3.3 |
+| p95 seconds | 5.7 |
+| Max seconds | 20.0 |
+| Mean input tokens | 4325 |
+| Mean output tokens, with thinking | 343 |
+| Total input tokens | 934098 |
+| Total output tokens, with thinking | 74048 |
 
 ## By category
 
-| Category | Runs | Errors | Correct | Answer accuracy | Citation accuracy | False not found | Not found accuracy | Median seconds | Mean input tokens |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| fact | 66 | 0 | 100% (66/66) | 100% (66/66) | 100% (66/66) | 0% (0/66) | n/a | 3.5 | 4067 |
-| multi_fact | 24 | 0 | 100% (24/24) | 100% (24/24) | 100% (24/24) | 0% (0/24) | n/a | 4.9 | 4720 |
-| injection | 6 | 0 | 100% (6/6) | 100% (6/6) | 100% (6/6) | 0% (0/6) | n/a | 4.3 | 2540 |
-| missing_related | 30 | 0 | 100% (30/30) | n/a | n/a | n/a | 100% (30/30) | 3.5 | 4256 |
-| missing_unrelated | 18 | 0 | 100% (18/18) | n/a | n/a | n/a | 100% (18/18) | 2.8 | 2377 |
+| Category | Runs | Errors | Correct | Answer accuracy | Citation accuracy | Evidence shown | False not found | Not found accuracy | Median seconds | Mean input tokens |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| fact | 96 | 0 | 99% (95/96) | 99% (95/96) | 99% (95/96) | 100% (96/96) | 1% (1/96) | n/a | 3.2 | 4162 |
+| multi_fact | 36 | 0 | 100% (36/36) | 100% (36/36) | 100% (36/36) | 100% (36/36) | 0% (0/36) | n/a | 3.8 | 5633 |
+| cross_document | 18 | 0 | 100% (18/18) | 100% (18/18) | 100% (18/18) | 100% (18/18) | 0% (0/18) | n/a | 4.7 | 6321 |
+| injection | 6 | 0 | 100% (6/6) | 100% (6/6) | 100% (6/6) | 100% (6/6) | 0% (0/6) | n/a | 3.3 | 2568 |
+| missing_related | 42 | 0 | 100% (42/42) | n/a | n/a | n/a | n/a | 100% (42/42) | 3.1 | 3791 |
+| missing_unrelated | 18 | 0 | 100% (18/18) | n/a | n/a | n/a | n/a | 100% (18/18) | 2.4 | 2405 |
 
 ## By document
 
-| Document | Runs | Errors | Correct | Answer accuracy | Citation accuracy | False not found | Not found accuracy | Median seconds | Mean input tokens |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| cestovni-nahrady.md | 18 | 0 | 100% (18/18) | 100% (15/15) | 100% (15/15) | 0% (0/15) | 100% (3/3) | 3.3 | 1982 |
-| employee-handbook.md | 21 | 0 | 100% (21/21) | 100% (12/12) | 100% (12/12) | 0% (0/12) | 100% (9/9) | 3.5 | 2886 |
-| hplc-maintenance-sop.txt | 24 | 0 | 100% (24/24) | 100% (18/18) | 100% (18/18) | 0% (0/18) | 100% (6/6) | 4.4 | 11743 |
-| it-security-policy.md | 18 | 0 | 100% (18/18) | 100% (12/12) | 100% (12/12) | 0% (0/12) | 100% (6/6) | 3.6 | 2152 |
-| steering-committee-minutes.md | 21 | 0 | 100% (21/21) | 100% (12/12) | 100% (12/12) | 0% (0/12) | 100% (9/9) | 3.6 | 2032 |
-| supplier-agreement.md | 21 | 0 | 100% (21/21) | 100% (15/15) | 100% (15/15) | 0% (0/15) | 100% (6/6) | 4.0 | 3046 |
-| velmorin-leaflet.md | 21 | 0 | 100% (21/21) | 100% (12/12) | 100% (12/12) | 0% (0/12) | 100% (9/9) | 3.1 | 2092 |
+| Document | Runs | Errors | Correct | Answer accuracy | Citation accuracy | Evidence shown | False not found | Not found accuracy | Median seconds | Mean input tokens |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| cestovni-nahrady.md | 24 | 0 | 100% (24/24) | 100% (21/21) | 100% (21/21) | 100% (21/21) | 0% (0/21) | 100% (3/3) | 3.3 | 2384 |
+| employee-handbook.md | 36 | 0 | 100% (36/36) | 100% (24/24) | 100% (24/24) | 100% (24/24) | 0% (0/24) | 100% (12/12) | 3.2 | 3090 |
+| hplc-maintenance-sop.txt | 39 | 0 | 97% (38/39) | 97% (32/33) | 97% (32/33) | 100% (33/33) | 3% (1/33) | 100% (6/6) | 4.0 | 11925 |
+| it-security-policy.md | 30 | 0 | 100% (30/30) | 100% (21/21) | 100% (21/21) | 100% (21/21) | 0% (0/21) | 100% (9/9) | 3.0 | 2379 |
+| steering-committee-minutes.md | 30 | 0 | 100% (30/30) | 100% (18/18) | 100% (18/18) | 100% (18/18) | 0% (0/18) | 100% (12/12) | 3.2 | 2360 |
+| supplier-agreement.md | 30 | 0 | 100% (30/30) | 100% (21/21) | 100% (21/21) | 100% (21/21) | 0% (0/21) | 100% (9/9) | 3.4 | 3077 |
+| velmorin-leaflet.md | 27 | 0 | 100% (27/27) | 100% (18/18) | 100% (18/18) | 100% (18/18) | 0% (0/18) | 100% (9/9) | 2.9 | 2449 |
 
 ## Runs that weren't correct
 
-None.
+- `sop-flow-rate-accuracy` #3: citations rejected by the verifier
