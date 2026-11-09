@@ -19,6 +19,7 @@ from context_lens.services.documents import (
     UnsupportedDocumentError,
 )
 from context_lens.services.indexing import IndexingError, IndexingUnavailableError
+from context_lens.services.sessions import NotLoggedInError, WrongPasswordError
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,8 @@ DOMAIN_ERROR_STATUS_CODES = {
     UnsupportedDocumentError: 415,
     DocumentTooLargeError: 413,
     EmptyDocumentError: 422,
+    WrongPasswordError: 401,
+    NotLoggedInError: 401,
 }
 DATABASE_UNAVAILABLE_ERRORS = (OperationalError, InterfaceError, PoolTimeoutError)
 

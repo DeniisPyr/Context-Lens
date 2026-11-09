@@ -195,3 +195,58 @@ def test_settings_require_the_key_even_with_a_database_url(
 
     with pytest.raises(ValidationError, match="gemini_api_key"):
         Settings(_env_file=env_file)
+
+
+def test_login_settings_have_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.access_password is None
+    assert settings.secure_cookies is False
+
+
+def test_environment_sets_the_login_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("ACCESS_PASSWORD", "open sesame")
+    monkeypatch.setenv("SECURE_COOKIES", "true")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.access_password is not None
+    assert settings.access_password.get_secret_value() == "open sesame"
+    assert settings.secure_cookies is True
+
+
+def test_empty_access_password_means_no_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("ACCESS_PASSWORD", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.access_password is None
+
+
+def test_access_password_is_hidden_when_printed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("ACCESS_PASSWORD", "open sesame")
+
+    settings = Settings(_env_file=None)
+
+    assert "open sesame" not in repr(settings)
+
+
+def test_mistyped_entry_in_the_env_file_is_named_but_its_value_is_not_shown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    env_file = write_env_file(
+        tmp_path / ".env", "GEMINI_API_KEY=file-key", "ACCES_PASSWORD=open sesame"
+    )
+
+    with pytest.raises(ValidationError, match="acces_password") as raised:
+        Settings(_env_file=env_file)
+
+    assert "open sesame" not in str(raised.value)

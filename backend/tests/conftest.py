@@ -301,6 +301,8 @@ def no_developer_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         "MAX_UPLOAD_BYTES",
         "MAX_DOCUMENTS_PER_DATASET",
         "CHUNKS_PER_QUESTION",
+        "ACCESS_PASSWORD",
+        "SECURE_COOKIES",
     ):
         monkeypatch.delenv(name, raising=False)
     # Replaced rather than removed, because the default is the developer's own database.

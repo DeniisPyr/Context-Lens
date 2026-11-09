@@ -15,8 +15,9 @@ class DatabaseSettings(BaseSettings):
 
 
 class Settings(DatabaseSettings):
-    # A typo in .env should stop the app, not be ignored.
-    model_config = SettingsConfigDict(extra="forbid")
+    # A typo in .env should stop the app, not be ignored. The error leaves out the
+    # values, because a mistyped name may hold the password or the key.
+    model_config = SettingsConfigDict(extra="forbid", hide_input_in_errors=True)
 
     gemini_api_key: SecretStr
     gemini_model: str = "gemini-3.8-flash"
@@ -25,3 +26,9 @@ class Settings(DatabaseSettings):
     max_upload_bytes: int = 1_000_000
     max_documents_per_dataset: int = 100
     chunks_per_question: int = 8
+    # Without one, anyone who can reach the API can read every document and spend the
+    # Gemini credits, which is fine only on a developer's own machine.
+    access_password: SecretStr | None = None
+    # True when the app is served over HTTPS, so that the browser sends the session
+    # cookie only over HTTPS.
+    secure_cookies: bool = False
