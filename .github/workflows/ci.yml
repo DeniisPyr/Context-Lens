@@ -73,3 +73,34 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Nothing in the check calls Gemini, so the key needn't work.
+      GEMINI_API_KEY: test-key
+      ACCESS_PASSWORD: docker-check-password
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the images
+        run: docker compose --profile app build
+
+      - name: Start the app
+        run: docker compose --profile app up -d --wait --wait-timeout 180
+
+      - name: Check the app
+        run: scripts/check-docker-stack.sh
+
+      - name: Show the logs
+        if: failure()
+        run: docker compose --profile app logs
+
+      - name: Stop the app
+        if: always()
+        run: docker compose --profile app down -v
