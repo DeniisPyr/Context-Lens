@@ -40,23 +40,36 @@ class RunRecord(BaseModel):
     question: str
     facts: list[list[str]]
     evidence: list[LineRange]
-    # After verification. A run that ended in a Gemini error has no answer or score.
+    cases: list[LineRange]
+    # After verification, and of the last answer: the one to the reply, when a reply
+    # was sent. A run that ended in a Gemini error has no answer or score.
     status: AnswerStatus | None
     answer: str | None
     citations: list[Citation]
     raw_status: AnswerStatus | None
     # Only when the verifier rejected them, to show what Gemini cited instead.
     raw_citations: list[Citation] | None
-    # The lines Gemini was shown, and for each evidence range whether all of it was
-    # among them, which tells a search that missed from an answer that did. A run that
-    # ended in a Gemini error has neither.
+    # Gemini's first answer when it was a clarifying question the verifier passed,
+    # whatever the category, and the reply sent back to it. Only a clarify question
+    # has a reply to send.
+    clarification: str | None
+    clarification_citations: list[Citation]
+    reply: str | None
+    # The lines Gemini was shown for the last answer, and for each evidence range
+    # whether all of it was among them, which tells a search that missed from an answer
+    # that did. A run that ended in a Gemini error has neither.
     excerpts: list[LineRange]
     evidence_shown: list[bool] | None
+    # Whether the first prompt showed each case, since Gemini can only ask about the
+    # situations it was shown. None when that prompt ended in a Gemini error.
+    cases_shown: list[bool] | None
+    # Of both prompts when a reply was sent.
     seconds: float
     input_tokens: int
     output_tokens: int
     thought_tokens: int
-    # Of the question, which rag embeds to search with. Embedding costs too.
+    # Of the question, and then of the question with the reply, which rag embeds to
+    # search with. Embedding costs too.
     embedded_characters: int
     error: str | None
     score: RunScore | None
@@ -80,6 +93,9 @@ class Summary(TypedDict):
     false_not_found_rate: Rate
     unanswerable_runs: int
     not_found_accuracy: Rate
+    clarify_runs: int
+    clarified: Rate
+    needless_clarification: Rate
     rejected_by_verifier: Rate
     median_seconds: float | None
     p95_seconds: float | None
@@ -131,8 +147,14 @@ def evidence_shown(
 
 
 def score_run(
-    question: Question, final: ModelAnswer, raw: ModelAnswer | None
+    question: Question,
+    final: ModelAnswer,
+    raw: ModelAnswer | None,
+    *,
+    asked: bool = False,
 ) -> RunScore:
+    # asked is whether Gemini's first answer was a clarifying question that passed the
+    # verifier, which a clarify question needs.
     facts_found = [
         any(contains_phrase(final.answer, phrase) for phrase in fact)
         for fact in question.facts
@@ -148,23 +170,31 @@ def score_run(
     forbidden_found = [
         phrase for phrase in question.forbidden if contains_phrase(final.answer, phrase)
     ]
+    right_answer = (
+        final.status == "answered"
+        and all(facts_found)
+        and all(evidence_cited)
+        and not forbidden_found
+    )
     if question.category in UNANSWERABLE:
         correct = final.status == "not_found"
+    elif question.category == "clarify":
+        # The question doesn't say which situation the user is in, so an answer given
+        # without asking was a guess, however right.
+        correct = asked and right_answer
     else:
-        correct = (
-            final.status == "answered"
-            and all(facts_found)
-            and all(evidence_cited)
-            and not forbidden_found
-        )
+        correct = right_answer
     return RunScore(
         correct=correct,
         facts_found=facts_found,
         evidence_cited=evidence_cited,
         extra_citations=extra_citations,
         forbidden_found=forbidden_found,
+        # A clarifying question's citations can be rejected too.
         rejected_by_verifier=(
-            raw is not None and raw.status == "answered" and final.status == "not_found"
+            raw is not None
+            and raw.status != "not_found"
+            and final.status == "not_found"
         ),
     )
 
@@ -193,6 +223,14 @@ def _evidence_was_shown(record: RunRecord) -> bool:
 
 def _said_not_found(record: RunRecord) -> bool:
     return record.status == "not_found"
+
+
+def _asked(record: RunRecord) -> bool:
+    return record.clarification is not None
+
+
+def _ended_in_a_clarifying_question(record: RunRecord) -> bool:
+    return record.status == "needs_clarification"
 
 
 def _was_rejected(record: RunRecord) -> bool:
@@ -226,6 +264,8 @@ def summarize(records: list[RunRecord]) -> Summary:
     answerable = [record for record in scored if record.category in ANSWERABLE]
     # Not every other run: a clarify question is neither.
     unanswerable = [record for record in scored if record.category in UNANSWERABLE]
+    clarify = [record for record in scored if record.category == "clarify"]
+    others = [record for record in scored if record.category != "clarify"]
     seconds = sorted(record.seconds for record in scored)
     input_tokens = [record.input_tokens for record in scored]
     output_tokens = [_output_tokens(record) for record in scored]
@@ -241,6 +281,11 @@ def summarize(records: list[RunRecord]) -> Summary:
         false_not_found_rate=_rate(answerable, _said_not_found),
         unanswerable_runs=len(unanswerable),
         not_found_accuracy=_rate(unanswerable, _said_not_found),
+        clarify_runs=len(clarify),
+        clarified=_rate(clarify, _asked),
+        # Every other question can be answered, or not, without asking, so asking is
+        # a needless step for the user.
+        needless_clarification=_rate(others, _ended_in_a_clarifying_question),
         rejected_by_verifier=_rate(scored, _was_rejected),
         median_seconds=statistics.median(seconds) if seconds else None,
         p95_seconds=_nearest_rank(seconds, 95),

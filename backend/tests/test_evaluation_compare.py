@@ -38,11 +38,32 @@ RIGHT = ModelAnswer(
     citations=[Citation(file="handbook.md", start_line=2, end_line=2, quote="3 days")],
 )
 NOT_FOUND = ModelAnswer(status="not_found", answer="Not there.", citations=[])
+# Working from home and in the office have different rules.
+WHERE_TO_WORK = Question(
+    id="where-to-work",
+    document="handbook.md",
+    category="clarify",
+    question="How many days a week do employees work?",
+    reply="At home.",
+    facts=[["3 days"]],
+    evidence=[[2, 2]],
+    cases=[[1, 2]],
+)
+AT_HOME_OR_IN_THE_OFFICE = ModelAnswer(
+    status="needs_clarification",
+    answer="At home or in the office?",
+    citations=[Citation(file="handbook.md", start_line=2, end_line=2, quote="home")],
+)
 
 
 def run(
-    question: Question, final: ModelAnswer, repeat: int = 1, shown: bool = True
+    question: Question,
+    final: ModelAnswer,
+    repeat: int = 1,
+    shown: bool = True,
+    asked: ModelAnswer | None = None,
 ) -> RunRecord:
+    # asked is the clarifying question Gemini asked first, if it did.
     return RunRecord(
         question_id=question.id,
         repeat=repeat,
@@ -51,20 +72,25 @@ def run(
         question=question.question,
         facts=question.facts,
         evidence=question.evidence,
+        cases=question.cases,
         status=final.status,
         answer=final.answer,
         citations=final.citations,
         raw_status=final.status,
         raw_citations=None,
+        clarification=None if asked is None else asked.answer,
+        clarification_citations=[] if asked is None else asked.citations,
+        reply=None if asked is None else question.reply,
         excerpts=[],
         evidence_shown=[shown] * len(question.evidence),
+        cases_shown=[shown] * len(question.cases),
         seconds=2.0,
         input_tokens=100,
         output_tokens=10,
         thought_tokens=0,
         embedded_characters=0,
         error=None,
-        score=score_run(question, final, final),
+        score=score_run(question, final, final, asked=asked is not None),
     )
 
 
@@ -163,13 +189,22 @@ def test_categories_show_correct_and_answer_accuracy_for_both(
 
     header = (
         "| Category | Correct, rag | Correct, whole_document | Answer accuracy, rag "
-        "| Answer accuracy, whole_document |"
+        "| Answer accuracy, whole_document | Clarified, rag | Clarified, whole_document "
+        "| Needless clarification, rag | Needless clarification, whole_document |"
+    )
+    fact = (
+        "| fact | 50% (1/2) | 100% (2/2) | 50% (1/2) | 100% (2/2) | n/a | n/a "
+        "| 0% (0/2) | 0% (0/2) |"
+    )
+    missing_related = (
+        "| missing_related | 100% (1/1) | 100% (1/1) | n/a | n/a | n/a | n/a "
+        "| 0% (0/1) | 0% (0/1) |"
     )
     assert lines[lines.index("## By category") + 2 :][:4] == [
         header,
-        "| --- | --- | --- | --- | --- |",
-        "| fact | 50% (1/2) | 100% (2/2) | 50% (1/2) | 100% (2/2) |",
-        "| missing_related | 100% (1/1) | 100% (1/1) | n/a | n/a |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        fact,
+        missing_related,
     ]
 
 
@@ -181,8 +216,45 @@ def test_category_in_only_one_report_is_not_applicable_in_the_other(
 
     lines = compare(capsys, first, second)
 
-    assert "| fact | 100% (1/1) | n/a | 100% (1/1) | n/a |" in lines
-    assert "| missing_related | n/a | 100% (1/1) | n/a | n/a |" in lines
+    assert (
+        "| fact | 100% (1/1) | n/a | 100% (1/1) | n/a | n/a | n/a | 0% (0/1) | n/a |"
+        in lines
+    )
+    assert (
+        "| missing_related | n/a | 100% (1/1) | n/a | n/a | n/a | n/a | n/a | 0% (0/1) |"
+        in lines
+    )
+
+
+def test_clarifying_questions_are_compared_in_the_summary_and_by_category(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    which = AT_HOME_OR_IN_THE_OFFICE
+    asks = make_report(
+        [
+            run(WHERE_TO_WORK, RIGHT, asked=which),
+            run(REMOTE_DAYS, which, asked=which),
+        ]
+    )
+    guesses = make_report([run(WHERE_TO_WORK, RIGHT), run(REMOTE_DAYS, RIGHT)])
+
+    lines = compare(
+        capsys, save(tmp_path / "a.json", asks), save(tmp_path / "b.json", guesses)
+    )
+
+    assert "| Clarified | 100% (1/1) | 0% (0/1) |" in lines
+    assert "| Needless clarification | 100% (1/1) | 0% (0/1) |" in lines
+    assert (
+        "| clarify | 100% (1/1) | 0% (0/1) | n/a | n/a | 100% (1/1) | 0% (0/1) | n/a "
+        "| n/a |"
+    ) in lines
+    heading = lines.index("## Questions with different results")
+    assert lines[heading + 2 :] == [
+        "- `where-to-work`: A 1/1, B 0/1",
+        "  - B #1: didn't ask which situation applies",
+        "- `remote-days`: A 0/1, B 1/1",
+        '  - A #1: needed no clarifying question; asked "At home or in the office?"',
+    ]
 
 
 def test_differences_list_each_question_with_the_worse_sides_reasons(
@@ -323,6 +395,29 @@ def test_report_in_an_older_format_is_an_error(
     assert capsys.readouterr().err.startswith(
         f"{path} is not an evaluation report in the current format: "
         "runs.0.evidence.0.0: Input should be a valid string."
+    )
+
+
+def test_report_from_before_clarifying_questions_is_an_error(
+    reports: tuple[str, str], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    old = json.loads(Path(reports[1]).read_text())
+    new_keys = ("clarify_runs", "clarified", "needless_clarification")
+    for summary in [old["summary"], *old["by_category"].values()]:
+        for key in new_keys:
+            del summary[key]
+    for run_data in old["runs"]:
+        for key in ("cases", "clarification", "clarification_citations", "reply"):
+            del run_data[key]
+        del run_data["cases_shown"]
+    path = save(tmp_path / "old.json", old)
+
+    exit_code = main([reports[0], path])
+
+    assert exit_code == 2
+    assert capsys.readouterr().err == (
+        f"{path} is not an evaluation report in the current format: "
+        "summary.clarify_runs: Field required.\n"
     )
 
 

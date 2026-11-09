@@ -21,11 +21,14 @@ from context_lens.services import search
 from context_lens.services.answering import (
     SYSTEM_INSTRUCTION,
     Citation,
+    Clarification,
     Excerpt,
     ModelAnswer,
+    ModelAnswerToReply,
     build_prompt,
 )
 from context_lens.services.documents import Document
+from context_lens.services.embeddings import query_embedding_text
 from context_lens.services.search import DatasetAnswer, excerpts_from_chunks
 
 pytestmark = pytest.mark.anyio
@@ -65,6 +68,9 @@ def make_question(**changes: object) -> Question:
         "evidence": [[2, 2]],
     }
     return Question.model_validate(fields | changes)
+
+
+WHICH_TEAM = Clarification(question="Which team are you in?", reply="Sales.")
 
 
 def test_document_excerpt_holds_every_line_numbered_from_one() -> None:
@@ -128,6 +134,24 @@ async def test_whole_documents_answer_from_the_excerpts_they_show(
     ]
 
 
+async def test_whole_documents_answer_a_reply_with_it_in_the_prompt(
+    fake_gemini: FakeGemini,
+) -> None:
+    method = WholeDocuments({"notes.txt": NOTES})
+    question = make_question(
+        document="notes.txt", facts=[["orange"]], evidence=[[1, 1]]
+    )
+
+    result = await method.answer(question, fake_gemini, clarification=WHICH_TEAM)
+
+    excerpts = [document_excerpt(NOTES)]
+    assert fake_gemini.prompts == [
+        build_prompt(question.question, excerpts, clarification=WHICH_TEAM)
+    ]
+    assert fake_gemini.response_models == [ModelAnswerToReply]
+    assert result == DatasetAnswer(answer=fake_gemini.answer, excerpts=excerpts)
+
+
 async def test_whole_documents_verify_the_answer(fake_gemini: FakeGemini) -> None:
     fake_gemini.answer = ModelAnswer(
         status="answered",
@@ -152,9 +176,9 @@ async def test_rag_asks_the_app_with_the_index_and_the_limit(
 ) -> None:
     calls = []
 
-    async def spy(*args: object) -> DatasetAnswer:
-        calls.append(args)
-        return await search.answer_from_dataset(*args)
+    async def spy(*args: object, **kwargs: object) -> DatasetAnswer:
+        calls.append((args, kwargs))
+        return await search.answer_from_dataset(*args, **kwargs)
 
     monkeypatch.setattr(methods, "answer_from_dataset", spy)
     index = await index_documents([NOTES, LEAVE], fake_gemini)
@@ -164,9 +188,31 @@ async def test_rag_asks_the_app_with_the_index_and_the_limit(
 
     result = await method.answer(question, fake_gemini)
 
-    assert calls == [(question.question, DATASET_ID, index, documents, fake_gemini, 3)]
+    assert calls == [
+        (
+            (question.question, DATASET_ID, index, documents, fake_gemini, 3),
+            {"clarification": None},
+        )
+    ]
     assert result.answer == fake_gemini.answer
     assert len(result.excerpts) == 3
+
+
+async def test_rag_answers_a_reply_by_searching_with_it(
+    fake_gemini: FakeGemini,
+) -> None:
+    index = await index_documents([NOTES], fake_gemini)
+    method = DatasetSearch(index, DocumentsById([NOTES]), 3)
+    question = make_question(question="What colour is the cat?")
+
+    await method.answer(question, fake_gemini, clarification=WHICH_TEAM)
+
+    search_text = query_embedding_text("What colour is the cat?\nSales.")
+    assert fake_gemini.embedded[-1] == [search_text]
+    assert fake_gemini.prompts[-1].endswith(
+        "Your clarifying question: Which team are you in?\nThe user's reply: Sales."
+    )
+    assert fake_gemini.response_models == [ModelAnswerToReply]
 
 
 def test_prompt_of_a_one_chunk_document_is_its_whole_document_prompt() -> None:
@@ -176,6 +222,21 @@ def test_prompt_of_a_one_chunk_document_is_its_whole_document_prompt() -> None:
     assert prompt_characters_at_most(question, plan.chunks, 8) == (
         WholeDocuments(DOCUMENTS).prompt_characters(question)
     )
+
+
+def test_prompt_size_of_a_reply_counts_the_clarification_too() -> None:
+    plan = plan_index([HANDBOOK])
+    question = make_question()
+    method = WholeDocuments(DOCUMENTS)
+    added = len("\nYour clarifying question: Which team are you in?")
+    added += len("\nThe user's reply: Sales.")
+
+    whole = method.prompt_characters(question, clarification=WHICH_TEAM)
+    at_most = prompt_characters_at_most(
+        question, plan.chunks, 8, clarification=WHICH_TEAM
+    )
+
+    assert whole == at_most == method.prompt_characters(question) + added
 
 
 @pytest.mark.parametrize("limit", [1, 2, 3, 4, 5])

@@ -11,6 +11,7 @@ from context_lens.evaluation.methods import document_excerpt
 from context_lens.services.answering import (
     SYSTEM_INSTRUCTION,
     Citation,
+    Clarification,
     ModelAnswer,
     build_prompt,
 )
@@ -39,6 +40,22 @@ question = "Where can employees park?"
 """
 REMOTE_DAYS = "How many days a week can employees work from home?"
 PARKING = "Where can employees park?"
+OFFICES = "# Offices\nPrague opens at 8:00.\nBrno opens at 9:00.\n"
+CLARIFY_TOML = """
+[[questions]]
+id = "offices-opening-time"
+document = "offices.md"
+category = "clarify"
+question = "When does the office open?"
+reply = "I work in Brno."
+facts = [["9:00"]]
+evidence = [[3, 3]]
+cases = [[2, 3]]
+"""
+OPENING_TIME = "When does the office open?"
+# What a dry run allows for the second prompt of a clarify question: its reply, to a
+# clarifying question of 4000 characters, the most the app takes back.
+ALLOWANCE = Clarification(question="?" * 4000, reply="I work in Brno.")
 
 
 class ScriptedGemini:
@@ -115,10 +132,24 @@ def api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
 
 
-def prompt_characters(question: str) -> int:
-    document = Document(id="handbook.md", filename="handbook.md", text=HANDBOOK)
-    prompt = build_prompt(question, [document_excerpt(document)])
+def prompt_characters(
+    question: str,
+    documents: dict[str, str] | None = None,
+    clarification: Clarification | None = None,
+) -> int:
+    documents = documents or {"handbook.md": HANDBOOK}
+    excerpts = [
+        document_excerpt(Document(id=name, filename=name, text=text))
+        for name, text in documents.items()
+    ]
+    prompt = build_prompt(question, excerpts, clarification=clarification)
     return len(SYSTEM_INSTRUCTION) + len(prompt)
+
+
+def add_clarify_question(evals: Path) -> None:
+    (evals / "documents" / "offices.md").write_text(OFFICES)
+    with (evals / "questions.toml").open("a") as questions:
+        questions.write(CLARIFY_TOML)
 
 
 @pytest.mark.usefixtures("evals")
@@ -147,6 +178,7 @@ def test_dry_run_of_rag_describes_the_index_and_runs_without_a_key_or_gemini(
         "  clarify: 0",
         "Documents: 1",
         "Runs: 4 (questions × repeats: 2 × 2)",
+        "Prompts, at most: 4 (runs + a second for each clarify run's reply: 4 + 0)",
         "Chunks to embed: 1",
         f"Characters to embed: {embedded:,}",
         f"Prompt characters over all runs, at most: {characters:,}",
@@ -218,10 +250,61 @@ def test_dry_run_of_whole_document_describes_the_runs_without_a_key_or_gemini(
         "  clarify: 0",
         "Documents: 1",
         "Runs: 4 (questions × repeats: 2 × 2)",
+        "Prompts, at most: 4 (runs + a second for each clarify run's reply: 4 + 0)",
         f"Prompt characters over all runs: {characters:,}",
         f"Prompt tokens at 4 characters a token: {round(characters / 4):,}",
     ]
     assert connections.models == []
+
+
+def test_dry_run_counts_a_clarify_question_as_two_prompts(
+    evals: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    add_clarify_question(evals)
+    offices = {"offices.md": OFFICES}
+    characters = 2 * (
+        prompt_characters(REMOTE_DAYS)
+        + prompt_characters(PARKING)
+        + prompt_characters(OPENING_TIME, offices)
+        + prompt_characters(OPENING_TIME, offices, ALLOWANCE)
+    )
+
+    exit_code = main(["--dry-run", "--method", "whole_document", "--repeats", "2"])
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.splitlines()[-6:] == [
+        "  clarify: 1",
+        "Documents: 2",
+        "Runs: 6 (questions × repeats: 3 × 2)",
+        "Prompts, at most: 8 (runs + a second for each clarify run's reply: 6 + 2)",
+        # A bound, since the second prompt has the allowance in it.
+        f"Prompt characters over all runs, at most: {characters:,}",
+        f"Prompt tokens at 4 characters a token, at most: {round(characters / 4):,}",
+    ]
+
+
+def test_dry_run_of_rag_bounds_a_clarify_questions_second_prompt_as_its_first(
+    evals: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    add_clarify_question(evals)
+    # Each document is one chunk, so the most a search can show is both.
+    both = {"handbook.md": HANDBOOK, "offices.md": OFFICES}
+    characters = (
+        prompt_characters(REMOTE_DAYS, both)
+        + prompt_characters(PARKING, both)
+        + prompt_characters(OPENING_TIME, both)
+        + prompt_characters(OPENING_TIME, both, ALLOWANCE)
+    )
+
+    exit_code = main(["--dry-run"])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out.splitlines()
+    assert (
+        "Prompts, at most: 4 (runs + a second for each clarify run's reply: 3 + 1)"
+        in output
+    )
+    assert f"Prompt characters over all runs, at most: {characters:,}" in output
 
 
 def test_dry_run_reads_the_folder_it_is_given(
@@ -341,6 +424,52 @@ def test_whole_document_run_sends_each_question_its_document_without_search(
     assert report["index"] is None
     assert report["summary"]["correct"] == {"rate": 1.0, "count": 2, "of": 2}
     assert connections.gemini.embedded == []
+
+
+@pytest.mark.usefixtures("api_key")
+def test_run_of_a_clarify_question_sends_its_reply_and_reports_it(
+    evals: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    connections: Connections,
+) -> None:
+    add_clarify_question(evals)
+    which_office = "Which office do you work in?"
+    clarification = Clarification(question=which_office, reply="I work in Brno.")
+    after_reply = build_prompt(OPENING_TIME, [], clarification=clarification)
+    connections.gemini.scripts |= {
+        OPENING_TIME: ModelAnswer(
+            status="needs_clarification",
+            answer=which_office,
+            citations=[
+                Citation(file="offices.md", start_line=2, end_line=3, quote="opens at")
+            ],
+        ),
+        after_reply.rpartition("Question: ")[2]: ModelAnswer(
+            status="answered",
+            answer="It opens at 9:00.",
+            citations=[
+                Citation(file="offices.md", start_line=3, end_line=3, quote="9:00")
+            ],
+        ),
+    }
+
+    exit_code = main(["--method", "whole_document", "--output", "w.json"], connections)
+
+    assert exit_code == 0
+    report = json.loads((tmp_path / "w.json").read_text())
+    assert report["summary"]["correct"] == {"rate": 1.0, "count": 3, "of": 3}
+    assert report["summary"]["clarified"] == {"rate": 1.0, "count": 1, "of": 1}
+    clarify_run = report["runs"][2]
+    assert (clarify_run["clarification"], clarify_run["reply"]) == (
+        which_office,
+        "I work in Brno.",
+    )
+    progress = capsys.readouterr().err
+    assert "[3/3] offices-opening-time #1: correct" in progress
+    # Progress says how a run went, never what was asked or said.
+    assert "Brno" not in progress
+    assert "office" not in progress.replace("offices-opening-time", "")
 
 
 @pytest.mark.usefixtures("api_key")

@@ -54,6 +54,14 @@ def answered(text: str, *citations: Citation) -> ModelAnswer:
     return ModelAnswer(status="answered", answer=text, citations=list(citations))
 
 
+WHICH_OFFICE = ModelAnswer(
+    status="needs_clarification",
+    answer="Which office do you work in?",
+    citations=[cite(50, 51)],
+)
+BRNO = answered("The Brno office opens at 9:00.", cite(51, 51))
+
+
 @pytest.mark.parametrize(
     ("text", "phrase"),
     [
@@ -268,6 +276,7 @@ def test_not_found_for_an_answerable_question_is_wrong() -> None:
     ("raw", "rejected"),
     [
         pytest.param(answered("3 days.", cite(42, 43)), True, id="answered"),
+        pytest.param(WHICH_OFFICE, True, id="clarifying_question"),
         pytest.param(NOT_FOUND, False, id="not_found"),
         pytest.param(None, False, id="no_raw_answer"),
     ],
@@ -292,6 +301,61 @@ def test_not_found_for_an_unanswerable_question_is_correct() -> None:
 
 def test_not_found_for_a_clarify_question_is_wrong() -> None:
     score = score_run(CLARIFY, NOT_FOUND, NOT_FOUND)
+
+    assert not score.correct
+
+
+@pytest.mark.parametrize(
+    ("final", "asked", "correct"),
+    [
+        pytest.param(BRNO, True, True, id="asked_then_answered_the_reply"),
+        pytest.param(BRNO, False, False, id="answered_without_asking"),
+        pytest.param(
+            answered("It opens at 10:00.", cite(51, 51)), True, False, id="wrong_fact"
+        ),
+        pytest.param(
+            answered("It opens at 9:00.", cite(50, 50)),
+            True,
+            False,
+            id="evidence_not_cited",
+        ),
+        pytest.param(
+            answered("At 9:00, not 8:00.", cite(51, 51)),
+            True,
+            False,
+            id="forbidden_phrase",
+        ),
+        pytest.param(NOT_FOUND, True, False, id="asked_then_not_found"),
+        pytest.param(NOT_FOUND, False, False, id="not_found_without_asking"),
+        pytest.param(WHICH_OFFICE, True, False, id="ended_on_its_question"),
+    ],
+)
+def test_clarify_run_is_correct_only_when_it_asked_then_answered_the_reply_right(
+    final: ModelAnswer, asked: bool, correct: bool
+) -> None:
+    score = score_run(CLARIFY, final, final, asked=asked)
+
+    assert score.correct == correct
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        pytest.param(make_question(), id="fact"),
+        pytest.param(UNANSWERABLE, id="unanswerable"),
+    ],
+)
+def test_clarifying_question_is_wrong_for_every_other_category(
+    question: Question,
+) -> None:
+    # It has the fact and cites the evidence, but asks instead of answering.
+    final = ModelAnswer(
+        status="needs_clarification",
+        answer="Is that 3 days in an office or at home?",
+        citations=[cite(42, 43)],
+    )
+
+    score = score_run(question, final, final, asked=True)
 
     assert not score.correct
 
@@ -377,8 +441,10 @@ def make_record(
     seconds: float = 1.0,
     tokens: tuple[int, int, int] = (0, 0, 0),
     shown: list[bool] | None = None,
+    asked: ModelAnswer | None = None,
 ) -> RunRecord:
-    # No final answer stands for a run that ended in a Gemini error.
+    # No final answer stands for a run that ended in a Gemini error, and asked for a
+    # clarifying question Gemini asked first, which a clarify question replies to.
     raw = final if raw is None else raw
     input_tokens, output_tokens, thought_tokens = tokens
     if final is not None and shown is None:
@@ -392,20 +458,29 @@ def make_record(
         question=question.question,
         facts=question.facts,
         evidence=question.evidence,
+        cases=question.cases,
         status=None if final is None else final.status,
         answer=None if final is None else final.answer,
         citations=[] if final is None else final.citations,
         raw_status=None if raw is None else raw.status,
         raw_citations=None,
+        clarification=None if asked is None else asked.answer,
+        clarification_citations=[] if asked is None else asked.citations,
+        reply=None if asked is None else question.reply,
         excerpts=[],
         evidence_shown=shown,
+        cases_shown=None if final is None else [True] * len(question.cases),
         seconds=seconds,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         thought_tokens=thought_tokens,
         embedded_characters=0,
         error="GeminiUnavailableError" if final is None else None,
-        score=None if final is None else score_run(question, final, raw),
+        score=(
+            None
+            if final is None
+            else score_run(question, final, raw, asked=asked is not None)
+        ),
     )
 
 
@@ -424,6 +499,9 @@ def test_summary_of_no_runs_has_no_rates() -> None:
         "false_not_found_rate": no_rate,
         "unanswerable_runs": 0,
         "not_found_accuracy": no_rate,
+        "clarify_runs": 0,
+        "clarified": no_rate,
+        "needless_clarification": no_rate,
         "rejected_by_verifier": no_rate,
         "median_seconds": None,
         "p95_seconds": None,
@@ -487,6 +565,46 @@ def test_clarify_runs_are_neither_answerable_nor_unanswerable() -> None:
     assert summary["false_not_found_rate"] == {"rate": 0.0, "count": 0, "of": 1}
     assert summary["unanswerable_runs"] == 1
     assert summary["not_found_accuracy"] == {"rate": 1.0, "count": 1, "of": 1}
+
+
+def test_clarified_counts_the_clarify_runs_whose_first_answer_was_a_question() -> None:
+    records = [
+        make_record(CLARIFY, BRNO, asked=WHICH_OFFICE),
+        make_record(CLARIFY, NOT_FOUND, repeat=2, asked=WHICH_OFFICE),
+        # Right, but a guess.
+        make_record(CLARIFY, BRNO, repeat=3),
+        make_record(CLARIFY, None, repeat=4),
+        make_record(make_question(), answered("3 days.", cite(42, 43))),
+    ]
+
+    summary = summarize(records)
+
+    assert summary["clarify_runs"] == 3
+    assert summary["clarified"] == {"rate": 2 / 3, "count": 2, "of": 3}
+    assert summary["correct"] == {"rate": 0.5, "count": 2, "of": 4}
+    assert summary["answerable_runs"] == 1
+    assert summary["unanswerable_runs"] == 0
+
+
+def test_needless_clarification_counts_the_other_runs_that_asked_instead() -> None:
+    which_team = ModelAnswer(
+        status="needs_clarification", answer="Which team?", citations=[cite(42, 43)]
+    )
+    records = [
+        make_record(make_question(), answered("3 days.", cite(42, 43))),
+        make_record(make_question(), which_team, repeat=2, asked=which_team),
+        make_record(UNANSWERABLE, which_team, asked=which_team),
+        make_record(UNANSWERABLE, NOT_FOUND, repeat=2),
+        make_record(UNANSWERABLE, None, repeat=3),
+        make_record(CLARIFY, BRNO, asked=WHICH_OFFICE),
+    ]
+
+    summary = summarize(records)
+
+    assert summary["needless_clarification"] == {"rate": 0.5, "count": 2, "of": 4}
+    assert summary["false_not_found_rate"] == {"rate": 0.0, "count": 0, "of": 2}
+    assert summary["not_found_accuracy"] == {"rate": 0.5, "count": 1, "of": 2}
+    assert summary["clarified"] == {"rate": 1.0, "count": 1, "of": 1}
 
 
 def test_evidence_shown_counts_answerable_runs_shown_all_their_evidence() -> None:

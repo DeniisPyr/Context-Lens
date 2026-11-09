@@ -23,7 +23,9 @@ from context_lens.services.answering import (
     NOT_FOUND_MESSAGE,
     SYSTEM_INSTRUCTION,
     Citation,
+    Clarification,
     ModelAnswer,
+    ModelAnswerToReply,
     build_prompt,
 )
 from context_lens.services.documents import Document
@@ -58,6 +60,13 @@ LEAVE = Document(
         )
     ),
 )
+# Each office opens at its own time, so a question about the office's hours can't be
+# answered until the user says which one.
+OFFICES = Document(
+    id="offices.md",
+    filename="offices.md",
+    text="# Offices\nPrague opens at 8:00.\nBrno opens at 9:00.\n",
+)
 USAGE = TokenUsage(input_tokens=120, output_tokens=30, thought_tokens=45)
 
 
@@ -76,6 +85,66 @@ def make_question(question_id: str, **changes: object) -> Question:
 def make_set(*questions: Question) -> QuestionSet:
     documents = {document.id: document for document in (HANDBOOK, POLICY, RULES)}
     return QuestionSet(list(questions), documents, "sha256:test")
+
+
+def clarify_question(**changes: object) -> Question:
+    fields = {
+        "id": "opening-time",
+        "document": "offices.md",
+        "category": "clarify",
+        "question": "When do the Prague and Brno offices open?",
+        "reply": "I work in Brno.",
+        "facts": [["9:00"]],
+        "evidence": [[3, 3]],
+        "cases": [[2, 3]],
+    }
+    return Question.model_validate(fields | changes)
+
+
+def clarify_set(question: Question) -> QuestionSet:
+    documents = {document.id: document for document in (HANDBOOK, OFFICES)}
+    return QuestionSet([question], documents, "sha256:test")
+
+
+WHICH_OFFICE = ModelAnswer(
+    status="needs_clarification",
+    answer="Which office do you work in?",
+    citations=[
+        Citation(
+            file="offices.md",
+            start_line=2,
+            end_line=3,
+            quote="Prague opens at 8:00. Brno opens at 9:00.",
+        )
+    ],
+)
+BRNO = ModelAnswer(
+    status="answered",
+    answer="The Brno office opens at 9:00.",
+    citations=[
+        Citation(
+            file="offices.md", start_line=3, end_line=3, quote="Brno opens at 9:00."
+        )
+    ],
+)
+
+
+def reply_script(question: Question, clarifying: str) -> str:
+    # What ScriptedGemini knows a prompt by when it ends with the reply.
+    assert question.reply is not None
+    clarification = Clarification(question=clarifying, reply=question.reply)
+    prompt = build_prompt(question.question, [], clarification=clarification)
+    return prompt.rpartition("Question: ")[2]
+
+
+def scripted_clarification(
+    question: Question, answer_to_reply: ModelAnswer
+) -> "ScriptedGemini":
+    # Gemini asks which office, then answers the reply.
+    gemini = ScriptedGemini()
+    gemini.scripts[question.question] = WHICH_OFFICE
+    gemini.scripts[reply_script(question, WHICH_OFFICE.answer)] = answer_to_reply
+    return gemini
 
 
 async def run_whole(
@@ -157,13 +226,18 @@ async def test_run_records_the_answer_its_score_and_token_usage() -> None:
         question="Question remote-days?",
         facts=[["3 days"]],
         evidence=[LineRange("handbook.md", 2, 2)],
+        cases=[],
         status="answered",
         answer="Employees can work from home 3 days a week.",
         citations=remote_days_answer().citations,
         raw_status="answered",
         raw_citations=None,
+        clarification=None,
+        clarification_citations=[],
+        reply=None,
         excerpts=[LineRange("handbook.md", 1, 3)],
         evidence_shown=[True],
+        cases_shown=[],
         seconds=record.seconds,
         input_tokens=120,
         output_tokens=30,
@@ -361,6 +435,251 @@ async def test_recording_gemini_keeps_the_raw_answer_and_usage() -> None:
     assert answer == remote_days_answer()
     assert recorder.raw_answer == answer
     assert recorder.usage == USAGE
+
+
+async def test_recording_gemini_adds_up_usage_and_keeps_the_last_answer() -> None:
+    gemini = ScriptedGemini()
+    gemini.scripts["Question opening-time?"] = WHICH_OFFICE
+    gemini.scripts["Question reply?"] = BRNO
+    recorder = RecordingGemini(gemini)
+
+    await recorder.ask("Question opening-time?", "Be brief.", ModelAnswer)
+    answer = await recorder.ask("Question reply?", "Be brief.", ModelAnswerToReply)
+
+    assert answer == ModelAnswerToReply.model_validate(BRNO.model_dump())
+    # As a ModelAnswer, like every other raw answer.
+    assert type(recorder.raw_answer) is ModelAnswer
+    assert recorder.raw_answer == BRNO
+    assert recorder.usage == TokenUsage(
+        input_tokens=240, output_tokens=60, thought_tokens=90
+    )
+
+
+async def test_clarify_run_answers_the_reply_to_gemini_s_question() -> None:
+    question = clarify_question()
+    gemini = scripted_clarification(question, BRNO)
+
+    [record] = await run_whole(clarify_set(question), gemini)
+
+    excerpts = [document_excerpt(OFFICES)]
+    clarification = Clarification(
+        question="Which office do you work in?", reply="I work in Brno."
+    )
+    assert gemini.calls == [
+        (build_prompt(question.question, excerpts), SYSTEM_INSTRUCTION, ModelAnswer),
+        (
+            build_prompt(question.question, excerpts, clarification=clarification),
+            SYSTEM_INSTRUCTION,
+            ModelAnswerToReply,
+        ),
+    ]
+    assert record == RunRecord(
+        question_id="opening-time",
+        repeat=1,
+        category="clarify",
+        document="offices.md",
+        question="When do the Prague and Brno offices open?",
+        facts=[["9:00"]],
+        evidence=[LineRange("offices.md", 3, 3)],
+        cases=[LineRange("offices.md", 2, 3)],
+        status="answered",
+        answer="The Brno office opens at 9:00.",
+        citations=BRNO.citations,
+        raw_status="answered",
+        raw_citations=None,
+        clarification="Which office do you work in?",
+        clarification_citations=WHICH_OFFICE.citations,
+        reply="I work in Brno.",
+        excerpts=[LineRange("offices.md", 1, 3)],
+        evidence_shown=[True],
+        cases_shown=[True],
+        seconds=record.seconds,
+        # Both prompts' usage.
+        input_tokens=240,
+        output_tokens=60,
+        thought_tokens=90,
+        embedded_characters=0,
+        error=None,
+        score=RunScore(
+            correct=True,
+            facts_found=[True],
+            evidence_cited=[True],
+            extra_citations=0,
+            forbidden_found=[],
+            rejected_by_verifier=False,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        pytest.param(BRNO, id="answered"),
+        pytest.param(
+            ModelAnswer(status="not_found", answer="No.", citations=[]),
+            id="not_found",
+        ),
+    ],
+)
+async def test_clarify_run_whose_first_answer_asked_nothing_ends_there(
+    first: ModelAnswer,
+) -> None:
+    question = clarify_question()
+    gemini = ScriptedGemini()
+    gemini.scripts[question.question] = first
+
+    [record] = await run_whole(clarify_set(question), gemini)
+
+    assert len(gemini.calls) == 1
+    assert record.status == first.status
+    assert (record.clarification, record.reply) == (None, None)
+    assert record.input_tokens == 120
+    assert record.score is not None
+    assert not record.score.correct
+
+
+async def test_clarifying_question_the_verifier_rejects_gets_no_reply() -> None:
+    question = clarify_question()
+    made_up = WHICH_OFFICE.model_copy(
+        update={
+            "citations": [
+                Citation(
+                    file="offices.md",
+                    start_line=2,
+                    end_line=2,
+                    quote="Ostrava opens at 7:00.",
+                )
+            ]
+        }
+    )
+    gemini = ScriptedGemini()
+    gemini.scripts[question.question] = made_up
+
+    [record] = await run_whole(clarify_set(question), gemini)
+
+    assert len(gemini.calls) == 1
+    assert record.status == "not_found"
+    assert record.raw_status == "needs_clarification"
+    assert record.raw_citations == made_up.citations
+    assert (record.clarification, record.reply) == (None, None)
+    assert record.score is not None
+    assert record.score.rejected_by_verifier
+
+
+async def test_question_of_another_category_is_not_given_a_reply() -> None:
+    question = make_question("remote-days")
+    which_team = ModelAnswer(
+        status="needs_clarification",
+        answer="Which team are you in?",
+        citations=remote_days_answer().citations,
+    )
+    gemini = ScriptedGemini()
+    gemini.scripts[question.question] = which_team
+
+    [record] = await run_whole(make_set(question), gemini)
+
+    assert [model for *_, model in gemini.calls] == [ModelAnswer]
+    assert record.status == "needs_clarification"
+    assert record.clarification == "Which team are you in?"
+    assert record.clarification_citations == which_team.citations
+    assert record.reply is None
+    assert record.score is not None
+    assert not record.score.correct
+
+
+async def test_gemini_error_in_the_second_prompt_makes_it_an_error_run() -> None:
+    question = clarify_question()
+    gemini = scripted_clarification(question, BRNO)
+    gemini.scripts[reply_script(question, WHICH_OFFICE.answer)] = (
+        GeminiUnavailableError("Busy.")
+    )
+
+    [record] = await run_whole(clarify_set(question), gemini)
+
+    assert len(gemini.calls) == 2
+    assert record.error == "GeminiUnavailableError"
+    assert (record.status, record.answer, record.score) == (None, None, None)
+    assert record.raw_status is None
+    assert record.excerpts == []
+    assert record.evidence_shown is None
+    # What happened before it, which the report shows.
+    assert record.clarification == "Which office do you work in?"
+    assert record.reply == "I work in Brno."
+    assert record.cases_shown == [True]
+    assert record.input_tokens == 120
+
+
+async def test_gemini_error_in_a_clarify_runs_first_prompt_leaves_out_the_rest() -> (
+    None
+):
+    question = clarify_question()
+    gemini = ScriptedGemini()
+    gemini.scripts[question.question] = GeminiUnavailableError("Busy.")
+
+    [record] = await run_whole(clarify_set(question), gemini)
+
+    assert len(gemini.calls) == 1
+    assert record.error == "GeminiUnavailableError"
+    assert (record.clarification, record.reply, record.cases_shown) == (
+        None,
+        None,
+        None,
+    )
+
+
+async def test_rag_clarify_run_searches_again_with_the_reply() -> None:
+    question = clarify_question(cases=[[2, 3], ["handbook.md", 3, 3]])
+    gemini = scripted_clarification(question, BRNO)
+    index, _ = await build_index(clarify_set(question), gemini)
+    method = DatasetSearch(index, DocumentsById([HANDBOOK, OFFICES]), 1)
+    gemini.embedded.clear()
+
+    [record] = await run_questions(clarify_set(question), method, gemini)
+
+    searched = [question.question, f"{question.question}\nI work in Brno."]
+    assert gemini.embedded == [[query_embedding_text(text)] for text in searched]
+    assert record.embedded_characters == sum(
+        len(query_embedding_text(text)) for text in searched
+    )
+    assert [model for *_, model in gemini.calls] == [ModelAnswer, ModelAnswerToReply]
+    assert record.reply == "I work in Brno."
+    assert record.score is not None
+    assert record.score.correct
+
+
+@pytest.mark.parametrize(
+    ("first", "last_excerpts"),
+    [
+        pytest.param(WHICH_OFFICE, [LineRange("handbook.md", 1, 3)], id="asked"),
+        pytest.param(BRNO, [LineRange("offices.md", 1, 3)], id="answered"),
+    ],
+)
+async def test_rag_clarify_run_says_which_cases_its_first_search_showed(
+    first: ModelAnswer, last_excerpts: list[LineRange]
+) -> None:
+    # The question is about the offices, so the first search finds only their chunk,
+    # and the reply is about working from home, so the second finds the handbook's.
+    question = clarify_question(
+        reply="Employees work from home 3 days a week.",
+        cases=[[2, 3], ["handbook.md", 3, 3]],
+    )
+    not_found = ModelAnswer(status="not_found", answer="No.", citations=[])
+    gemini = scripted_clarification(question, not_found)
+    gemini.scripts[question.question] = first
+
+    [record] = await run_rag(clarify_set(question), gemini, chunks=1)
+
+    assert record.excerpts == last_excerpts
+    assert record.cases_shown == [True, False]
+
+
+async def test_whole_document_clarify_run_shows_every_case() -> None:
+    question = clarify_question(cases=[[2, 3], ["handbook.md", 3, 3]])
+    gemini = scripted_clarification(question, BRNO)
+
+    [record] = await run_whole(clarify_set(question), gemini)
+
+    assert record.cases_shown == [True, True]
 
 
 def leave_set(question: Question) -> QuestionSet:

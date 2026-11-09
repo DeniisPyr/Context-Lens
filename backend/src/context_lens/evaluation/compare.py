@@ -11,7 +11,7 @@ from context_lens.evaluation.cases import CATEGORIES
 from context_lens.evaluation.report import (
     NOT_APPLICABLE,
     Report,
-    failure_reasons,
+    failure_detail,
     format_rate,
     markdown_table,
     plural,
@@ -21,6 +21,13 @@ from context_lens.evaluation.scoring import RunRecord
 
 REPORT = TypeAdapter(Report)
 RUNS = TypeAdapter(list[RunRecord])
+# What each category is compared on: its name in the table and in a summary.
+CATEGORY_MEASURES = [
+    ("Correct", "correct"),
+    ("Answer accuracy", "answer_accuracy"),
+    ("Clarified", "clarified"),
+    ("Needless clarification", "needless_clarification"),
+]
 
 
 class InvalidReportError(Exception):
@@ -113,7 +120,7 @@ def _category_rows(a: Side, b: Side) -> list[list[str]]:
             continue
         cells = [
             NOT_APPLICABLE if summary is None else format_rate(summary[measure])
-            for measure in ("correct", "answer_accuracy")
+            for _, measure in CATEGORY_MEASURES
             for summary in summaries
         ]
         rows.append([category, *cells])
@@ -134,7 +141,7 @@ def _difference(a: Side, b: Side, question_id: str) -> list[str]:
         return []
     worse = a if a_correct * b_runs < b_correct * a_runs else b
     failures = [
-        f"  - {worse.label} #{record.repeat}: {'; '.join(failure_reasons(record))}"
+        f"  - {worse.label} #{record.repeat}: {failure_detail(record)}"
         for record in worse.records
         if record.question_id == question_id
         and not (record.score is not None and record.score.correct)
@@ -160,9 +167,7 @@ def render_comparison(a: Side, b: Side) -> str:
     documents = plural(question_set["documents"], "document")
     labels = [a.label, b.label]
     category_columns = [
-        f"{measure}, {label}"
-        for measure in ("Correct", "Answer accuracy")
-        for label in labels
+        f"{measure}, {label}" for measure, _ in CATEGORY_MEASURES for label in labels
     ]
     lines = [
         f"# Answer quality compared: {a.label} and {b.label}",

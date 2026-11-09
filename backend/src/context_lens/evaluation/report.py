@@ -21,6 +21,8 @@ GROUP_COLUMNS = [
     "Evidence shown",
     "False not found",
     "Not found accuracy",
+    "Clarified",
+    "Needless clarification",
     "Median seconds",
     "Mean input tokens",
 ]
@@ -135,6 +137,8 @@ def summary_rows(summary: Summary) -> list[list[str]]:
         ["Evidence shown to Gemini", format_rate(summary["evidence_shown"])],
         ["False not found", format_rate(summary["false_not_found_rate"])],
         ["Not found accuracy", format_rate(summary["not_found_accuracy"])],
+        ["Clarified", format_rate(summary["clarified"])],
+        ["Needless clarification", format_rate(summary["needless_clarification"])],
         ["Rejected by the verifier", format_rate(summary["rejected_by_verifier"])],
         ["Median seconds", _seconds(summary["median_seconds"])],
         ["p95 seconds", _seconds(summary["p95_seconds"])],
@@ -158,6 +162,8 @@ def _group_rows(summaries: dict[str, Summary]) -> list[list[str]]:
             format_rate(summary["evidence_shown"]),
             format_rate(summary["false_not_found_rate"]),
             format_rate(summary["not_found_accuracy"]),
+            format_rate(summary["clarified"]),
+            format_rate(summary["needless_clarification"]),
             _seconds(summary["median_seconds"]),
             _tokens(summary["mean_input_tokens"]),
         ]
@@ -171,13 +177,11 @@ def _lines(lines: LineRange) -> str:
     return f"{lines.file} lines {lines.start}–{lines.end}"
 
 
-def _not_shown(record: RunRecord) -> list[LineRange]:
-    if record.evidence_shown is None:
+def _not_shown(ranges: list[LineRange], shown: list[bool] | None) -> list[LineRange]:
+    if shown is None:
         return []
     return [
-        lines
-        for lines, shown in zip(record.evidence, record.evidence_shown, strict=True)
-        if not shown
+        lines for lines, was_shown in zip(ranges, shown, strict=True) if not was_shown
     ]
 
 
@@ -185,9 +189,18 @@ def failure_reasons(record: RunRecord) -> list[str]:
     score = record.score
     if score is None:
         return [f"Gemini error: {record.error}"]
-    # Evidence Gemini wasn't shown is a miss of the search, not of the answer.
-    not_shown = _not_shown(record)
+    # Evidence Gemini wasn't shown is a miss of the search, not of the answer, and so
+    # is a case: Gemini can't ask about a situation it didn't see.
+    not_shown = _not_shown(record.evidence, record.evidence_shown)
     missed = [f"evidence {_lines(lines)} not shown to Gemini" for lines in not_shown]
+    missed += [
+        f"case {_lines(lines)} not shown to Gemini"
+        for lines in _not_shown(record.cases, record.cases_shown)
+    ]
+    if record.status == "needs_clarification":
+        # Only a question of another category can end on one: a clarify question's
+        # reply is sent back.
+        return ["needed no clarifying question", *missed]
     if record.status == "not_found":
         if score.rejected_by_verifier:
             return ["citations rejected by the verifier", *missed]
@@ -195,6 +208,8 @@ def failure_reasons(record: RunRecord) -> list[str]:
     reasons = []
     if record.category in UNANSWERABLE:
         reasons.append("answered a question the documents can't answer")
+    if record.category == "clarify" and record.clarification is None:
+        reasons.append("didn't ask which situation applies")
     reasons += [
         f"missing fact: {' / '.join(fact)}"
         for fact, found in zip(record.facts, score.facts_found, strict=True)
@@ -210,6 +225,22 @@ def failure_reasons(record: RunRecord) -> list[str]:
         f"said a forbidden phrase: {phrase}" for phrase in score.forbidden_found
     ]
     return reasons
+
+
+def _quoted(text: str) -> str:
+    # On one line, so that a line break in it can't end the list item.
+    return f'"{" ".join(text.split())}"'
+
+
+def failure_detail(record: RunRecord) -> str:
+    # With what Gemini asked and the reply it got, since a reply that doesn't fit what
+    # was asked can explain a wrong answer.
+    parts = failure_reasons(record)
+    if record.clarification is not None:
+        parts.append(f"asked {_quoted(record.clarification)}")
+    if record.reply is not None:
+        parts.append(f"replied {_quoted(record.reply)}")
+    return "; ".join(parts)
 
 
 def _describe_search(report: Report) -> list[str]:
@@ -228,7 +259,7 @@ def render_markdown(report: Report) -> str:
     question_set = report["question_set"]
     records = [RunRecord.model_validate(run) for run in report["runs"]]
     failures = [
-        f"- `{record.question_id}` #{record.repeat}: {'; '.join(failure_reasons(record))}"
+        f"- `{record.question_id}` #{record.repeat}: {failure_detail(record)}"
         for record in records
         if record.score is None or not record.score.correct
     ]

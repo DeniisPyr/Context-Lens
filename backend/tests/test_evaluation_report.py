@@ -12,7 +12,12 @@ from context_lens.evaluation.methods import DatasetSearch, Method, WholeDocument
 from context_lens.evaluation.report import Report, build_report, render_markdown
 from context_lens.evaluation.runner import build_index, run_questions
 from context_lens.evaluation.scoring import RunRecord, summarize
-from context_lens.services.answering import Citation, ModelAnswer
+from context_lens.services.answering import (
+    Citation,
+    Clarification,
+    ModelAnswer,
+    build_prompt,
+)
 from context_lens.services.documents import Document
 
 pytestmark = pytest.mark.anyio
@@ -51,6 +56,19 @@ def unanswerable(question_id: str, **changes: object) -> Question:
     )
 
 
+def clarify(question_id: str, **changes: object) -> Question:
+    # Working from home and in the office have different rules.
+    fields: dict[str, object] = {
+        "category": "clarify",
+        "reply": "In the office.",
+        "facts": [["8:00"]],
+        "evidence": [[3, 3]],
+        "cases": [[2, 3]],
+        "forbidden": [],
+    }
+    return make_question(question_id, **(fields | changes))
+
+
 def answered(
     text: str, line: int, quote: str, file: str = "handbook.md"
 ) -> ModelAnswer:
@@ -60,6 +78,27 @@ def answered(
 
 RIGHT = answered("Employees can work from home 3 days a week.", 2, "3 days a week")
 NOT_FOUND = ModelAnswer(status="not_found", answer="Not there.", citations=[])
+WHERE = ModelAnswer(
+    status="needs_clarification",
+    answer="At home or in the office?",
+    citations=[
+        Citation(
+            file="handbook.md",
+            start_line=2,
+            end_line=3,
+            quote="3 days a week. The office opens",
+        )
+    ],
+)
+OFFICE_HOURS = answered("The office opens at 8:00.", 3, "The office opens at 8:00.")
+
+
+def after_reply(question: Question, script: Script) -> dict[str, Script]:
+    # The script for the prompt that replies to WHERE.
+    assert question.reply is not None
+    clarification = Clarification(question=WHERE.answer, reply=question.reply)
+    prompt = build_prompt(question.question, [], clarification=clarification)
+    return {prompt.rpartition("Question: ")[2]: script}
 
 
 class ScriptedGemini:
@@ -80,14 +119,18 @@ class ScriptedGemini:
 
 
 async def report_for(
-    *runs: tuple[Question, Script], chunks: int | None = None
+    *runs: tuple[Question, Script],
+    chunks: int | None = None,
+    replies: dict[str, Script] | None = None,
 ) -> Report:
-    # By rag when chunks are given, and by whole_document when not.
+    # By rag when chunks are given, and by whole_document when not. Each run's script
+    # is for its first prompt, and replies has those for the prompts with a reply.
     questions = [question for question, _ in runs]
     question_set = QuestionSet(
         questions, {"handbook.md": HANDBOOK, "rules.md": RULES}, "sha256:test"
     )
-    gemini = ScriptedGemini({question.question: script for question, script in runs})
+    scripts = {question.question: script for question, script in runs}
+    gemini = ScriptedGemini(scripts | (replies or {}))
     method: Method
     index: IndexInfo | None
     if chunks is None:
@@ -206,6 +249,8 @@ async def test_markdown_shows_rates_with_their_counts_and_rounds_numbers() -> No
     assert "| Evidence shown to Gemini | 100% (2/2) |" in markdown
     assert "| False not found | 50% (1/2) |" in markdown
     assert "| Not found accuracy | 100% (1/1) |" in markdown
+    assert "| Clarified | n/a |" in markdown
+    assert "| Needless clarification | 0% (0/3) |" in markdown
     assert "| Median seconds | 3.3 |" in markdown
     assert "| Mean input tokens | 1235 |" in markdown
     assert "| Mean output tokens, with thinking | 234 |" in markdown
@@ -222,15 +267,51 @@ async def test_markdown_has_a_row_for_each_category_and_document() -> None:
 
     fact_row = (
         "| fact | 1 | 0 | 100% (1/1) | 100% (1/1) | 100% (1/1) | 100% (1/1) | 0% (0/1) "
-        "| n/a |"
+        "| n/a | n/a | 0% (0/1) |"
     )
     missing_row = (
-        "| missing_related | 1 | 0 | 100% (1/1) | n/a | n/a | n/a | n/a | 100% (1/1) |"
+        "| missing_related | 1 | 0 | 100% (1/1) | n/a | n/a | n/a | n/a | 100% (1/1) "
+        "| n/a | 0% (0/1) |"
     )
     assert fact_row in markdown
     assert missing_row in markdown
     assert "| handbook.md | 1 |" in markdown
     assert "| rules.md | 1 |" in markdown
+
+
+async def test_markdown_shows_how_often_gemini_asked_to_clarify() -> None:
+    asked = clarify("asked")
+    report = await report_for(
+        (asked, WHERE),
+        (clarify("guessed"), OFFICE_HOURS),
+        (make_question("remote-days"), RIGHT),
+        (make_question("needless"), WHERE),
+        (unanswerable("parking"), NOT_FOUND),
+        replies=after_reply(asked, OFFICE_HOURS),
+    )
+
+    markdown = render_markdown(report)
+
+    assert report["summary"]["clarify_runs"] == 2
+    assert "| Correct | 60% (3/5) |" in markdown
+    assert "| Clarified | 50% (1/2) |" in markdown
+    assert "| Needless clarification | 33% (1/3) |" in markdown
+    clarify_row = (
+        "| clarify | 2 | 0 | 50% (1/2) | n/a | n/a | n/a | n/a | n/a | 50% (1/2) "
+        "| n/a |"
+    )
+    fact_row = (
+        "| fact | 2 | 0 | 50% (1/2) | 50% (1/2) | 100% (2/2) | 100% (2/2) | 0% (0/2) "
+        "| n/a | n/a | 50% (1/2) |"
+    )
+    missing_row = (
+        "| missing_related | 1 | 0 | 100% (1/1) | n/a | n/a | n/a | n/a | 100% (1/1) "
+        "| n/a | 0% (0/1) |"
+    )
+    assert clarify_row in markdown
+    assert fact_row in markdown
+    assert missing_row in markdown
+    assert "| handbook.md | 5 | 0 | 60% (3/5) |" in markdown
 
 
 async def test_rate_with_nothing_to_count_shows_as_not_applicable() -> None:
@@ -317,6 +398,105 @@ async def test_markdown_says_why_each_wrong_run_was_wrong(
 
     assert markdown.endswith(
         f"## Runs that weren't correct\n\n- `{question.id}` #1: {reasons}\n"
+    )
+
+
+WRONG_HOURS = answered("At 9:00.", 3, "The office opens")
+QUESTION_ON_TWO_LINES = WHERE.model_copy(
+    update={"answer": "At home,\n\nor in the office?"}
+)
+
+
+@pytest.mark.parametrize(
+    ("question", "first", "answer_to_reply", "detail"),
+    [
+        pytest.param(
+            clarify("guessed"),
+            OFFICE_HOURS,
+            None,
+            "didn't ask which situation applies",
+            id="right_without_asking",
+        ),
+        pytest.param(
+            clarify("guessed"),
+            WRONG_HOURS,
+            None,
+            "didn't ask which situation applies; missing fact: 8:00",
+            id="wrong_without_asking",
+        ),
+        pytest.param(
+            clarify("unsure"),
+            NOT_FOUND,
+            None,
+            "said not found",
+            id="not_found_without_asking",
+        ),
+        pytest.param(
+            clarify("asked"),
+            WHERE,
+            WRONG_HOURS,
+            'missing fact: 8:00; asked "At home or in the office?"; replied "In the '
+            'office."',
+            id="wrong_answer_to_the_reply",
+        ),
+        pytest.param(
+            clarify("asked"),
+            WHERE,
+            answered("At 8:00.", 3, "The office closes"),
+            'citations rejected by the verifier; asked "At home or in the office?"; '
+            'replied "In the office."',
+            id="answer_to_the_reply_rejected",
+        ),
+        pytest.param(
+            clarify("asked"),
+            WHERE,
+            GeminiUnavailableError("Busy."),
+            'Gemini error: GeminiUnavailableError; asked "At home or in the office?"; '
+            'replied "In the office."',
+            id="gemini_error_after_the_reply",
+        ),
+        pytest.param(
+            make_question("remote-days"),
+            WHERE,
+            None,
+            'needed no clarifying question; asked "At home or in the office?"',
+            id="needless_clarifying_question",
+        ),
+        pytest.param(
+            unanswerable("parking"),
+            QUESTION_ON_TWO_LINES,
+            None,
+            'needed no clarifying question; asked "At home, or in the office?"',
+            id="clarifying_question_on_two_lines",
+        ),
+    ],
+)
+async def test_markdown_says_what_went_wrong_around_a_clarifying_question(
+    question: Question, first: Script, answer_to_reply: Script | None, detail: str
+) -> None:
+    replies = (
+        None if answer_to_reply is None else after_reply(question, answer_to_reply)
+    )
+    report = await report_for(
+        (question, first), (make_question("right"), RIGHT), replies=replies
+    )
+
+    markdown = render_markdown(report)
+
+    assert markdown.endswith(
+        f"## Runs that weren't correct\n\n- `{question.id}` #1: {detail}\n"
+    )
+
+
+async def test_markdown_says_when_the_first_search_didnt_show_gemini_a_case() -> None:
+    # Its words are in the rules, so a search for one chunk shows Gemini only those.
+    question = clarify("rules-dress", cases=[["rules.md", 1, 1], [2, 3]])
+
+    report = await report_for((question, NOT_FOUND), chunks=1)
+
+    assert render_markdown(report).endswith(
+        "- `rules-dress` #1: said not found; evidence handbook.md line 3 not shown to "
+        "Gemini; case handbook.md lines 2–3 not shown to Gemini\n"
     )
 
 

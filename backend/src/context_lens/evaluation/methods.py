@@ -6,6 +6,7 @@ from context_lens.evaluation.cases import Question
 from context_lens.evaluation.dataset import DATASET_ID, ChunkIndex, DocumentsById
 from context_lens.services.answering import (
     SYSTEM_INSTRUCTION,
+    Clarification,
     Excerpt,
     ask_about_excerpts,
     build_prompt,
@@ -27,8 +28,13 @@ class Method(Protocol):
     @property
     def name(self) -> MethodName: ...
 
+    # With a clarification, the answer to the reply a clarify question gives.
     async def answer(
-        self, question: Question, gemini: GeminiClient
+        self,
+        question: Question,
+        gemini: GeminiClient,
+        *,
+        clarification: Clarification | None = None,
     ) -> DatasetAnswer: ...
 
 
@@ -50,13 +56,25 @@ class WholeDocuments:
         # cases are in.
         return [document_excerpt(self.documents[name]) for name in question.files]
 
-    def prompt_characters(self, question: Question) -> int:
-        prompt = build_prompt(question.question, self.excerpts(question))
+    def prompt_characters(
+        self, question: Question, *, clarification: Clarification | None = None
+    ) -> int:
+        prompt = build_prompt(
+            question.question, self.excerpts(question), clarification=clarification
+        )
         return len(SYSTEM_INSTRUCTION) + len(prompt)
 
-    async def answer(self, question: Question, gemini: GeminiClient) -> DatasetAnswer:
+    async def answer(
+        self,
+        question: Question,
+        gemini: GeminiClient,
+        *,
+        clarification: Clarification | None = None,
+    ) -> DatasetAnswer:
         excerpts = self.excerpts(question)
-        answer = await ask_about_excerpts(question.question, excerpts, gemini)
+        answer = await ask_about_excerpts(
+            question.question, excerpts, gemini, clarification=clarification
+        )
         return DatasetAnswer(answer=verify_answer(answer, excerpts), excerpts=excerpts)
 
 
@@ -69,7 +87,13 @@ class DatasetSearch:
     documents: DocumentsById
     chunks_per_question: int
 
-    async def answer(self, question: Question, gemini: GeminiClient) -> DatasetAnswer:
+    async def answer(
+        self,
+        question: Question,
+        gemini: GeminiClient,
+        *,
+        clarification: Clarification | None = None,
+    ) -> DatasetAnswer:
         # The app's own function, so that what's measured is what the app does.
         return await answer_from_dataset(
             question.question,
@@ -78,11 +102,16 @@ class DatasetSearch:
             self.documents,
             gemini,
             self.chunks_per_question,
+            clarification=clarification,
         )
 
 
 def prompt_characters_at_most(
-    question: Question, chunks: list[FoundChunk], limit: int
+    question: Question,
+    chunks: list[FoundChunk],
+    limit: int,
+    *,
+    clarification: Clarification | None = None,
 ) -> int:
     # The prompt if the largest chunks were found, each as an excerpt of its own.
     # Chunks of a document that touch are merged into one excerpt, which only saves
@@ -91,5 +120,7 @@ def prompt_characters_at_most(
         excerpt for chunk in chunks for excerpt in excerpts_from_chunks([chunk])
     ]
     excerpts.sort(key=lambda excerpt: len(build_prompt("", [excerpt])), reverse=True)
-    prompt = build_prompt(question.question, excerpts[:limit])
+    prompt = build_prompt(
+        question.question, excerpts[:limit], clarification=clarification
+    )
     return len(SYSTEM_INSTRUCTION) + len(prompt)
