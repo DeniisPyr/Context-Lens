@@ -3,7 +3,8 @@
 # Every question is asked against its document in documents/, sent whole (the baseline),
 # and against the whole set of documents with RAG search, so each answerable question
 # has exactly one correct answer across all seven documents. A cross_document question's
-# baseline also gets each other document its evidence is in, after its own.
+# baseline also gets each other document its evidence is in, after its own, and a clarify
+# question's gets each other document its cases are in, after those.
 #
 # Fields:
 #   id         Unique; lowercase letters, digits and hyphens.
@@ -14,19 +15,27 @@
 #              injection         a fact that a prompt-injection line in the document tries to change
 #              missing_related   on the document's topic, but not answered in any document
 #              missing_unrelated general knowledge, not in any document; the app must not answer it
+#              clarify           the documents answer it differently for situations the question
+#                                doesn't tell apart; a correct run asks which one applies, then
+#                                answers the reply
 #   question   The question, as a user would ask it.
-#   facts      Answerable only. Each inner list is one fact, given as alternative phrasings;
-#              a right answer contains at least one alternative of every fact. Text is compared
-#              after casefolding and collapsing whitespace, and a phrase matches only as a whole
-#              (no letter, digit or underscore directly before or after it).
-#   evidence   Answerable only. The ranges of lines that state the facts, 1-based and inclusive
-#              (lines are a file split on "\n"): [start_line, end_line] in the question's
-#              document, or ["file.md", start_line, end_line] in any file in documents/. Only a
-#              cross_document question has evidence in another file, and it needs evidence in
-#              its own document and at least one other. A citation counts when it names the
-#              range's file and overlaps its lines.
+#   facts      Answerable and clarify only. Each inner list is one fact, given as alternative
+#              phrasings; a right answer contains at least one alternative of every fact. Text is
+#              compared after casefolding and collapsing whitespace, and a phrase matches only as
+#              a whole (no letter, digit or underscore directly before or after it). A clarify
+#              question's facts are of the answer to its reply.
+#   evidence   Answerable and clarify only. The ranges of lines that state the facts, 1-based
+#              and inclusive (lines are a file split on "\n"): [start_line, end_line] in the
+#              question's document, or ["file.md", start_line, end_line] in any file in
+#              documents/. Only a cross_document question has evidence in another file, and it
+#              needs evidence in its own document and at least one other. A citation counts
+#              when it names the range's file and overlaps its lines.
 #   forbidden  Optional. Phrases a correct answer must not contain, such as the value an
 #              injected line pushes or a tempting value from another document.
+#   reply      Clarify only, and required there. What the user replies to the clarifying
+#              question, whatever Gemini asks; at most 2000 characters, as in the app.
+#   cases      Clarify only, and at least one. The ranges of lines that show the situations the
+#              question can't tell apart, written like evidence and in any file in documents/.
 #
 # All documents and everything in them (company, people, products, the medicine) are fictional.
 

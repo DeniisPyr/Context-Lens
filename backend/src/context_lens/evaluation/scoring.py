@@ -5,7 +5,13 @@ from typing import TypedDict
 
 from pydantic import BaseModel
 
-from context_lens.evaluation.cases import ANSWERABLE, Category, LineRange, Question
+from context_lens.evaluation.cases import (
+    ANSWERABLE,
+    UNANSWERABLE,
+    Category,
+    LineRange,
+    Question,
+)
 from context_lens.evaluation.matching import contains_phrase
 from context_lens.services.answering import (
     AnswerStatus,
@@ -142,15 +148,15 @@ def score_run(
     forbidden_found = [
         phrase for phrase in question.forbidden if contains_phrase(final.answer, phrase)
     ]
-    if question.answerable:
+    if question.category in UNANSWERABLE:
+        correct = final.status == "not_found"
+    else:
         correct = (
             final.status == "answered"
             and all(facts_found)
             and all(evidence_cited)
             and not forbidden_found
         )
-    else:
-        correct = final.status == "not_found"
     return RunScore(
         correct=correct,
         facts_found=facts_found,
@@ -218,7 +224,8 @@ def summarize(records: list[RunRecord]) -> Summary:
     # A run that ended in a Gemini error has no answer, so no rate or timing counts it.
     scored = [record for record in records if record.error is None]
     answerable = [record for record in scored if record.category in ANSWERABLE]
-    unanswerable = [record for record in scored if record.category not in ANSWERABLE]
+    # Not every other run: a clarify question is neither.
+    unanswerable = [record for record in scored if record.category in UNANSWERABLE]
     seconds = sorted(record.seconds for record in scored)
     input_tokens = [record.input_tokens for record in scored]
     output_tokens = [_output_tokens(record) for record in scored]

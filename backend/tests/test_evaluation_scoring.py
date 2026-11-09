@@ -31,6 +31,17 @@ def make_question(**changes: object) -> Question:
 UNANSWERABLE = make_question(
     id="handbook-parking", category="missing_related", facts=[], evidence=[]
 )
+# Lines 50 and 51 give each office's opening time.
+CLARIFY = make_question(
+    id="handbook-opening-time",
+    category="clarify",
+    question="When does the office open?",
+    reply="I work in Brno.",
+    facts=[["9:00"]],
+    evidence=[[51, 51]],
+    cases=[[50, 51]],
+    forbidden=["8:00"],
+)
 
 
 def cite(start_line: int, end_line: int, file: str = "handbook.md") -> Citation:
@@ -279,6 +290,12 @@ def test_not_found_for_an_unanswerable_question_is_correct() -> None:
     assert score.rejected_by_verifier
 
 
+def test_not_found_for_a_clarify_question_is_wrong() -> None:
+    score = score_run(CLARIFY, NOT_FOUND, NOT_FOUND)
+
+    assert not score.correct
+
+
 def test_answering_an_unanswerable_question_is_wrong() -> None:
     final = answered("Behind the office.", cite(10, 10))
 
@@ -453,6 +470,23 @@ def test_summary_counts_each_kind_of_outcome() -> None:
     assert summary["unanswerable_runs"] == 2
     assert summary["not_found_accuracy"] == {"rate": 0.5, "count": 1, "of": 2}
     assert summary["rejected_by_verifier"] == {"rate": 1 / 6, "count": 1, "of": 6}
+
+
+def test_clarify_runs_are_neither_answerable_nor_unanswerable() -> None:
+    records = [
+        make_record(make_question(), answered("3 days.", cite(42, 43))),
+        make_record(UNANSWERABLE, NOT_FOUND),
+        make_record(CLARIFY, NOT_FOUND),
+    ]
+
+    summary = summarize(records)
+
+    assert summary["runs"] == 3
+    assert summary["correct"] == {"rate": 2 / 3, "count": 2, "of": 3}
+    assert summary["answerable_runs"] == 1
+    assert summary["false_not_found_rate"] == {"rate": 0.0, "count": 0, "of": 1}
+    assert summary["unanswerable_runs"] == 1
+    assert summary["not_found_accuracy"] == {"rate": 1.0, "count": 1, "of": 1}
 
 
 def test_evidence_shown_counts_answerable_runs_shown_all_their_evidence() -> None:

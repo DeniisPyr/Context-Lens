@@ -46,7 +46,8 @@ class WholeDocuments:
     documents: dict[str, Document]
 
     def excerpts(self, question: Question) -> list[Excerpt]:
-        # The question's own document first, then the others its evidence is in.
+        # The question's own document first, then the others its evidence and its
+        # cases are in.
         return [document_excerpt(self.documents[name]) for name in question.files]
 
     def prompt_characters(self, question: Question) -> int:

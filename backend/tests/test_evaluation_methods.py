@@ -97,6 +97,19 @@ def test_whole_documents_show_its_document_then_those_its_evidence_is_in() -> No
     )
 
 
+def test_whole_documents_show_the_files_a_clarify_questions_cases_are_in_too() -> None:
+    question = make_question(
+        category="clarify",
+        reply="In Brno.",
+        cases=[["policy.md", 1, 1], [2, 2], ["rules.md", 2, 2]],
+    )
+    method = WholeDocuments(DOCUMENTS)
+
+    excerpts = method.excerpts(question)
+
+    assert excerpts == [document_excerpt(d) for d in (HANDBOOK, POLICY, RULES)]
+
+
 async def test_whole_documents_answer_from_the_excerpts_they_show(
     fake_gemini: FakeGemini,
 ) -> None:

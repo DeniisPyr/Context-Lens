@@ -2,7 +2,12 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, TypedDict
 
-from context_lens.evaluation.cases import ANSWERABLE, CATEGORIES, LineRange, QuestionSet
+from context_lens.evaluation.cases import (
+    CATEGORIES,
+    UNANSWERABLE,
+    LineRange,
+    QuestionSet,
+)
 from context_lens.evaluation.dataset import IndexInfo
 from context_lens.evaluation.scoring import Rate, RunRecord, Summary, summarize
 
@@ -188,7 +193,7 @@ def failure_reasons(record: RunRecord) -> list[str]:
             return ["citations rejected by the verifier", *missed]
         return ["said not found", *missed]
     reasons = []
-    if record.category not in ANSWERABLE:
+    if record.category in UNANSWERABLE:
         reasons.append("answered a question the documents can't answer")
     reasons += [
         f"missing fact: {' / '.join(fact)}"

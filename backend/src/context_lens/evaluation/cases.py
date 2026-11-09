@@ -29,11 +29,15 @@ Category = Literal[
     "injection",
     "missing_related",
     "missing_unrelated",
+    "clarify",
 ]
 CATEGORIES: tuple[Category, ...] = get_args(Category)
 ANSWERABLE: frozenset[Category] = frozenset(
     {"fact", "multi_fact", "cross_document", "injection"}
 )
+# A clarify question is neither: it's answerable once the user says which situation
+# they're in, and not before.
+UNANSWERABLE: frozenset[Category] = frozenset({"missing_related", "missing_unrelated"})
 
 ID_PATTERN = re.compile(r"[a-z0-9-]+")
 # Settings() would need a Gemini key, and only the default limit is wanted here.
@@ -51,23 +55,32 @@ class LineRange(NamedTuple):
     end: int
 
 
+# The API's limits on a question and on a reply, so that every question could be
+# asked there too.
+type AskedText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
+]
+
+
 class Question(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str
     document: str
     category: Category
-    # The API's limits, so that every question could be asked there too.
-    question: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
-    ]
+    question: AskedText
     facts: list[list[str]] = []
     # Written as [start, end] for lines of the question's document, or as
     # [file, start, end] for lines of any file, and kept in the second form.
     evidence: list[LineRange] = []
     forbidden: list[str] = []
+    # Only a clarify question has these: what the user replies to whatever Gemini asks
+    # back, and the lines that show the situations the question can't tell apart,
+    # written as evidence is.
+    reply: AskedText | None = None
+    cases: list[LineRange] = []
 
-    @field_validator("evidence", mode="before")
+    @field_validator("evidence", "cases", mode="before")
     @classmethod
     def _name_each_file(cls, value: object, info: ValidationInfo) -> object:
         if not isinstance(value, list):
@@ -84,7 +97,7 @@ class Question(BaseModel):
                     ranges.append(entry)
                 case _:
                     raise PydanticCustomError(
-                        "evidence_entry",
+                        "line_range",
                         "entry {number} must be [start, end] or [file, start, end]",
                         {"number": number},
                     )
@@ -96,8 +109,12 @@ class Question(BaseModel):
 
     @property
     def files(self) -> list[str]:
-        # Its document first, then each other file its evidence is in, in order.
-        named = [self.document, *(lines.file for lines in self.evidence)]
+        # Its document first, then each other file its evidence is in, then each one
+        # its cases are in, in order.
+        named = [
+            self.document,
+            *(lines.file for lines in [*self.evidence, *self.cases]),
+        ]
         return list(dict.fromkeys(named))
 
 
@@ -157,7 +174,8 @@ def _parse_entry(entry: dict[str, object], number: int) -> Question:
 
 def _check_evidence_files(question: Question) -> None:
     in_document = any(lines.file == question.document for lines in question.evidence)
-    elsewhere = len(question.files) > 1
+    # Not from files, which has the files of a clarify question's cases too.
+    elsewhere = any(lines.file != question.document for lines in question.evidence)
     if question.category == "cross_document":
         if not (in_document and elsewhere):
             raise _problem(
@@ -176,7 +194,14 @@ def _check_evidence_files(question: Question) -> None:
 def _check_question(question: Question) -> None:
     if not ID_PATTERN.fullmatch(question.id):
         raise _problem(question, "the id must be lowercase letters, digits and hyphens")
-    if question.answerable:
+    if question.category in UNANSWERABLE:
+        if question.facts or question.evidence:
+            raise _problem(
+                question,
+                f"a {question.category} question can't have facts or evidence",
+            )
+    else:
+        # A clarify question's facts and evidence are of the answer to its reply.
         if not question.facts:
             raise _problem(question, f"a {question.category} question needs facts")
         if not all(question.facts):
@@ -184,9 +209,14 @@ def _check_question(question: Question) -> None:
         if not question.evidence:
             raise _problem(question, f"a {question.category} question needs evidence")
         _check_evidence_files(question)
-    elif question.facts or question.evidence:
+    if question.category == "clarify":
+        if question.reply is None:
+            raise _problem(question, "a clarify question needs a reply")
+        if not question.cases:
+            raise _problem(question, "a clarify question needs cases")
+    elif question.reply is not None or question.cases:
         raise _problem(
-            question, f"a {question.category} question can't have facts or evidence"
+            question, f"a {question.category} question can't have a reply or cases"
         )
     # An empty phrase would be found in every answer.
     if not all(phrase.strip() for phrase in chain(*question.facts, question.forbidden)):
@@ -225,19 +255,26 @@ def _as_document(path: Path, data: bytes) -> Document:
     return Document(id=filename, filename=filename, text=text)
 
 
-def _check_evidence(question: Question, documents: dict[str, Document]) -> None:
-    lines = {name: documents[name].lines for name in question.files}
-    for file, start, end in question.evidence:
+def _check_bounds(
+    question: Question, ranges: list[LineRange], name: str, lines: dict[str, list[str]]
+) -> None:
+    for file, start, end in ranges:
         if start > end:
             raise _problem(
-                question, f"evidence [{start}, {end}] in {file} ends before it starts"
+                question, f"{name} [{start}, {end}] in {file} ends before it starts"
             )
         if start < 1 or end > len(lines[file]):
             raise _problem(
                 question,
-                f"evidence [{start}, {end}] is outside {file}, "
+                f"{name} [{start}, {end}] is outside {file}, "
                 f"which has {len(lines[file])} lines",
             )
+
+
+def _check_evidence(question: Question, documents: dict[str, Document]) -> None:
+    lines = {name: documents[name].lines for name in question.files}
+    _check_bounds(question, question.evidence, "evidence", lines)
+    _check_bounds(question, question.cases, "case", lines)
     # Catches line numbers that point at the wrong place.
     text = "\n".join(
         line
