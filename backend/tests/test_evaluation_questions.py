@@ -16,7 +16,4 @@ def test_every_category_has_questions() -> None:
     question_set = load_question_set(EVALS)
 
     counts = Counter(question.category for question in question_set.questions)
-    # The clarify questions aren't written yet.
-    assert all(
-        counts[category] >= 2 for category in CATEGORIES if category != "clarify"
-    )
+    assert all(counts[category] >= 2 for category in CATEGORIES)
