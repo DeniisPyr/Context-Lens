@@ -2,7 +2,7 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing. When the answer depends on something the question doesn't say, it asks.
 
-> Work in progress: a FastAPI backend and a React frontend. Documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. When the documents answer a question differently for different situations and the question doesn't say which one applies, Gemini asks one clarifying question, citing the lines that differ, and answers the user's reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
+> Work in progress: a FastAPI backend and a React frontend. Text, Markdown and PDF documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. When the documents answer a question differently for different situations and the question doesn't say which one applies, Gemini asks one clarifying question, citing the lines that differ, and answers the user's reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
 
 ## Run locally
 
@@ -35,7 +35,7 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173, create a dataset, upload `.txt` or `.md` files into it (up to 1 MB each), and ask a question about the dataset. If the answer depends on something the question doesn't say, you get a question back, with the lines that show why, and a box to reply in. Click a citation's lines to read them in its document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+Then open http://localhost:5173, create a dataset, upload `.txt`, `.md` or `.pdf` files into it (up to 1 MB each), and ask a question about the dataset. If the answer depends on something the question doesn't say, you get a question back, with the lines that show why, and a box to reply in. Click a citation's lines, or its page for a PDF, to read them in its document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 
 You can also call the API directly. Create a dataset and upload a file into it using the `id` from its response, then read the document, ask about it or delete it using the `id` from the upload response. When an answer's `status` is `needs_clarification`, its `answer` is a question back: send the question again with that text and your reply in `clarification`. Deleting the dataset deletes its documents too:
 
@@ -76,6 +76,16 @@ uv run alembic upgrade head
 ```
 
 Documents you already have move to a dataset named `My documents` when the migration that adds datasets runs, and any duplicate filenames among them get a number, as in `notes (2).txt`.
+
+### PDF files
+
+A PDF's text is read page by page with [pypdf](https://pypi.org/project/pypdf/). Its lines are numbered through the whole document, as a text file's are, so search and the citation check work the same way. The line each page starts on is stored with the document. A citation of a PDF names its page, such as "Page 2", and the line viewer shows a "Page" row where each page starts, with lines numbered from 1 on each page.
+
+- **Text only:** a scanned PDF has no text to read, so it's refused. So is one that needs a password; one that only restricts copying or printing is read.
+- **Size:** the file must be under 1 MB like any upload, and so must its text. A well-compressed PDF can hold far more text than its size, and every line of it is embedded.
+- **Pages and time:** a PDF can have at most 1,000 pages, and reading stops after 20 seconds. Reading runs in a worker thread, so other requests are served meanwhile. One page can still take a few seconds past the limit, though, and a read can't be cancelled.
+- **Layout:** the text comes out as pypdf reads it, so columns, tables and hyphenated words may not read as they do on the page. The spaces a PDF pads its lines with are dropped.
+- **Logs:** pypdf's own log messages can quote the file, so none of them are logged.
 
 ### Chunks and embeddings
 
@@ -246,7 +256,7 @@ context_lens/
     ├── answering.py         # builds the prompt from excerpts and any reply, asks Gemini, verifies citations
     ├── chunking.py          # splits a document into chunks of lines
     ├── datasets.py          # what a dataset is, and its errors
-    ├── documents.py         # validates uploads and splits text into lines
+    ├── documents.py         # validates uploads, reads the text of PDFs, splits text into lines
     ├── embeddings.py        # the embedding size, and how a chunk is labelled for it
     ├── indexing.py          # chunks a document and embeds the chunks
     └── search.py            # answers a question from the chunks a search finds in a dataset
@@ -290,7 +300,8 @@ src/
 │   ├── DatasetContents.tsx    # everything for one dataset: its documents and the questions
 │   ├── Datasets.tsx           # chooses a dataset, offers to create one and to delete it
 │   ├── Documents.tsx          # shows the upload form and the document list, with Delete buttons
-│   ├── LineViewer.tsx         # shows a citation's lines in the document
+│   ├── LineViewer.tsx         # shows a citation's lines in the document, with a PDF's pages
+│   ├── pageOfLine.ts          # finds the page of a PDF that holds a line
 │   ├── ReplyForm.tsx          # replies to a clarifying question
 │   └── UploadForm.tsx         # chooses files, uploads them one by one and says how each went
 ├── hooks/

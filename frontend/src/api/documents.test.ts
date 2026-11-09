@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { deleteDocument, getDocument, listDocuments, uploadDocument } from './documents.ts'
 
-const summary = { id: '1', filename: 'notes.txt', line_count: 2 }
+const summary = { id: '1', filename: 'notes.txt', line_count: 2, page_count: null }
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -48,7 +48,7 @@ describe('listDocuments', () => {
 })
 
 describe('getDocument', () => {
-  const detail = { ...summary, lines: ['one', 'two'] }
+  const detail = { ...summary, lines: ['one', 'two'], page_starts: null }
   const { signal } = new AbortController()
 
   it('asks for the document by id, passes the signal on and returns its lines', async () => {

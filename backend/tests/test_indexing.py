@@ -154,7 +154,7 @@ def test_deleted_dataset_is_refused_without_calling_gemini(
 @pytest.mark.parametrize(
     ("filename", "content", "status"),
     [
-        pytest.param("notes.pdf", b"hello", 415, id="wrong_type"),
+        pytest.param("notes.docx", b"hello", 415, id="wrong_type"),
         pytest.param("notes.txt", b"caf\xe9", 415, id="not_utf8"),
         pytest.param("notes.txt", b" \n", 422, id="empty"),
         pytest.param("notes.txt", b"x" * 1_000_001, 413, id="too_large"),

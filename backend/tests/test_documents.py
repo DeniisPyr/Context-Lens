@@ -60,7 +60,12 @@ def test_upload_returns_the_document_summary(
     response = upload(client, documents_url, text.encode(), "poznámky.txt")
 
     assert response.status_code == 201
-    assert response.json() == {"id": ANY, "filename": "poznámky.txt", "line_count": 2}
+    assert response.json() == {
+        "id": ANY,
+        "filename": "poznámky.txt",
+        "line_count": 2,
+        "page_count": None,
+    }
     assert stored_document(client, response).text == text
 
 
@@ -77,10 +82,10 @@ def test_extensions_are_case_insensitive(
 @pytest.mark.parametrize(
     ("filename", "content", "status", "detail"),
     [
-        ("notes.pdf", b"hello", 415, "Only .txt and .md"),
-        ("notes", b"hello", 415, "Only .txt and .md"),
-        ("/", b"hello", 415, "Only .txt and .md"),
-        ("C:\\", b"hello", 415, "Only .txt and .md"),
+        ("notes.docx", b"hello", 415, "Only .txt, .md and .pdf"),
+        ("notes", b"hello", 415, "Only .txt, .md and .pdf"),
+        ("/", b"hello", 415, "Only .txt, .md and .pdf"),
+        ("C:\\", b"hello", 415, "Only .txt, .md and .pdf"),
         ("notes.txt", b"caf\xe9", 415, "UTF-8"),
         ("notes.txt", b"a\x00b", 415, "NUL"),
         ("notes.txt", b"", 422, "empty"),
@@ -156,7 +161,7 @@ def test_file_over_the_size_limit_is_rejected(
 def test_file_type_is_checked_before_the_size(
     client: TestClient, documents_url: str
 ) -> None:
-    response = upload(client, documents_url, b"x" * (LIMIT + 1), "notes.pdf")
+    response = upload(client, documents_url, b"x" * (LIMIT + 1), "notes.docx")
 
     assert response.status_code == 415
 
@@ -248,12 +253,13 @@ def test_stored_line_count_matches_the_lines_of_the_stored_text(
 
 
 def test_summary_can_be_built_without_the_text() -> None:
-    info = DocumentInfo(id="1", filename="a.txt", line_count=7)
+    info = DocumentInfo(id="1", filename="a.txt", line_count=7, page_count=None)
 
     assert DocumentSummary.from_document(info).model_dump() == {
         "id": "1",
         "filename": "a.txt",
         "line_count": 7,
+        "page_count": None,
     }
 
 
@@ -374,7 +380,9 @@ def test_read_returns_the_document_with_its_lines(
         "id": uploaded["id"],
         "filename": "poznámky.txt",
         "line_count": 2,
+        "page_count": None,
         "lines": ["Příliš žluťoučký", "kůň"],
+        "page_starts": None,
     }
 
 
@@ -591,7 +599,7 @@ def test_document_survives_an_app_restart(
         answer = ask(after_restart, documents_url, "Which colour?").json()
 
     assert listed == [uploaded]
-    assert read == {**uploaded, "lines": ["The cat is orange."]}
+    assert read == {**uploaded, "lines": ["The cat is orange."], "page_starts": None}
     assert answer["status"] == "answered"
     assert answer["citations"][0]["filename"] == "cat.txt"
     assert "1: The cat is orange." in fake_gemini.prompts[0]

@@ -4,7 +4,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from context_lens.services.answering import (
     AnswerStatus,
+    Citation,
     Clarification,
+    Excerpt,
     sources_by_name,
 )
 from context_lens.services.search import DatasetAnswer
@@ -40,7 +42,24 @@ class CitationResponse(BaseModel):
     filename: str
     start_line: int
     end_line: int
+    # The pages of a PDF that hold start_line and end_line. None for a text file.
+    start_page: int | None
+    end_page: int | None
     quote: str
+
+    @classmethod
+    def from_citation(
+        cls, citation: Citation, source: Excerpt, result: DatasetAnswer
+    ) -> Self:
+        return cls(
+            document_id=source.document_id,
+            filename=source.filename,
+            start_line=citation.start_line,
+            end_line=citation.end_line,
+            start_page=result.page_of(source.document_id, citation.start_line),
+            end_page=result.page_of(source.document_id, citation.end_line),
+            quote=citation.quote,
+        )
 
 
 class AskResponse(BaseModel):
@@ -56,13 +75,7 @@ class AskResponse(BaseModel):
             status=result.answer.status,
             answer=result.answer.answer,
             citations=[
-                CitationResponse(
-                    document_id=sources[citation.file].document_id,
-                    filename=sources[citation.file].filename,
-                    start_line=citation.start_line,
-                    end_line=citation.end_line,
-                    quote=citation.quote,
-                )
+                CitationResponse.from_citation(citation, sources[citation.file], result)
                 for citation in result.answer.citations
             ],
         )

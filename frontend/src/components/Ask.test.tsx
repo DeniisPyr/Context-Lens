@@ -22,16 +22,32 @@ const POST_FILE = 'POST /api/datasets/d1/documents'
 
 const reports = { id: 'd1', name: 'Reports' }
 
-const notes = { id: '1', filename: 'notes.txt', line_count: 9 }
-const report = { id: '2', filename: 'report.md', line_count: 9 }
-const latest = { id: '3', filename: 'latest.txt', line_count: 9 }
+const notes = { id: '1', filename: 'notes.txt', line_count: 9, page_count: null }
+const report = { id: '2', filename: 'report.md', line_count: 9, page_count: null }
+const latest = { id: '3', filename: 'latest.txt', line_count: 9, page_count: null }
 
 const answered = {
   status: 'answered',
   answer: 'The answer.',
   citations: [
-    { document_id: '1', filename: 'notes.txt', start_line: 3, end_line: 3, quote: 'the third line' },
-    { document_id: '1', filename: 'notes.txt', start_line: 4, end_line: 6, quote: 'three more lines' },
+    {
+      document_id: '1',
+      filename: 'notes.txt',
+      start_line: 3,
+      end_line: 3,
+      start_page: null,
+      end_page: null,
+      quote: 'the third line',
+    },
+    {
+      document_id: '1',
+      filename: 'notes.txt',
+      start_line: 4,
+      end_line: 6,
+      start_page: null,
+      end_page: null,
+      quote: 'three more lines',
+    },
   ],
 }
 const notFound = {
@@ -43,8 +59,24 @@ const clarifying = {
   status: 'needs_clarification',
   answer: 'Did you lose a company laptop or a phone?',
   citations: [
-    { document_id: '1', filename: 'notes.txt', start_line: 2, end_line: 2, quote: 'a lost laptop' },
-    { document_id: '1', filename: 'notes.txt', start_line: 7, end_line: 8, quote: 'a lost phone' },
+    {
+      document_id: '1',
+      filename: 'notes.txt',
+      start_line: 2,
+      end_line: 2,
+      start_page: null,
+      end_page: null,
+      quote: 'a lost laptop',
+    },
+    {
+      document_id: '1',
+      filename: 'notes.txt',
+      start_line: 7,
+      end_line: 8,
+      start_page: null,
+      end_page: null,
+      quote: 'a lost phone',
+    },
   ],
 }
 
@@ -103,7 +135,7 @@ async function reply(user: UserEvent, text = 'A laptop.') {
 }
 
 async function sendFile(user: UserEvent, filename: string) {
-  await user.upload(screen.getByLabelText('Choose .txt or .md files'), new File(['text'], filename))
+  await user.upload(screen.getByLabelText('Choose .txt, .md or .pdf files'), new File(['text'], filename))
   await user.click(screen.getByRole('button', { name: 'Upload' }))
 }
 
@@ -328,7 +360,15 @@ describe('asking', () => {
     const user = userEvent.setup()
     const html = '<img src=x onerror=alert(1)>'
     const filename = `${html}.txt`
-    const citation = { document_id: '1', filename, start_line: 1, end_line: 1, quote: `${html} quote` }
+    const citation = {
+      document_id: '1',
+      filename,
+      start_line: 1,
+      end_line: 1,
+      start_page: null,
+      end_page: null,
+      quote: `${html} quote`,
+    }
     stubPage([{ ...notes, filename }], {
       [GET_DATASETS]: () => Response.json([{ ...reports, name: html }]),
       'POST /api/ask': () =>
@@ -376,14 +416,30 @@ describe('an answer that cites two files', () => {
     status: 'answered',
     answer: 'The answer.',
     citations: [
-      { document_id: '1', filename: 'notes.txt', start_line: 3, end_line: 3, quote: 'notes line 3' },
-      { document_id: '2', filename: 'report.md', start_line: 2, end_line: 2, quote: 'report line 2' },
+      {
+        document_id: '1',
+        filename: 'notes.txt',
+        start_line: 3,
+        end_line: 3,
+        start_page: null,
+        end_page: null,
+        quote: 'notes line 3',
+      },
+      {
+        document_id: '2',
+        filename: 'report.md',
+        start_line: 2,
+        end_line: 2,
+        start_page: null,
+        end_page: null,
+        quote: 'report line 2',
+      },
     ],
   }
   // Each document's lines say which document they're from, so a viewer showing the wrong one can't pass.
   function documentRoute(doc: typeof notes, prefix: string): Route {
     const lines = Array.from({ length: 9 }, (_, index) => `${prefix} line ${index + 1}`)
-    return () => Response.json({ ...doc, lines })
+    return () => Response.json({ ...doc, lines, page_starts: null })
   }
 
   function stubTwoFiles() {
@@ -437,7 +493,7 @@ describe('an answer that cites two files', () => {
 
 describe('an open citation', () => {
   const lines = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`)
-  const documentRoute: Route = () => Response.json({ ...notes, lines })
+  const documentRoute: Route = () => Response.json({ ...notes, lines, page_starts: null })
 
   const openViewers = () => screen.queryAllByRole('list', { name: /^Lines of/ })
   const expanded = () => screen.getAllByRole('button', { expanded: true })
@@ -822,7 +878,7 @@ describe('a clarifying question', () => {
     const lines = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`)
     stubPage([notes], {
       'POST /api/ask': answersInTurn(clarifying, answered),
-      'GET /api/documents/1': () => Response.json({ ...notes, lines }),
+      'GET /api/documents/1': () => Response.json({ ...notes, lines, page_starts: null }),
     })
 
     await renderPage()

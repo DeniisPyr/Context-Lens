@@ -247,7 +247,12 @@ def test_upload_into_a_dataset_returns_the_summary_and_lists_it(
     response = upload(client, documents_url, "poznámky.txt", b"a\nb\n")
 
     assert response.status_code == 201
-    assert response.json() == {"id": ANY, "filename": "poznámky.txt", "line_count": 2}
+    assert response.json() == {
+        "id": ANY,
+        "filename": "poznámky.txt",
+        "line_count": 2,
+        "page_count": None,
+    }
     assert client.get(documents_url).json() == [response.json()]
 
 
@@ -259,7 +264,7 @@ def test_uploaded_document_can_be_read_by_its_own_id(
     response = client.get(f"/api/documents/{uploaded['id']}")
 
     assert response.status_code == 200
-    assert response.json() == {**uploaded, "lines": ["one", "two"]}
+    assert response.json() == {**uploaded, "lines": ["one", "two"], "page_starts": None}
 
 
 def test_uploaded_document_can_be_asked_about(
@@ -298,7 +303,8 @@ def test_list_holds_the_summaries_in_upload_order_and_no_text(
 
     assert response.json() == uploads
     assert all(
-        set(item) == {"id", "filename", "line_count"} for item in response.json()
+        set(item) == {"id", "filename", "line_count", "page_count"}
+        for item in response.json()
     )
 
 
@@ -407,11 +413,11 @@ def test_list_of_a_bad_or_unknown_dataset_is_a_404(
 @pytest.mark.parametrize(
     ("dataset_id", "filename", "content", "status"),
     [
-        ("not-a-uuid", "notes.pdf", b"hello", 415),
+        ("not-a-uuid", "notes.docx", b"hello", 415),
         ("not-a-uuid", "notes.txt", b"caf\xe9", 415),
         ("not-a-uuid", "notes.txt", b"", 422),
         ("not-a-uuid", "notes.txt", b"x" * 1_000_001, 413),
-        (NO_SUCH_DATASET, "notes.pdf", b"hello", 415),
+        (NO_SUCH_DATASET, "notes.docx", b"hello", 415),
         (NO_SUCH_DATASET, "notes.txt", b"", 422),
     ],
 )

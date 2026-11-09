@@ -55,8 +55,8 @@ export default function UploadForm({ datasetId, busy, onBusyChange, onUploaded }
     <>
       <form className="upload-form" onSubmit={handleSubmit}>
         <label>
-          Choose .txt or .md files
-          <input ref={input} type="file" accept=".txt,.md" multiple disabled={busy} />
+          Choose .txt, .md or .pdf files
+          <input ref={input} type="file" accept=".txt,.md,.pdf" multiple disabled={busy} />
         </label>
         <button type="submit" disabled={busy}>
           {progress ? `Uploading ${progress.current} of ${progress.total}…` : 'Upload'}

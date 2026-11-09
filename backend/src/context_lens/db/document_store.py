@@ -39,6 +39,10 @@ def _chunk_rows(document_id: UUID, chunks: list[EmbeddedChunk]) -> list[ChunkRow
     ]
 
 
+def _read_page_starts(stored: list[int] | None) -> tuple[int, ...] | None:
+    return None if stored is None else tuple(stored)
+
+
 def _count_documents(dataset_key: UUID) -> Select[int]:
     return (
         select(func.count())
@@ -79,17 +83,22 @@ class DocumentStore:
         text: str,
         chunks: list[EmbeddedChunk],
         max_documents: int,
+        *,
+        page_starts: tuple[int, ...] | None = None,
     ) -> Document:
         key = parse_id(dataset_id)
         if key is None:
             raise DatasetNotFoundError
-        document = Document(id=str(uuid4()), filename=filename, text=text)
+        document = Document(
+            id=str(uuid4()), filename=filename, text=text, page_starts=page_starts
+        )
         row = DocumentRow(
             id=UUID(document.id),
             dataset_id=key,
             filename=filename,
             text=text,
             line_count=document.line_count,
+            page_starts=None if page_starts is None else list(page_starts),
         )
         try:
             # One transaction, so a document is never stored without its chunks.
@@ -127,7 +136,12 @@ class DocumentStore:
             row = await session.get(DocumentRow, key)
             if row is None:
                 return None
-            return Document(id=str(row.id), filename=row.filename, text=row.text)
+            return Document(
+                id=str(row.id),
+                filename=row.filename,
+                text=row.text,
+                page_starts=_read_page_starts(row.page_starts),
+            )
 
     async def get_many(self, document_ids: list[str]) -> list[Document]:
         # Only the documents found: an unknown or bad id has none.
@@ -135,12 +149,20 @@ class DocumentStore:
         if not keys:
             return []
         statement = select(
-            DocumentRow.id, DocumentRow.filename, DocumentRow.text
+            DocumentRow.id,
+            DocumentRow.filename,
+            DocumentRow.text,
+            DocumentRow.page_starts,
         ).where(DocumentRow.id.in_(keys))
         async with self._sessions.begin() as session:
             rows = await session.execute(statement)
             return [
-                Document(id=str(row.id), filename=row.filename, text=row.text)
+                Document(
+                    id=str(row.id),
+                    filename=row.filename,
+                    text=row.text,
+                    page_starts=_read_page_starts(row.page_starts),
+                )
                 for row in rows
             ]
 
@@ -192,7 +214,14 @@ class DocumentStore:
         if key is None:
             raise DatasetNotFoundError
         statement = (
-            select(DocumentRow.id, DocumentRow.filename, DocumentRow.line_count)
+            select(
+                DocumentRow.id,
+                DocumentRow.filename,
+                DocumentRow.line_count,
+                # Counted by Postgres, so that the starts aren't sent only to be counted.
+                # NULL for a text file.
+                func.cardinality(DocumentRow.page_starts).label("page_count"),
+            )
             .where(DocumentRow.dataset_id == key)
             .order_by(DocumentRow.created_at, DocumentRow.id)
         )
@@ -203,7 +232,10 @@ class DocumentStore:
             rows = await session.execute(statement)
             return [
                 DocumentInfo(
-                    id=str(row.id), filename=row.filename, line_count=row.line_count
+                    id=str(row.id),
+                    filename=row.filename,
+                    line_count=row.line_count,
+                    page_count=row.page_count,
                 )
                 for row in rows
             ]

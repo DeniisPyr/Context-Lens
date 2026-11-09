@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Citation } from '../api/ask.ts'
 import { type DocumentDetail, getDocument } from '../api/documents.ts'
+import { pageOfLine } from './pageOfLine.ts'
 
 // A 1 MB file can hold up to a million lines, so only this many around the citation are shown at first.
 const CONTEXT_LINES = 10
@@ -46,6 +47,31 @@ export default function LineViewer({ citation }: { citation: Citation }) {
 
   const first = Math.max(1, start_line - linesBefore)
   const last = Math.min(doc.lines.length, end_line + linesAfter)
+  const pageStarts = doc.page_starts
+
+  // A PDF numbers its lines from 1 on each page, as its reader counts them.
+  const numberOnPage = (number: number) =>
+    pageStarts === null ? number : number - pageStarts[pageOfLine(pageStarts, number) - 1] + 1
+
+  // The page rows of a PDF that go right before a line: one for each page that starts on it, among them any pages with
+  // no text, which start where the next page does. The first line shown also gets the row of its own page when it's
+  // further down that page. Pages with no text at the end start on the line after the last.
+  const pageRows = (number: number) => {
+    if (pageStarts === null) return null
+    const page = pageOfLine(pageStarts, number)
+    const startingHere = page - pageOfLine(pageStarts, number - 1)
+    const firstPage = startingHere === 0 && number === first ? page : page - startingHere + 1
+    return Array.from({ length: page - firstPage + 1 }, (_, index) => {
+      const rowPage = firstPage + index
+      const empty = pageStarts[rowPage - 1] === (pageStarts[rowPage] ?? doc.lines.length + 1)
+      return (
+        <li key={rowPage} className="page-start">
+          <h4>Page {rowPage}</h4>
+          {empty && <p>No text on this page</p>}
+        </li>
+      )
+    })
+  }
 
   return (
     <div className="line-viewer">
@@ -60,16 +86,16 @@ export default function LineViewer({ citation }: { citation: Citation }) {
           const number = first + index
           const cited = number >= start_line && number <= end_line
           return (
-            <li
-              key={number}
-              ref={number === start_line ? firstCitedLine : undefined}
-              aria-current={cited ? 'true' : undefined}
-            >
-              <span className="line-number">{number}</span>
-              <span className="line-text">{text}</span>
-            </li>
+            <Fragment key={number}>
+              {pageRows(number)}
+              <li ref={number === start_line ? firstCitedLine : undefined} aria-current={cited ? 'true' : undefined}>
+                <span className="line-number">{numberOnPage(number)}</span>
+                <span className="line-text">{text}</span>
+              </li>
+            </Fragment>
           )
         })}
+        {last === doc.lines.length && pageRows(doc.lines.length + 1)}
       </ol>
       {last < doc.lines.length && (
         <button type="button" className="link-button" onClick={() => setLinesAfter(linesAfter + CONTEXT_LINES)}>

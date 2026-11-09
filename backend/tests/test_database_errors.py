@@ -216,25 +216,40 @@ def test_missing_migrations_are_logged_without_the_text(
     assert PRIVATE_TEXT not in caplog.text
 
 
-def test_uploads_without_the_chunks_table_ask_for_the_migrations(
-    database: URL, start_app: StartApp, caplog: pytest.LogCaptureFixture
+def test_documents_without_their_page_starts_ask_for_the_migrations(
+    database: URL, start_app: StartApp
 ) -> None:
-    # Someone who pulled this code without applying its migration. Only uploads write
-    # chunks, so everything else still works.
-    apply_migrations(database, "0004")
+    # Someone who pulled this code without applying its migration. Every route that
+    # reads or writes a document needs the column, and the others still work.
+    apply_migrations(database, "0005")
 
     with start_app() as client:
         documents_url = create_dataset(client)
-        response = client.post(documents_url, **UPLOAD)
-        listed = client.get(documents_url)
+        responses = [
+            client.get(documents_url),
+            client.post(documents_url, **UPLOAD),
+            client.get(f"/api/documents/{NO_SUCH_ID}"),
+        ]
+        datasets = client.get("/api/datasets")
 
-    assert response.status_code == 503
+    assert [response.status_code for response in responses] == [503] * 3
+    assert all(response.json() == NOT_READY for response in responses)
+    assert datasets.status_code == 200
+
+
+def test_uploads_without_the_page_starts_column_are_logged_without_the_text(
+    database: URL, start_app: StartApp, caplog: pytest.LogCaptureFixture
+) -> None:
+    apply_migrations(database, "0005")
+
+    with start_app() as client:
+        response = client.post(create_dataset(client), **UPLOAD)
+
     assert response.json() == NOT_READY
-    assert listed.json() == []
     [error] = logged_errors(caplog, "The database isn't ready.")
     assert isinstance(error, ProgrammingError)
-    # The traceback is in there, with the insert that sent the text as a chunk's.
-    assert "INSERT INTO chunks" in caplog.text
+    # The traceback is in there, with the insert that sent the text.
+    assert "INSERT INTO documents" in caplog.text
     assert PRIVATE_TEXT not in caplog.text
 
 

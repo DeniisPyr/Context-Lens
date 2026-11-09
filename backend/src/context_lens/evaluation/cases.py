@@ -249,10 +249,15 @@ def _as_document(path: Path, data: bytes) -> Document:
     # Through the upload code, so eval documents follow the rules and line numbers of
     # a real upload.
     try:
-        filename, text = read_upload(path.name, data, MAX_UPLOAD_BYTES)
+        upload = read_upload(path.name, data, MAX_UPLOAD_BYTES)
     except InvalidDocumentError as exc:
         raise InvalidQuestionSetError(f"{path}: {exc}") from None
-    return Document(id=filename, filename=filename, text=text)
+    return Document(
+        id=upload.filename,
+        filename=upload.filename,
+        text=upload.text,
+        page_starts=upload.page_starts,
+    )
 
 
 def _check_bounds(

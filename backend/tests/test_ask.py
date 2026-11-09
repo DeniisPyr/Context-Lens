@@ -211,6 +211,8 @@ def test_citations_of_two_files_lead_to_their_own_documents(
                 "filename": "b.md",
                 "start_line": 2,
                 "end_line": 2,
+                "start_page": None,
+                "end_page": None,
                 "quote": "Line 2 of b.md",
             },
             {
@@ -218,6 +220,8 @@ def test_citations_of_two_files_lead_to_their_own_documents(
                 "filename": "a.txt",
                 "start_line": 3,
                 "end_line": 4,
+                "start_page": None,
+                "end_page": None,
                 "quote": across_two_lines,
             },
         ],
@@ -278,6 +282,8 @@ def test_clarifying_question_is_returned_with_citations_to_the_documents(
                 "filename": "b.md",
                 "start_line": 2,
                 "end_line": 2,
+                "start_page": None,
+                "end_page": None,
                 "quote": "Line 2 of b.md",
             },
             {
@@ -285,6 +291,8 @@ def test_clarifying_question_is_returned_with_citations_to_the_documents(
                 "filename": "a.txt",
                 "start_line": 3,
                 "end_line": 4,
+                "start_page": None,
+                "end_page": None,
                 "quote": across_two_lines,
             },
         ],
@@ -549,6 +557,8 @@ def test_ask_returns_the_answer_with_citations_to_the_document(
                 "filename": "notes.txt",
                 "start_line": 2,
                 "end_line": 3,
+                "start_page": None,
+                "end_page": None,
                 "quote": quote,
             }
         ],
@@ -731,6 +741,8 @@ def test_answer_to_a_reply_is_returned_with_citations_to_the_document(
                 "filename": "notes.txt",
                 "start_line": 1,
                 "end_line": 1,
+                "start_page": None,
+                "end_page": None,
                 "quote": "The cat is orange.",
             }
         ],

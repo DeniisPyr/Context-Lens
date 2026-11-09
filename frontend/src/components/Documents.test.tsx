@@ -34,7 +34,7 @@ function LoadedDocuments() {
 const GET_LIST = 'GET /api/datasets/d1/documents'
 const POST_FILE = 'POST /api/datasets/d1/documents'
 
-const notes = { id: '1', filename: 'notes.txt', line_count: 2 }
+const notes = { id: '1', filename: 'notes.txt', line_count: 2, page_count: null }
 
 // Like the real fetch: never answers by itself, and rejects once aborted.
 const rejectsOnAbort: Route = (init) =>
@@ -42,7 +42,7 @@ const rejectsOnAbort: Route = (init) =>
     init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
   })
 
-const fileInput = () => screen.getByLabelText<HTMLInputElement>('Choose .txt or .md files')
+const fileInput = () => screen.getByLabelText<HTMLInputElement>('Choose .txt, .md or .pdf files')
 const uploadButton = () => screen.getByRole('button', { name: 'Upload' })
 const summary = () => screen.getByRole('status')
 const documentList = () => within(screen.getByRole('list', { name: 'Documents' }))
@@ -97,7 +97,7 @@ describe('the document list', () => {
   })
 
   it('shows the filename and line count of each document, in order', async () => {
-    const short = { id: '2', filename: 'short.md', line_count: 1 }
+    const short = { id: '2', filename: 'short.md', line_count: 1, page_count: null }
     stubRoutes({ [GET_LIST]: () => Response.json([notes, short]) })
 
     render(<LoadedDocuments />)
@@ -108,6 +108,21 @@ describe('the document list', () => {
     expect(rows[1]).toHaveTextContent('short.md')
     expect(within(rows[1]).getByText('1 line')).toBeInTheDocument()
     expect(screen.queryByText('No documents yet.')).not.toBeInTheDocument()
+  })
+
+  it('counts a PDF in pages instead of lines', async () => {
+    const report = { id: '2', filename: 'report.pdf', line_count: 120, page_count: 3 }
+    const leaflet = { id: '3', filename: 'leaflet.pdf', line_count: 1, page_count: 1 }
+    stubRoutes({ [GET_LIST]: () => Response.json([notes, report, leaflet]) })
+
+    render(<LoadedDocuments />)
+
+    const rows = await screen.findAllByRole('listitem')
+    expect(within(rows[0]).getByText('2 lines')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('3 pages')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('1 page')).toBeInTheDocument()
+    expect(rows[1]).not.toHaveTextContent(/line|120/)
+    expect(rows[2]).not.toHaveTextContent(/line/)
   })
 
   it('asks for the documents of the dataset it was given', async () => {
@@ -183,7 +198,7 @@ describe('uploading', () => {
   it('reloads the list from the server and clears the input', async () => {
     const user = userEvent.setup()
     // The reloaded list also holds a document this page didn't upload: appending the POST response can't show it.
-    const other = { id: '2', filename: 'other.txt', line_count: 5 }
+    const other = { id: '2', filename: 'other.txt', line_count: 5, page_count: null }
     const get = vi
       .fn<Route>()
       .mockResolvedValueOnce(Response.json([]))
@@ -207,14 +222,14 @@ describe('uploading', () => {
     const user = userEvent.setup({ applyAccept: false })
     stubRoutes({
       [GET_LIST]: () => Response.json([]),
-      [POST_FILE]: () => Response.json({ detail: 'Only .txt and .md are allowed.' }, { status: 415 }),
+      [POST_FILE]: () => Response.json({ detail: 'Only .txt, .md and .pdf files are accepted.' }, { status: 415 }),
     })
 
     render(<LoadedDocuments />)
-    await upload(user, new File(['%PDF'], 'report.pdf'))
+    await upload(user, new File(['PK'], 'report.docx'))
 
-    await screen.findByText('Only .txt and .md are allowed.')
-    expect(resultRows()[0]).toHaveTextContent('report.pdf')
+    await screen.findByText('Only .txt, .md and .pdf files are accepted.')
+    expect(resultRows()[0]).toHaveTextContent('report.docx')
     expect(screen.getByText('No documents yet.')).toBeInTheDocument()
   })
 
@@ -333,9 +348,30 @@ describe('uploading', () => {
 
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
-    await user.upload(fileInput(), new File(['%PDF'], 'report.pdf'))
+    await user.upload(fileInput(), new File(['PK'], 'report.docx'))
 
     expect(fileInput().files).toHaveLength(0)
+  })
+
+  it('accepts a PDF in the file chooser and uploads it like a text file', async () => {
+    const user = userEvent.setup()
+    const report = { id: '2', filename: 'report.pdf', line_count: 120, page_count: 3 }
+    const get = vi.fn<Route>().mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(Response.json([report]))
+    const fetchStub = stubRoutes({
+      [GET_LIST]: get,
+      [POST_FILE]: () => Response.json(report, { status: 201 }),
+    })
+    const pdf = new File(['%PDF-1.7'], 'report.pdf', { type: 'application/pdf' })
+
+    render(<LoadedDocuments />)
+    await screen.findByText('No documents yet.')
+    await upload(user, pdf)
+
+    await screen.findByRole('list', { name: 'Documents' })
+    expect(documentList().getByText('report.pdf')).toBeInTheDocument()
+    expect(documentList().getByText('3 pages')).toBeInTheDocument()
+    expect(requestsTo(fetchStub, 'POST').map(sentFile)).toEqual([pdf])
+    expect(summary()).toHaveTextContent('1 uploaded, 0 failed.')
   })
 
   it('disables the button while uploading and enables it after a failure', async () => {
@@ -387,16 +423,18 @@ describe('uploading', () => {
 
 describe('uploading several files', () => {
   const answers = postsAnsweredByTheTest
-  const uploaded = (filename: string) => Response.json({ id: filename, filename, line_count: 1 }, { status: 201 })
+  const uploaded = (filename: string) =>
+    Response.json({ id: filename, filename, line_count: 1, page_count: null }, { status: 201 })
 
-  it('lets the user choose several text files', async () => {
+  it('lets the user choose several text or PDF files', async () => {
     stubRoutes({ [GET_LIST]: () => Response.json([]) })
 
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
 
+    expect(fileInput()).toHaveAccessibleName('Choose .txt, .md or .pdf files')
     expect(fileInput()).toHaveAttribute('multiple')
-    expect(fileInput()).toHaveAttribute('accept', '.txt,.md')
+    expect(fileInput()).toHaveAttribute('accept', '.txt,.md,.pdf')
   })
 
   it('sends one request per file, each with its own file, in the chosen order', async () => {
@@ -561,8 +599,8 @@ describe('uploading several files', () => {
 
   it('reloads the list after each successful file, so it grows during the run', async () => {
     const user = userEvent.setup()
-    const first = { id: '1', filename: 'a.txt', line_count: 1 }
-    const second = { id: '2', filename: 'c.txt', line_count: 1 }
+    const first = { id: '1', filename: 'a.txt', line_count: 1, page_count: null }
+    const second = { id: '2', filename: 'c.txt', line_count: 1, page_count: null }
     const { route, answer } = answers()
     const get = vi
       .fn<Route>()
@@ -701,7 +739,7 @@ describe('uploading several files', () => {
 })
 
 describe('deleting a document', () => {
-  const short = { id: '2', filename: 'short.md', line_count: 1 }
+  const short = { id: '2', filename: 'short.md', line_count: 1, page_count: null }
   const DELETE_NOTES = 'DELETE /api/documents/1'
   const DELETE_SHORT = 'DELETE /api/documents/2'
 
@@ -944,7 +982,7 @@ describe('deleting a document', () => {
 
   it('keeps an open question with its own document when a reload moves the rows', async () => {
     const user = userEvent.setup()
-    const another = { id: '3', filename: 'another.txt', line_count: 1 }
+    const another = { id: '3', filename: 'another.txt', line_count: 1, page_count: null }
     // notes.txt was deleted somewhere else, so short.md moves up to where notes.txt was.
     const get = vi
       .fn<Route>()
@@ -999,7 +1037,7 @@ describe('deleting a document', () => {
 
   it('closes an open question when its row leaves the list', async () => {
     const user = userEvent.setup()
-    const another = { id: '3', filename: 'another.txt', line_count: 1 }
+    const another = { id: '3', filename: 'another.txt', line_count: 1, page_count: null }
     const get = vi
       .fn<Route>()
       .mockResolvedValueOnce(Response.json([notes, short]))
