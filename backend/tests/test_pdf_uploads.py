@@ -159,11 +159,36 @@ def test_line_breaks_nul_and_surrogates_are_cleaned_up(
     assert upload.page_starts == (1,)
 
 
-def test_whitespace_lines_count_as_in_a_text_file() -> None:
+def test_lines_of_only_whitespace_stay_as_empty_lines() -> None:
     upload = read_upload("report.pdf", pdf_file([["  ", "Text"], ["\t"]]), LIMIT)
 
-    assert upload.text == "  \nText\n\t\n"
+    assert upload.text == "\nText\n\n"
     assert upload.page_starts == (1, 3)
+
+
+def test_padding_at_the_end_of_lines_is_dropped() -> None:
+    # As macOS's text-to-PDF filter pads every line, to 80 characters.
+    padded = [line.ljust(80) for line in ["  Indented line", "", "Next line"]]
+
+    upload = read_upload("report.pdf", pdf_file([padded]), LIMIT)
+
+    assert upload.text == "  Indented line\n\nNext line\n"
+
+
+def test_limit_counts_the_text_without_its_padding() -> None:
+    # 2,000 bytes of text with the padding, and 20 without it.
+    content = pdf_file([["x".ljust(199)] * 10])
+    assert len(content) < 1_000
+
+    upload = read_upload("report.pdf", content, 1_000)
+
+    assert upload.text == "x\n" * 10
+
+
+def test_text_file_keeps_the_spaces_at_the_end_of_its_lines() -> None:
+    upload = read_upload("notes.txt", b"padded   \n\t\n", LIMIT)
+
+    assert upload.text == "padded   \n\t\n"
 
 
 def test_text_file_has_no_page_starts() -> None:

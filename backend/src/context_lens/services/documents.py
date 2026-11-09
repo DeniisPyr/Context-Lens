@@ -178,7 +178,11 @@ def _page_lines(text: str) -> list[str]:
     text = text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
     # Postgres can't store NUL in text. A text file with one is refused, but in a PDF
     # it comes from a font that pypdf can't map, so it's left out instead.
-    return split_lines(_normalize_line_breaks(text.replace("\x00", "")))
+    lines = split_lines(_normalize_line_breaks(text.replace("\x00", "")))
+    # Some PDFs pad every line with spaces to the width of the page, blank ones too.
+    # Search and citations collapse whitespace anyway, so the padding would only count
+    # against the limit on the text.
+    return [line.rstrip() for line in lines]
 
 
 def _read_pdf(data: bytes, max_bytes: int) -> tuple[str, tuple[int, ...]]:
