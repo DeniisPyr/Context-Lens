@@ -235,7 +235,7 @@ describe('without a document to ask about', () => {
     expect(questionBox()).toBeInTheDocument()
     expect(askButton()).toBeEnabled()
     expect(screen.queryByText(prompt)).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Add files' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Add files to / })).not.toBeInTheDocument()
   })
 
   it('leads from the prompt to the file input in the sidebar', async () => {
@@ -244,7 +244,7 @@ describe('without a document to ask about', () => {
 
     render(<App />)
     await screen.findByText('No documents yet.')
-    await user.click(screen.getByRole('button', { name: 'Add files' }))
+    await user.click(screen.getByRole('button', { name: /^Add files to / }))
 
     expect(screen.getByLabelText('Add files')).toHaveFocus()
   })

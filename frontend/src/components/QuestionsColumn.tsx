@@ -96,7 +96,8 @@ export default function QuestionsColumn({
         {dataset && questions.length === 0 && !hasDocuments && (
           <div className="empty-state">
             <p>Add files to {dataset.name} to ask about them.</p>
-            <button type="button" onClick={onAddFiles}>
+            {/* Named after the dataset, because the sidebar's file input is called "Add files" too. */}
+            <button type="button" aria-label={`Add files to ${dataset.name}`} onClick={onAddFiles}>
               <UploadIcon className="icon-sm" />
               Add files
             </button>

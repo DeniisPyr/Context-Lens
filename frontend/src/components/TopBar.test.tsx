@@ -402,7 +402,7 @@ describe('the buttons of the empty questions column, on a narrow window', () => 
 
     render(<App />)
     await screen.findByText('Add files to Invoices to ask about them.')
-    await user.click(screen.getByRole('button', { name: 'Add files' }))
+    await user.click(screen.getByRole('button', { name: /^Add files to / }))
 
     expectOpen()
     expect(screen.getByLabelText('Add files')).toHaveFocus()
@@ -420,7 +420,7 @@ describe('the buttons of the empty questions column, on a narrow window', () => 
     await screen.findByText('Add files to Invoices to ask about them.')
     await user.upload(screen.getByLabelText('Add files'), new File(['text'], 'a.txt'))
     expect(screen.getByLabelText('Add files')).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: 'Add files' }))
+    await user.click(screen.getByRole('button', { name: /^Add files to / }))
 
     expectOpen()
     expect(sidebar()).toHaveFocus()
@@ -433,7 +433,7 @@ describe('the buttons of the empty questions column, on a narrow window', () => 
 
     render(<App />)
     await screen.findByText('Add files to Invoices to ask about them.')
-    await user.click(screen.getByRole('button', { name: 'Add files' }))
+    await user.click(screen.getByRole('button', { name: /^Add files to / }))
 
     expectClosed()
     expect(screen.getByLabelText('Add files')).toHaveFocus()
