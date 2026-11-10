@@ -92,6 +92,23 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
     return () => wide.removeEventListener('change', closeWhenWide)
   }, [drawerOpen])
 
+  // A file dropped anywhere but on the drop zone would make the browser open it in place of the app, and the session's
+  // questions would go with the page. So files dragged over the rest of the page are turned away, with the cursor that
+  // says so. The drop zone takes its own, and has prevented their default by the time they get here.
+  useEffect(() => {
+    function turnAway(event: DragEvent) {
+      if (event.defaultPrevented || !event.dataTransfer?.types.includes('Files')) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'none'
+    }
+    window.addEventListener('dragover', turnAway)
+    window.addEventListener('drop', turnAway)
+    return () => {
+      window.removeEventListener('dragover', turnAway)
+      window.removeEventListener('drop', turnAway)
+    }
+  }, [])
+
   function handleCreated(dataset: Dataset) {
     add(dataset)
     setChosenId(dataset.id)
