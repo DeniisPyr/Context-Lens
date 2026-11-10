@@ -66,6 +66,36 @@ const rejectsOnAbort: Route = (init) =>
     init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
   })
 
+// matchMedia for a window this many pixels wide, answering the queries the page asks it. resize() changes the width,
+// and tells the listeners of each query whose answer changes, as a browser does.
+function stubWindowWidth(initial: number) {
+  let width = initial
+  const queries: { matches: () => boolean; listeners: Set<() => void> }[] = []
+  vi.stubGlobal('matchMedia', (query: string) => {
+    const [, bound, pixels] = /^\((min|max)-width: (\d+)px\)$/.exec(query)!
+    const matches = () => (bound === 'min' ? width >= Number(pixels) : width <= Number(pixels))
+    const listeners = new Set<() => void>()
+    queries.push({ matches, listeners })
+    return {
+      get matches() {
+        return matches()
+      },
+      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    }
+  })
+  return {
+    resize: (next: number) =>
+      act(() => {
+        const before = queries.map((query) => query.matches())
+        width = next
+        queries.forEach((query, index) => {
+          if (query.matches() !== before[index]) query.listeners.forEach((listener) => listener())
+        })
+      }),
+  }
+}
+
 const panel = () => screen.queryByRole('complementary', { name: 'Source' })
 const inPanel = () => within(panel()!)
 const panelHeading = () => inPanel().getByRole('heading', { level: 2 })
@@ -333,6 +363,105 @@ describe('closing the panel', () => {
 
     expect(panel()).not.toBeInTheDocument()
     expect(document.body).toHaveFocus()
+  })
+})
+
+describe('on a window under 1280 px, where the panel lies over the questions', () => {
+  const sidebar = () => screen.getByRole('complementary', { name: 'Datasets and documents' })
+  const topBar = () => screen.getByRole('button', { name: 'Menu' }).closest('header')!
+  // Only for the pointer, like the drawer's, so it has no role or name to find it by.
+  const backdrop = () => document.querySelector<HTMLElement>('.sheet-backdrop')
+
+  function expectModal() {
+    expect(backdrop()).toBeInTheDocument()
+    expect(screen.getByRole('main')).toHaveAttribute('inert')
+    expect(sidebar()).toHaveAttribute('inert')
+    expect(topBar()).toHaveAttribute('inert')
+    expect(panel()).not.toHaveAttribute('inert')
+  }
+
+  function expectNothingInert() {
+    expect(backdrop()).not.toBeInTheDocument()
+    expect(document.querySelectorAll('[inert]')).toHaveLength(0)
+  }
+
+  it('makes the rest of the page inert behind a backdrop while it is open, Menu included', async () => {
+    const user = userEvent.setup()
+    stubWindowWidth(390)
+    stubPage()
+
+    await askAndWait(user)
+    expectNothingInert()
+    await open(user, 'Line 3')
+
+    expectModal()
+    expect(panelHeading()).toHaveFocus()
+
+    await user.click(closeButton())
+
+    expectNothingInert()
+    expect(chip('Line 3')).toHaveFocus()
+  })
+
+  it('closes on a click on the backdrop, and gives the focus back to the chip', async () => {
+    const user = userEvent.setup()
+    stubWindowWidth(1100)
+    stubPage()
+
+    await askAndWait(user)
+    await open(user, 'Line 2')
+    expectModal()
+    await user.click(backdrop()!)
+
+    expect(panel()).not.toBeInTheDocument()
+    expectNothingInert()
+    expect(chip('Line 2')).toHaveFocus()
+  })
+
+  it('still closes on Escape', async () => {
+    const user = userEvent.setup()
+    stubWindowWidth(1279)
+    stubPage()
+
+    await askAndWait(user)
+    await open(user, 'Line 15')
+    expectModal()
+    await user.keyboard('{Escape}')
+
+    expect(panel()).not.toBeInTheDocument()
+    expectNothingInert()
+    expect(chip('Line 15')).toHaveFocus()
+  })
+
+  it('lets go of the page when the window grows to 1280 px, and takes it again when it narrows', async () => {
+    const user = userEvent.setup()
+    const { resize } = stubWindowWidth(1100)
+    stubPage()
+
+    await askAndWait(user)
+    await open(user, 'Line 3')
+    expectModal()
+
+    await resize(1280)
+
+    expect(panel()).toBeInTheDocument()
+    expectNothingInert()
+
+    await resize(1279)
+
+    expectModal()
+  })
+
+  it('stays a column beside the questions from 1280 px, with nothing made inert', async () => {
+    const user = userEvent.setup()
+    stubWindowWidth(1280)
+    stubPage()
+
+    await askAndWait(user)
+    await open(user, 'Line 3')
+
+    expectNothingInert()
+    expect(screen.getByRole('main').nextElementSibling).toBe(panel())
   })
 })
 

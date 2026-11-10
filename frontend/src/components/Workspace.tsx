@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom'
 import type { Dataset } from '../api/datasets.ts'
 import { useDatasets } from '../hooks/useDatasets.ts'
 import { useDocuments } from '../hooks/useDocuments.ts'
+import { useMediaQuery } from '../hooks/useMediaQuery.ts'
 import { useQuestions } from '../hooks/useQuestions.ts'
 import Datasets from './Datasets.tsx'
 import Documents from './Documents.tsx'
@@ -14,6 +15,9 @@ import TopBar from './TopBar.tsx'
 // A window this wide has room for the sidebar's column. On a narrower one the sidebar is a drawer, opened from the top
 // bar. The stylesheet switches at the same width.
 const WIDE_ENOUGH_FOR_SIDEBAR = '(min-width: 900px)'
+// On a window this narrow the source panel has no room for a column, and lies over the questions. The stylesheet
+// switches at the same width.
+const PANEL_OVER_QUESTIONS = '(max-width: 1279px)'
 
 type Props = {
   loginRequired: boolean
@@ -43,6 +47,10 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
   // The chip that opened it, to give the focus back to when it closes, and the panel's heading, to give it to.
   const opener = useRef<HTMLButtonElement | null>(null)
   const panelHeading = useRef<HTMLHeadingElement>(null)
+  // Lying over the questions, the panel is a modal sheet: the rest of the page is inert, under a backdrop that closes
+  // the panel on a click. Otherwise the controls it half covers would still take clicks and the focus.
+  const panelOverQuestions = useMediaQuery(PANEL_OVER_QUESTIONS)
+  const sheet = openSource !== null && panelOverQuestions
   // The sidebar as a drawer over the page, on a narrow window. The Menu button opens it and takes the focus back.
   // Choosing a dataset leaves it open: on Windows and Linux every arrow key on the select chooses one.
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -146,11 +154,13 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
         drawerOpen={drawerOpen}
         menuRef={menuButton}
         onMenu={drawerOpen ? closeDrawer : openDrawer}
+        inert={sheet}
       />
       <Sidebar
         id={sidebarId}
         ref={sidebar}
         drawerOpen={drawerOpen}
+        inert={sheet}
         loginRequired={loginRequired}
         onLoggedOut={onLoggedOut}
       >
@@ -194,8 +204,10 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
         onAddFiles={() => showInSidebar(fileInput.current)}
         openSource={openSource?.key ?? null}
         onToggleSource={toggleSource}
-        inert={drawerOpen}
+        inert={drawerOpen || sheet}
       />
+      {/* Only for the pointer, like the drawer's. The keyboard has Escape, and the close button. */}
+      {sheet && <div className="sheet-backdrop" aria-hidden="true" onClick={closeSource} />}
       {openSource && (
         <SourcePanel source={openSource} headingRef={panelHeading} inert={drawerOpen} onClose={closeSource} />
       )}

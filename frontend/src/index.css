@@ -2203,6 +2203,15 @@ p.line-viewer[role='alert'] {
   }
 }
 
+/* The shade over the rest of the page while the source panel lies over it as a modal sheet, under 1280 px. Over the
+   top bar too, whose Menu waits until the panel closes. Workspace only renders it then. */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background-color: var(--backdrop);
+}
+
 /* Under 1280 px a third column would squeeze the questions, so the source panel lies over their right side instead,
    and they keep their width. Fixed to the window, which the workspace fills: positioning the workspace instead would
    let the hidden labels deep in the cards stretch it, and scrolling a card into view would then scroll it too. */
@@ -2216,7 +2225,7 @@ p.line-viewer[role='alert'] {
     top: 0;
     right: 0;
     bottom: 0;
-    z-index: 20;
+    z-index: 60;
     width: min(420px, 100%);
     box-shadow: var(--shadow-overlay);
   }

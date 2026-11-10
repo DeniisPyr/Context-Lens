@@ -30,7 +30,8 @@ type Props = SourceProps & {
   // nothing else on the screen says where that is.
   onCreateDataset: () => void
   onAddFiles: () => void
-  // True while the sidebar is open over it as a drawer, so neither the keyboard nor a screen reader wanders in.
+  // True while the sidebar is open over it as a drawer, or the source panel as a modal sheet, so neither the keyboard
+  // nor a screen reader wanders in.
   inert: boolean
 }
 

@@ -10,14 +10,16 @@ type Props = {
   // Workspace gives the focus back to the button when the drawer closes.
   menuRef: RefObject<HTMLButtonElement | null>
   onMenu: () => void
+  // True while the source panel is open over the page as a modal sheet: the drawer waits until it closes.
+  inert: boolean
 }
 
 // The bar across the top of a narrow window, where the sidebar has no room for its column: the button that opens it as
 // a drawer, and what would show at its top, the app's name and the dataset the questions are about. The stylesheet
 // hides the bar on a window wide enough for the sidebar.
-export default function TopBar({ datasetName, sidebarId, drawerOpen, menuRef, onMenu }: Props) {
+export default function TopBar({ datasetName, sidebarId, drawerOpen, menuRef, onMenu, inert }: Props) {
   return (
-    <header className="top-bar">
+    <header className="top-bar" inert={inert}>
       <button
         ref={menuRef}
         type="button"

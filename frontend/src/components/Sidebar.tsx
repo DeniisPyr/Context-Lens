@@ -10,6 +10,8 @@ type Props = {
   // On a narrow window it's a drawer, and Workspace gives it the focus when it opens, so a screen reader names it.
   ref: Ref<HTMLElement>
   drawerOpen: boolean
+  // True while the source panel is open over the page as a modal sheet.
+  inert: boolean
   // False when the backend has no password: nobody is signed in, so there's nothing to log out of.
   loginRequired: boolean
   onLoggedOut: () => void
@@ -19,7 +21,7 @@ type Props = {
 
 // The left column: the app's name at the top, the datasets and documents in the middle, which scroll when they're
 // longer than the window, and the theme and the account at the bottom.
-export default function Sidebar({ id, ref, drawerOpen, loginRequired, onLoggedOut, children }: Props) {
+export default function Sidebar({ id, ref, drawerOpen, inert, loginRequired, onLoggedOut, children }: Props) {
   return (
     <aside
       id={id}
@@ -27,6 +29,7 @@ export default function Sidebar({ id, ref, drawerOpen, loginRequired, onLoggedOu
       className="sidebar"
       aria-label="Datasets and documents"
       tabIndex={drawerOpen ? -1 : undefined}
+      inert={inert}
     >
       <div className="sidebar-head">
         <div className="brand">
