@@ -136,8 +136,7 @@ async function reply(user: UserEvent, text = 'A laptop.') {
 }
 
 async function sendFile(user: UserEvent, filename: string) {
-  await user.upload(screen.getByLabelText('Choose .txt, .md or .pdf files'), new File(['text'], filename))
-  await user.click(screen.getByRole('button', { name: 'Upload' }))
+  await user.upload(screen.getByLabelText('Add files'), new File(['text'], filename))
 }
 
 // Uploads a file and waits for the reloaded list to show it, by the Delete button in its row.

@@ -1,7 +1,7 @@
 import { deleteDocument, type DocumentSummary } from '../api/documents.ts'
 import ConfirmDelete from './ConfirmDelete.tsx'
 import { FileIcon, PdfIcon, TrashIcon } from './icons.tsx'
-import UploadForm from './UploadForm.tsx'
+import Upload from './Upload.tsx'
 
 // A PDF is counted in pages, the way its reader knows it. A text file has only lines.
 function lengthOf({ line_count, page_count }: DocumentSummary) {
@@ -64,7 +64,7 @@ export default function Documents({ datasetId, documents, error, busy, onBusyCha
           ))}
         </ul>
       )}
-      <UploadForm datasetId={datasetId} busy={busy} onBusyChange={onBusyChange} onUploaded={onUploaded} />
+      <Upload datasetId={datasetId} busy={busy} onBusyChange={onBusyChange} onUploaded={onUploaded} />
     </section>
   )
 }

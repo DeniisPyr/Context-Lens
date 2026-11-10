@@ -324,8 +324,7 @@ describe('the Dataset select', () => {
     render(<App />)
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Dataset' }), reports.id)
     await screen.findByText('No documents yet.')
-    await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'report.txt'))
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    await user.upload(screen.getByLabelText('Add files'), new File(['text'], 'report.txt'))
 
     await findDocument('report.txt')
     expect(datasetSelect()).toHaveValue(reports.id)
@@ -824,8 +823,7 @@ describe('switching to another dataset', () => {
     await findDocument('old.txt')
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('new.txt')
-    await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'another.txt'))
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    await user.upload(screen.getByLabelText('Add files'), new File(['text'], 'another.txt'))
 
     await vi.waitFor(() => expect(requestsTo(fetchStub, documentsPath(reports.id), 'POST')).toHaveLength(1))
     expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
@@ -836,12 +834,12 @@ describe('during an upload run', () => {
   const uploaded = () =>
     Response.json({ id: '1', filename: 'a.txt', line_count: 1, page_count: null }, { status: 201 })
 
+  // Choosing the files starts the run.
   async function startRun(user: UserEvent, ...filenames: string[]) {
     await user.upload(
-      await screen.findByLabelText(/^Choose/),
+      await screen.findByLabelText('Add files'),
       filenames.map((filename) => new File(['text'], filename)),
     )
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
   }
 
   function postsAnsweredByTheTest() {
@@ -930,20 +928,19 @@ describe('while a dataset is being created', () => {
     })
 
     render(<App />)
-    const fileInput = await screen.findByLabelText(/^Choose/)
+    const fileInput = await screen.findByLabelText('Add files')
     await createNamed(user, 'Invoices')
 
     expect(datasetSelect()).toBeDisabled()
     expect(createButton()).toBeDisabled()
     expect(newDatasetButton()).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled()
     expect(fileInput).toBeDisabled()
 
     await answer(Response.json(invoices, { status: 201 }))
 
     expect(datasetSelect()).toBeEnabled()
     expect(datasetSelect()).toHaveValue(invoices.id)
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(screen.getByLabelText('Add files')).toBeEnabled()
     expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
   })
 
@@ -954,13 +951,13 @@ describe('while a dataset is being created', () => {
     })
 
     render(<App />)
-    await screen.findByLabelText(/^Choose/)
+    await screen.findByLabelText('Add files')
     await createNamed(user, 'Reports')
     await screen.findByRole('alert')
 
     expect(datasetSelect()).toBeEnabled()
     expect(createButton()).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(screen.getByLabelText('Add files')).toBeEnabled()
   })
 })
 
@@ -1129,7 +1126,7 @@ describe('deleting a dataset', () => {
     // The page lets go again.
     expect(datasetSelect()).toBeEnabled()
     expect(newDatasetButton()).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(screen.getByLabelText('Add files')).toBeEnabled()
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(1)
   })
 
@@ -1158,7 +1155,7 @@ describe('deleting a dataset', () => {
     })
 
     render(<App />)
-    const fileInput = await screen.findByLabelText(/^Choose/)
+    const fileInput = await screen.findByLabelText('Add files')
     await screen.findByRole('button', { name: 'Delete a.txt' })
     await deleteSelected(user)
 
@@ -1166,7 +1163,6 @@ describe('deleting a dataset', () => {
     expect(cancelButton()).toBeDisabled()
     expect(datasetSelect()).toBeDisabled()
     expect(newDatasetButton()).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled()
     expect(fileInput).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Delete a.txt' })).toBeDisabled()
 
@@ -1184,8 +1180,7 @@ describe('deleting a dataset', () => {
 
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Delete dataset' }))
-    await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'a.txt'))
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    await user.upload(screen.getByLabelText('Add files'), new File(['text'], 'a.txt'))
 
     expect(confirmButton()).toBeDisabled()
     expect(cancelButton()).toBeEnabled()

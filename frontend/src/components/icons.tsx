@@ -124,6 +124,61 @@ export function InfoIcon(props: Props) {
   )
 }
 
+export function UploadIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <path d="M12 15V4" />
+      <path d="m7 9 5-5 5 5" />
+      <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+    </Icon>
+  )
+}
+
+export function CheckCircleIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12.2 2.4 2.4 4.6-4.8" />
+    </Icon>
+  )
+}
+
+export function XCircleIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m9.5 9.5 5 5M14.5 9.5l-5 5" />
+    </Icon>
+  )
+}
+
+// A quarter of a ring over a faint one. The spinner class turns it.
+export function SpinnerIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="9" opacity=".25" />
+      <path d="M21 12a9 9 0 0 0-9-9" />
+    </Icon>
+  )
+}
+
+// A ring with a dashed outline, for something that hasn't started.
+export function PendingIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="9" strokeDasharray="3 3.1" />
+    </Icon>
+  )
+}
+
+export function XIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <path d="M6 6l12 12M18 6 6 18" />
+    </Icon>
+  )
+}
+
 export function MonitorIcon(props: Props) {
   return (
     <Icon {...props}>

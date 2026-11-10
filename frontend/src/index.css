@@ -253,8 +253,7 @@ h4 {
   border-color: var(--accent);
 }
 
-[role='alert'],
-.upload-failed {
+[role='alert'] {
   color: var(--err);
 }
 
@@ -948,65 +947,245 @@ h4 {
 
 /* ---------- Upload ---------- */
 
-.upload-form {
+/* The whole zone is the file input's label, so a click anywhere on it opens the file chooser. */
+.dropzone {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
   margin-top: 10px;
   padding: 10px 12px;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
   background-color: var(--card);
-  font-size: 12.5px;
+  cursor: pointer;
 }
 
-.upload-form label {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+.dropzone:hover:not(.disabled) {
+  border-color: var(--accent-border);
+}
+
+/* Files are being dragged over it: the zone says it will take them. */
+.dropzone.dragging {
+  border-style: solid;
+  border-color: var(--accent-bar);
+  background-color: var(--accent-soft);
+}
+
+.dropzone.disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The input itself is hidden, so the zone shows where the keyboard is. */
+.dropzone:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dropzone-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.dropzone-text {
   min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dropzone-text strong {
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dropzone-hint {
+  display: block;
+}
+
+/* Square buttons that hold only an icon, such as the one that closes the upload card. */
+.icon-button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
   color: var(--muted);
 }
 
-/* Otherwise a flex item stays as wide as its content, and a file input's can be wider than the sidebar. */
-.upload-form input {
-  min-width: 0;
-  max-width: 100%;
+.icon-button:hover:not(:disabled) {
+  background-color: var(--raised);
+  color: var(--text);
 }
 
-.upload-form [role='alert'] {
-  flex-basis: 100%;
-  margin: 0;
+.upload-card {
+  margin-top: 10px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--card);
 }
 
-.upload-summary {
+/* Before the first run and after Clear, only the empty status is left, and it takes no room. */
+.upload-card.empty {
   margin: 0;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+}
+
+.upload-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
   font-size: 12.5px;
+  font-weight: 600;
 }
 
-.upload-summary:not(:empty) {
-  margin: 8px 4px 0;
+.upload-head-icon {
+  color: var(--accent-text);
+}
+
+.upload-head-icon.uploaded {
+  color: var(--ok);
+}
+
+.upload-head-icon.failed {
+  color: var(--err);
+}
+
+.upload-progress,
+.upload-summary {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* Not display: none, which would take it out of what a screen reader follows: empty, it only takes no room. */
+.upload-summary:empty {
+  flex: none;
+}
+
+.upload-head .icon-button {
+  width: 22px;
+  min-height: 22px;
+  height: 22px;
+  margin: -2px -4px -2px auto;
+  border-radius: 6px;
+}
+
+/* A thin bar in the accent colour. Each browser draws a progress element its own way, so all of them are styled. */
+.upload-bar {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin: 8px 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background-color: var(--raised);
+  color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.upload-bar::-webkit-progress-bar {
+  border-radius: 4px;
+  background-color: var(--raised);
+}
+
+.upload-bar::-webkit-progress-value {
+  border-radius: 4px;
+  background-color: var(--accent);
+}
+
+.upload-bar::-moz-progress-bar {
+  border-radius: 4px;
+  background-color: var(--accent);
 }
 
 .upload-results {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   padding: 0;
   list-style: none;
-  font-size: 12.5px;
 }
 
-/* Wraps, so that a long filename and a long message each get the whole width. */
-.upload-results li {
+/* The icon and the filename on one line, the state under the filename. Wraps, so a long message gets the whole
+   width instead of widening the sidebar. The row's colour is its state's, which the icon and the state take. */
+.upload-row {
   display: flex;
   flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0 1rem;
-  padding: 4px;
-  border-top: 1px solid;
-  border-top-color: var(--border);
+  align-items: flex-start;
+  column-gap: 8px;
+  padding: 4px 0;
   overflow-wrap: anywhere;
+}
+
+.upload-row .icon {
+  margin-top: 2px;
+}
+
+/* One line, cut short with an ellipsis: its title holds the whole name. */
+.upload-file {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-state {
+  flex-basis: 100%;
+  padding-left: 22px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.upload-row.uploaded {
+  color: var(--ok);
+}
+
+.upload-row.failed {
+  color: var(--err);
+}
+
+.upload-row.uploading {
+  color: var(--accent-text);
+}
+
+.upload-row.waiting {
+  color: var(--muted);
+}
+
+.spinner {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 
 /* ---------- Questions ---------- */
