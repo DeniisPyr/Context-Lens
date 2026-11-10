@@ -765,6 +765,8 @@ describe('uploading several files', () => {
     // Still on the page, so it can announce the next run.
     expect(summary()).toBe(status)
     expect(status).toBeEmptyDOMElement()
+    // The button went with the card, so the focus goes to where the next run starts.
+    expect(fileInput()).toHaveFocus()
   })
 
   it('shows two files with the same name in a run without a key warning', async () => {

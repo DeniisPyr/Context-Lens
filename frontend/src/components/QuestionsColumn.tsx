@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { type RefObject, useLayoutEffect, useRef } from 'react'
 import type { Dataset } from '../api/datasets.ts'
 import { type Failure, isWaiting, type Question } from '../hooks/useQuestions.ts'
 import Ask from './Ask.tsx'
@@ -25,6 +25,8 @@ type Props = SourceProps & {
   // The cards of the selected dataset, oldest first, and the last question about it that couldn't be asked.
   questions: Question[]
   failedAsk: Failure | null
+  // The question box, which Workspace gives the focus to when nothing better can take it.
+  askBoxRef: RefObject<HTMLTextAreaElement | null>
   onAsk: (datasetId: string, question: string, documentCount: number) => void
   onReply: (datasetId: string, question: Question, reply: string) => void
   // Take the user to the control in the sidebar that starts them off, opening it first on a narrow window, where
@@ -44,6 +46,7 @@ export default function QuestionsColumn({
   documentCount,
   questions,
   failedAsk,
+  askBoxRef,
   onAsk,
   onReply,
   onCreateDataset,
@@ -144,6 +147,7 @@ export default function QuestionsColumn({
           asking={questions.some((question) => question.answer === null)}
           waiting={waiting}
           failure={failedAsk}
+          boxRef={askBoxRef}
           onAsk={(question) => onAsk(dataset.id, question, documentCount)}
         />
       )}

@@ -1108,6 +1108,32 @@ describe('while a dataset is being created', () => {
     expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
   })
 
+  it('cannot be cancelled meanwhile, by the button or Escape, so its outcome still shows', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([reports], {
+      'GET /api/datasets': listThatChanges([reports], [reports, invoices]),
+      'POST /api/datasets': route,
+      [listOf(invoices.id)]: () => Response.json([]),
+    })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await createNamed(user, 'Invoices')
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    await user.click(nameInput())
+    await user.keyboard('{Escape}')
+    expect(nameInput()).toHaveValue('Invoices')
+
+    await answer(Response.json({ detail: 'A dataset with this name already exists.' }, { status: 409 }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('A dataset with this name already exists.')
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+  })
+
   it('lets go of them when creating fails', async () => {
     const user = userEvent.setup()
     stubPage([reports], {

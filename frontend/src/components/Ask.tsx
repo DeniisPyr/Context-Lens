@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type SubmitEvent, useId, useState } from 'react'
+import { type KeyboardEvent, type RefObject, type SubmitEvent, useId, useState } from 'react'
 import { MAX_QUESTION_LENGTH } from '../api/ask.ts'
 import type { Failure } from '../hooks/useQuestions.ts'
 import { ArrowUpIcon } from './icons.tsx'
@@ -11,6 +11,8 @@ type Props = {
   waiting: boolean
   // The last question about this dataset that couldn't be asked, until the next one is sent.
   failure: Failure | null
+  // The question box, which Workspace gives the focus to when nothing better can take it.
+  boxRef: RefObject<HTMLTextAreaElement | null>
   // Adds the question's card and asks the whole dataset, with the question as typed: the backend searches all its
   // documents for the passages that answer it. A question that can't be asked comes back as the failure.
   onAsk: (question: string) => void
@@ -20,7 +22,7 @@ const counted = (count: number) => count.toLocaleString('en-US')
 
 // The box at the bottom of the questions column, which starts it over for another dataset, so nothing typed
 // about one dataset is sent to another.
-export default function Ask({ datasetName, asking, waiting, failure, onAsk }: Props) {
+export default function Ask({ datasetName, asking, waiting, failure, boxRef, onAsk }: Props) {
   // A question that couldn't be asked is back in the box as it was typed, also when the user comes back to the
   // dataset, so it can be sent again.
   const [question, setQuestion] = useState(failure?.draft ?? '')
@@ -71,6 +73,7 @@ export default function Ask({ datasetName, asking, waiting, failure, onAsk }: Pr
           Question
         </label>
         <textarea
+          ref={boxRef}
           id={questionId}
           rows={2}
           maxLength={MAX_QUESTION_LENGTH}

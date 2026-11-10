@@ -15,6 +15,9 @@ type Props = {
 export default function CreateDatasetForm({ inputRef, busy, onCreate, onCancel }: Props) {
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  // While the dataset is being created, the form can't be closed: an error would have nowhere to show, and the
+  // dataset would be selected all the same.
+  const [creating, setCreating] = useState(false)
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -25,20 +28,23 @@ export default function CreateDatasetForm({ inputRef, busy, onCreate, onCancel }
     }
 
     setError(null)
+    setCreating(true)
     try {
       await onCreate(trimmed)
     } catch (err) {
       // The typed name stays, so it can be fixed and sent again.
       setError((err as Error).message)
+    } finally {
+      setCreating(false)
     }
   }
 
-  // Escape closes the form, as Cancel does.
+  // Escape closes the form, as Cancel does. While the dataset is being created it does nothing, and the drawer the
+  // form may be in stays open too, so what comes of it stays in view.
   function handleKeyDown(event: KeyboardEvent<HTMLFormElement>) {
-    if (event.key === 'Escape' && onCancel) {
-      event.preventDefault()
-      onCancel()
-    }
+    if (event.key !== 'Escape' || !onCancel) return
+    event.preventDefault()
+    if (!creating) onCancel()
   }
 
   return (
@@ -58,7 +64,7 @@ export default function CreateDatasetForm({ inputRef, busy, onCreate, onCancel }
           Create
         </button>
         {onCancel && (
-          <button type="button" onClick={onCancel}>
+          <button type="button" disabled={creating} onClick={onCancel}>
             Cancel
           </button>
         )}

@@ -254,6 +254,20 @@ describe('closing the drawer', () => {
     expect(menuButton()).toHaveFocus()
   })
 
+  it('stays open on Escape while a dataset is being created from it, as the form does', async () => {
+    const user = userEvent.setup()
+    stubPage({ 'POST /api/datasets': () => new Promise<Response>(() => {}) })
+
+    await renderPage()
+    await openDrawer(user)
+    await user.click(newDatasetButton())
+    await user.type(screen.getByRole('textbox', { name: 'New dataset name' }), 'Contracts{Enter}')
+    await user.keyboard('{Escape}')
+
+    expectOpen()
+    expect(screen.getByRole('textbox', { name: 'New dataset name' })).toHaveValue('Contracts')
+  })
+
   it('closes on a click beside it, and gives the focus back to Menu', async () => {
     const user = userEvent.setup()
     stubPage()

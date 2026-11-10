@@ -15,8 +15,9 @@ export type SourceGroup = {
 export type SourceProps = {
   // The key of the source open in the panel, if any.
   openSource: string | null
-  // Opens a source in the panel, or closes it when it's the open one. The button is where the focus goes back to.
-  onToggleSource: (source: OpenSource, button: HTMLButtonElement) => void
+  // Opens a source in the panel, or closes it when it's the open one. The button is where the focus goes back to. The
+  // card adds where it goes instead when the button is gone or hidden by then, the first of them that can take it.
+  onToggleSource: (source: OpenSource, button: HTMLButtonElement, fallbacks?: () => (HTMLElement | null)[]) => void
 }
 
 type Props = SourceProps & {

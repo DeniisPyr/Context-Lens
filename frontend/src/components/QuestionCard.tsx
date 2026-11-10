@@ -1,4 +1,4 @@
-import { type ReactNode, type Ref, useId, useState } from 'react'
+import { type ReactNode, type Ref, useId, useRef, useState } from 'react'
 import type { Question } from '../hooks/useQuestions.ts'
 import Answer from './Answer.tsx'
 import { ChevronDownIcon, ChevronUpIcon, SpinnerIcon } from './icons.tsx'
@@ -34,11 +34,13 @@ function statusOf({ answer, reply }: Question): { label: string; tone: string } 
 }
 
 // One question of the session: its number, the question, where it is, and below that what came back.
-export default function QuestionCard({ question, waiting, onReply, ref, ...sourceProps }: Props) {
+export default function QuestionCard({ question, waiting, onReply, ref, openSource, onToggleSource }: Props) {
   const { id, number, answer, reply } = question
   const [collapsed, setCollapsed] = useState(false)
   // The clarifying question's sources, once the reply is answered. They start hidden: the answer comes first.
   const [whyOpen, setWhyOpen] = useState(false)
+  const collapseButton = useRef<HTMLButtonElement>(null)
+  const whyButton = useRef<HTMLButtonElement>(null)
   const headingId = useId()
   const bodyId = useId()
   const whyId = useId()
@@ -46,7 +48,16 @@ export default function QuestionCard({ question, waiting, onReply, ref, ...sourc
   // The sources of the first answer and of the answer to the reply are told apart in the panel by these keys.
   const firstKey = `${id}:first`
   const replyKey = `${id}:reply`
-  const showing = sourceProps.openSource?.startsWith(`${id}:`) ?? false
+  const showing = openSource?.startsWith(`${id}:`) ?? false
+
+  // When the panel closes, the focus goes back to the chip that opened it, if it's still there to see. Once the reply
+  // is answered, the clarifying question's chips are drawn again behind Why I asked, and a collapsed card hides them
+  // all: the focus then goes to Why I asked, or else to the button that collapsed the card.
+  const sourceProps: SourceProps = {
+    openSource,
+    onToggleSource: (source, button) =>
+      onToggleSource(source, button, () => [whyButton.current, collapseButton.current]),
+  }
 
   let body: ReactNode
   if (answer === null) {
@@ -75,6 +86,7 @@ export default function QuestionCard({ question, waiting, onReply, ref, ...sourc
         </dl>
         <Answer result={reply.answer} sourceKey={replyKey} number={number} {...sourceProps} />
         <button
+          ref={whyButton}
           type="button"
           className="why-toggle"
           aria-expanded={whyOpen}
@@ -118,6 +130,7 @@ export default function QuestionCard({ question, waiting, onReply, ref, ...sourc
         </span>
         <time dateTime={question.askedAt.toISOString()}>{timeOf(question.askedAt)}</time>
         <button
+          ref={collapseButton}
           type="button"
           className="icon-button collapse-button"
           aria-expanded={!collapsed}

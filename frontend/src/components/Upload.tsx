@@ -88,10 +88,12 @@ export default function Upload({ datasetId, busy, inputRef, onBusyChange, onUplo
     if (!busy && files.length > 0) await uploadAll(files)
   }
 
-  // Hides the card. The status empties with it, but stays on the page to announce the next run.
+  // Hides the card. The status empties with it, but stays on the page to announce the next run. The button goes with
+  // the card, so the focus goes to the file input, ready for the next run, rather than to the page's body.
   function handleClear() {
     setFilenames([])
     setResults([])
+    inputRef.current?.focus()
   }
 
   function stateOf(index: number): FileState {

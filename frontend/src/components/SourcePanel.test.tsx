@@ -347,22 +347,63 @@ describe('closing the panel', () => {
     expect(panel()).toBeInTheDocument()
   })
 
-  it('leaves the focus where it is when the chip that opened it is gone', async () => {
-    const user = userEvent.setup()
-    stubPage({ 'POST /api/ask': vi.fn<Route>().mockReturnValueOnce(Response.json(clarifying)).mockReturnValue(Response.json(answered)) })
+  describe('when the chip that opened it is gone or hidden', () => {
+    const replied = () =>
+      stubPage({
+        'POST /api/ask': vi
+          .fn<Route>()
+          .mockReturnValueOnce(Response.json(clarifying))
+          .mockReturnValue(Response.json(answered)),
+      })
 
-    await askAndWait(user, clarifying)
-    await open(user, 'Lines 7–8')
-    const opener = chip('Lines 7–8')
-    await user.type(screen.getByRole('textbox', { name: 'Your reply' }), 'A laptop.')
-    await user.click(screen.getByRole('button', { name: 'Reply' }))
-    await screen.findByText('The answer.')
-    expect(opener).not.toBeInTheDocument()
+    // Opens the clarifying question's source, then replies, which draws its chip again behind Why I asked.
+    async function openThenReply(user: UserEvent) {
+      await askAndWait(user, clarifying)
+      await open(user, 'Lines 7–8')
+      const opener = chip('Lines 7–8')
+      await user.type(screen.getByRole('textbox', { name: 'Your reply' }), 'A laptop.')
+      await user.click(screen.getByRole('button', { name: 'Reply' }))
+      await screen.findByText('The answer.')
+      expect(opener).not.toBeInTheDocument()
+    }
 
-    await user.click(closeButton())
+    const whyButton = () => screen.getByRole('button', { name: /^Why I asked/ })
 
-    expect(panel()).not.toBeInTheDocument()
-    expect(document.body).toHaveFocus()
+    it('gives the focus to Why I asked, behind which the chip lies once the reply is answered', async () => {
+      const user = userEvent.setup()
+      replied()
+
+      await openThenReply(user)
+      expect(whyButton()).toHaveAttribute('aria-expanded', 'false')
+      await user.click(closeButton())
+
+      expect(panel()).not.toBeInTheDocument()
+      expect(whyButton()).toHaveFocus()
+    })
+
+    it('gives the focus to the collapse button of its card, when the card is collapsed', async () => {
+      const user = userEvent.setup()
+      stubPage()
+
+      await askAndWait(user)
+      await open(user, 'Line 2')
+      await user.click(screen.getByRole('button', { name: 'Collapse Q1' }))
+      await user.click(closeButton())
+
+      expect(panel()).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Expand Q1' })).toHaveFocus()
+    })
+
+    it('gives the focus to the collapse button too when Why I asked is hidden with the card', async () => {
+      const user = userEvent.setup()
+      replied()
+
+      await openThenReply(user)
+      await user.click(screen.getByRole('button', { name: 'Collapse Q1' }))
+      await user.click(closeButton())
+
+      expect(screen.getByRole('button', { name: 'Expand Q1' })).toHaveFocus()
+    })
   })
 })
 

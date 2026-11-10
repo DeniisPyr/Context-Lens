@@ -19,6 +19,13 @@ const WIDE_ENOUGH_FOR_SIDEBAR = '(min-width: 900px)'
 // switches at the same width.
 const PANEL_OVER_QUESTIONS = '(max-width: 1279px)'
 
+// Whether an element can take the focus back: still on the page, and not hidden, as the chips in a collapsed card are.
+// jsdom has no checkVisibility and no layout, so there only being inside a hidden element counts.
+function canTakeFocus(element: HTMLElement | null): element is HTMLElement {
+  if (!element?.isConnected) return false
+  return element.checkVisibility ? element.checkVisibility() : !element.closest('[hidden]')
+}
+
 type Props = {
   loginRequired: boolean
   onLoggedOut: () => void
@@ -45,9 +52,11 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
   const asked = selected && questions.byDataset[selected.id]
   // One source at a time, in the panel beside the cards.
   const [openSource, setOpenSource] = useState<OpenSource | null>(null)
-  // The chip that opened it, to give the focus back to when it closes, and the panel's heading, to give it to.
-  const opener = useRef<HTMLButtonElement | null>(null)
+  // Where the focus goes back to when it closes, the first that can take it, and the panel's heading, to give it to.
+  const returnFocusTo = useRef<() => (HTMLElement | null)[]>(() => [])
   const panelHeading = useRef<HTMLHeadingElement>(null)
+  // The question box, where the focus goes when the panel closes and nothing in the card that opened it can take it.
+  const askBox = useRef<HTMLTextAreaElement>(null)
   // Lying over the questions, the panel is a modal sheet: the rest of the page is inert, under a backdrop that closes
   // the panel on a click. Otherwise the controls it half covers would still take clicks and the focus.
   const panelOverQuestions = useMediaQuery(PANEL_OVER_QUESTIONS)
@@ -125,24 +134,26 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
     }
   }
 
-  // Each of these renders at once with flushSync, so the element that should get the focus is already there.
-  function openSourceFrom(source: OpenSource, button: HTMLButtonElement) {
-    opener.current = button
+  // Each of these renders at once with flushSync, so the element that should get the focus is already there, and no
+  // longer inert under the panel.
+  function openSourceFrom(source: OpenSource, button: HTMLButtonElement, fallbacks?: () => (HTMLElement | null)[]) {
+    returnFocusTo.current = () => [button, ...(fallbacks?.() ?? []), askBox.current]
     flushSync(() => setOpenSource(source))
     panelHeading.current?.focus()
   }
 
-  // The chip may be gone by now, as when its card's reply has been answered, and then there's no chip to go back to.
+  // The chip that opened it may be gone or hidden by now, as when its card's reply has been answered or the card has
+  // been collapsed, and then its card says where the focus goes instead, so it isn't left on the page's body.
   function closeSource() {
     flushSync(() => setOpenSource(null))
-    if (opener.current?.isConnected) opener.current.focus()
-    opener.current = null
+    returnFocusTo.current().find(canTakeFocus)?.focus()
+    returnFocusTo.current = () => []
   }
 
   // A chip opens its source, or closes it when it's the one open.
-  function toggleSource(source: OpenSource, button: HTMLButtonElement) {
+  function toggleSource(source: OpenSource, button: HTMLButtonElement, fallbacks?: () => (HTMLElement | null)[]) {
     if (source.key === openSource?.key) closeSource()
-    else openSourceFrom(source, button)
+    else openSourceFrom(source, button, fallbacks)
   }
 
   const className = ['workspace', openSource && 'with-source', drawerOpen && 'drawer-open'].filter(Boolean).join(' ')
@@ -200,6 +211,7 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
         documentCount={documents.documents?.length ?? null}
         questions={asked?.questions ?? []}
         failedAsk={asked?.failedAsk ?? null}
+        askBoxRef={askBox}
         onAsk={questions.ask}
         onReply={questions.reply}
         onCreateDataset={() => showInSidebar(nameInput.current)}
