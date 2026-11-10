@@ -2,7 +2,99 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing. When the answer depends on something the question doesn't say, it asks.
 
-> Work in progress: a FastAPI backend and a React frontend that run together with one Docker command, behind a password login. Text, Markdown and PDF documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. When the documents answer a question differently for different situations and the question doesn't say which one applies, Gemini asks one clarifying question, citing the lines that differ, and answers the user's reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
+![Logging in, creating a dataset and uploading seven documents, one of them a PDF, in the dark theme. Then three questions, each kept as a card: one answered from page 3 of the PDF, with its source opened in the panel beside it; one the documents don't answer, which gets "not found"; and one that gets a clarifying question back, with the lines that show why, then an answer to the reply in the same card.](docs/demo.gif)
+
+*The waits for Gemini are cut short in this recording. The documents are the fictional ones from the evaluation set, with the leaflet turned into a PDF.*
+
+## What it does
+
+- **Datasets:** upload many `.txt`, `.md` and `.pdf` files at once into a named dataset, stored in Postgres.
+- **Search:** each document is split into chunks of lines, which Gemini embeds and pgvector stores. A question finds the 8 chunks of the dataset closest to it.
+- **Cited answers:** Gemini answers from those chunks only, and cites the file, the lines and an exact quote for every claim. For a PDF, the app works out the page.
+- **Checked citations:** every quote is checked in code against the document's real lines. If one fails, or there are none, the answer becomes "not found", so every quote the user sees is really in the document.
+- **Clarifying questions:** when the documents answer differently for different situations and the question doesn't say which one applies, it asks one question back, citing the lines that differ.
+- **Source panel:** each citation opens beside the answers, at its lines in the document.
+- **Workspace:** datasets and documents in a sidebar, every question of the session kept as a card, light and dark themes, and a layout for phones.
+- **Evaluation:** a fixed set of 78 questions scores the answers and compares search with sending whole documents.
+- **One command:** Docker Compose runs it all behind a password login, with nginx capping request sizes and rates.
+
+## Results at a glance
+
+On the 78 evaluation questions about 7 fictional documents, each asked 3 times with gemini-3.8-flash (details in [Evaluation](#results-search-compared-with-whole-documents)):
+
+- **94% right** on the questions that need no clarifying question (203 of 216 runs). Sending each question's own documents whole, and telling Gemini which one holds the answer, gets 100%. But search is 20% cheaper per question, and a full dataset, up to 100 files of up to 1 MB each, can hold far more text than one prompt can take.
+- **"Not found" when it should be:** in all 60 runs of the 20 questions the documents don't answer.
+- **No needless questions back:** none in the 216 runs of clear questions. It asked back in 12 of the 17 runs where it should have, and then answered every reply right.
+- **The weak spot:** questions that need two documents are right in only half the runs (9 of 18). For two of the three questions that failed, one search for the whole question found only one of the documents. For the third, search found both, and Gemini still said "not found" (see [Limitations](#limitations-and-next-steps)).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    browser["Browser<br/>React + TypeScript"]
+    subgraph compose["Docker Compose"]
+        nginx["nginx<br/>serves the page<br/>passes /api on<br/>caps sizes and rates"]
+        backend["FastAPI backend<br/>routers, services, stores"]
+        db[("Postgres + pgvector<br/>datasets, documents,<br/>chunks and embeddings")]
+    end
+    gemini["Gemini API<br/>gemini-embedding-2<br/>gemini-3.8-flash"]
+    browser -- "the page and /api" --> nginx
+    nginx -- "/api" --> backend
+    backend -- "SQL" --> db
+    backend -- "HTTPS" --> gemini
+```
+
+In development, Vite serves the page and passes `/api` on instead of nginx. The backend is split by job. Routers only turn HTTP requests into calls. Services hold the logic and don't import FastAPI. The stores in `db/` are the only code that knows SQL, and `clients/gemini.py` is the only code that talks to Gemini. [Project structure](#project-structure) says what each source file does.
+
+An upload is checked, chunked and embedded before anything is saved:
+
+```mermaid
+sequenceDiagram
+    participant UI as Browser
+    participant API as Backend
+    participant G as Gemini
+    participant DB as Postgres
+    UI->>API: POST /api/datasets/{id}/documents
+    API->>API: read the text in a worker thread
+    API->>DB: can the dataset take this file?
+    API->>API: split the lines into chunks
+    API->>G: embed each chunk, labelled with its filename
+    API->>DB: save the document and its chunks together
+    API-->>UI: the document's id and filename, and how many lines or pages it has
+```
+
+A question is searched, answered and checked:
+
+```mermaid
+sequenceDiagram
+    participant UI as Browser
+    participant API as Backend
+    participant G as Gemini
+    participant DB as Postgres
+    UI->>API: POST /api/ask
+    API->>DB: does the dataset exist?
+    API->>G: embed the question, and any reply
+    API->>DB: find the 8 closest chunks in the dataset
+    API->>API: merge them into excerpts with numbered lines
+    API->>G: the excerpts and the question, with a JSON schema
+    G-->>API: status, answer, citations
+    API->>DB: read the cited documents
+    API->>API: check every quote against their lines
+    API-->>UI: the answer and its citations, or "not found"
+```
+
+[How a question is answered](#how-a-question-is-answered) has the details.
+
+### Design decisions
+
+- **Check, don't trust.** Citations are checked by code, not by another model. Each quote must be word for word in the lines it cites, and those lines must be among the ones Gemini was shown. One failed citation turns the whole answer into "not found": a wrong "not found" does less harm than a wrong answer that looks sourced.
+- **Line numbers everywhere.** A document is a list of numbered lines, and chunks, excerpts, citations and the viewer all find lines by those numbers. A PDF's lines are numbered through the whole file, and the line each page starts on is stored with it, so PDFs go through the same pipeline. Only what the user sees differs: the page, with lines counted from 1 on each page.
+- **The schema sets the rules.** Gemini must answer in JSON that matches a Pydantic model. The answer to a reply uses a model without the "ask back" status, so a user is asked one question at most, whatever Gemini makes of the prompt.
+- **No connection waits for Gemini.** The stores finish their transactions before a Gemini call and start new ones after it, so none stays open while Gemini works. An upload or a question that the database would refuse is refused before any credits are spent.
+- **Exact search.** A dataset holds at most 100 documents by default, so Postgres compares the question with every chunk of the dataset. That's fast at this size and never misses a closer chunk. A vector index such as HNSW is the next step for bigger datasets.
+- **Answers aren't stored.** Answer requests are sent with `store=False`, so Gemini doesn't keep them, or the excerpts in them. Embedding requests, which carry each chunk and each question, have no such option.
+- **Measured changes.** Changes to search and to the prompt are judged on the evaluation set. It's graded by plain text matching, so the same answers always get the same scores.
+- **A stateless login.** The session cookie holds an expiry, signed with a key derived from the password. The server keeps no sessions, and changing the password ends them all.
 
 ## Run locally
 
@@ -53,7 +145,7 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173, create a dataset, upload `.txt`, `.md` or `.pdf` files into it (up to 1 MB each), and ask a question about the dataset. If the answer depends on something the question doesn't say, you get a question back, with the lines that show why, and a box to reply in. Click a citation's lines, or its page for a PDF, to read them in its document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+Then open http://localhost:5173 and create a dataset in the sidebar. Add `.txt`, `.md` or `.pdf` files to it (up to 1 MB each), with Add files in the sidebar or by dropping them on it; they upload at once. Then ask a question at the bottom of the page, and press Enter to send it. Each question becomes a card. If the answer depends on something the question doesn't say, the card asks back, with the lines that show why, and a box to reply in. Click a source's lines, or its page for a PDF, to read them in the panel beside the cards. To delete a document, use the trash button in its row; to delete a dataset with all its documents, use Delete above the dataset. Both ask before they delete anything. The theme switch at the bottom of the sidebar follows the system or keeps light or dark. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 
 You can also call the API directly. Create a dataset and upload a file into it using the `id` from its response, then read the document, ask about it or delete it using the `id` from the upload response. When an answer's `status` is `needs_clarification`, its `answer` is a question back: send the question again with that text and your reply in `clarification`. Deleting the dataset deletes its documents too. With a password set, log in first with `curl -c cookies.txt -X POST http://localhost:8000/api/session -H "Content-Type: application/json" -d '{"password": "<ACCESS_PASSWORD>"}'`, and add `-b cookies.txt` to each command below:
 
@@ -143,7 +235,7 @@ In step 3, Gemini can ask a clarifying question instead of answering, when the e
 
 The reply is sent with the question and the clarifying question. Search then embeds the question and the reply together, so it looks for the lines about the situation the reply names, and the prompt ends with all three. This time Gemini can only answer or say "not found", because the answer format it's given has no status for asking again. So a user is asked one question at most, and the conversation can't loop.
 
-A dataset without chunks gets "not found" without asking Gemini. That includes documents uploaded before chunks existed and not yet indexed (see [Chunks and embeddings](#chunks-and-embeddings)).
+A dataset without chunks gets "not found" without asking Gemini for an answer; only the question is embedded. That includes documents uploaded before chunks existed and not yet indexed (see [Chunks and embeddings](#chunks-and-embeddings)).
 
 ## Security
 
@@ -251,9 +343,21 @@ What this shows:
 - **It's cheaper, and its cost doesn't grow with the documents.**
   - Search sends 44% fewer input tokens. It sends about the same for the 726-line SOP as for a short leaflet.
   - Gemini thinks a little longer over excerpts, so the saving here is 20% per question.
-  - The bigger point is scale: a dataset of 100 documents can't be sent whole at all.
+  - The bigger point is scale: a full dataset, up to 100 files of up to 1 MB each, can hold far more text than one prompt can take.
 
 Searching once for each part of a question, or giving it more chunks, might fix the questions whose answer sits in two places, and also show Gemini the situations it needs to see before it can ask back. This set can measure either change.
+
+## Limitations and next steps
+
+- **Answers in two places.** One search for the whole question often finds only one of them, which is the main reason search scores below whole documents. Searching once for each part of the question, or again with what the first answer names, should help. The evaluation can show how much.
+- **Only the quotes are checked.** The check proves that each quote is in the document, not that the answer says what its quotes say.
+- **Line numbers in quotes.** Once in 233 runs, Gemini copied a line's number from the prompt into its quote, and the check rejected a right answer. Removing such a number before the check should keep those answers.
+- **A side effect of clarifying questions.** One question that needs two documents was answered right in 2 of 3 runs before Gemini could ask back, and got "not found" in all 3 after. Running both instructions on that question side by side would show whether the new one is the cause.
+- **PDFs.** There's no OCR, so scanned PDFs can't be read, and columns and tables come out in the order pypdf reads them.
+- **Questions are kept in the page.** The cards of a session live in the browser's memory, so a reload or a logout clears them.
+- **One password for everyone.** Everyone who logs in sees every dataset. Sharing it between people would need user accounts, with datasets of their own.
+- **One machine.** The Docker setup is published on this machine only. To serve it to others, it needs HTTPS in front, `SECURE_COOKIES=true`, and nginx set to see each client's real address for the rate limits. The checklist at the top of `frontend/nginx/default.conf` lists these steps and the rest.
+- **Gemini's errors.** When the Gemini account runs out of prepaid credits, the app says only that Gemini could not answer the question, or could not index the document. The reason is only in the backend's log.
 
 ## Project structure
 
@@ -304,6 +408,7 @@ Postgres, Docker, the migrations and the evaluation questions live outside that 
 
 ```
 compose.yaml                 # runs Postgres for development, and with --profile app the whole app
+docs/demo.gif                # the recording at the top of this README
 scripts/check-docker-stack.sh  # checks a running Docker app: login, size cap, rate limit, headers
 backend/
 ├── Dockerfile               # the backend image, which also applies the migrations
@@ -317,6 +422,7 @@ backend/
     └── versions/            # one file for each schema change
 frontend/
 ├── Dockerfile               # builds the page and serves it with nginx
+├── public/theme-init.js     # applies the stored theme before the page is first drawn
 └── nginx/default.conf       # serves the page, passes /api on, and caps sizes, rates and headers
 ```
 
@@ -325,8 +431,9 @@ The frontend lives in `frontend/src/`:
 ```
 src/
 ├── main.tsx                   # starts React
-├── App.tsx                    # the page: checks the session, then shows the login form or the app
-├── index.css                  # page styles
+├── App.tsx                    # the page: checks the session, then shows the login screen or the workspace
+├── index.css                  # the design: colour tokens for both themes, layout and components
+├── theme.ts                   # reads, saves and applies the theme: system, light or dark
 ├── api/                       # every HTTP call lives here
 │   ├── ask.ts                 # asks a question about a dataset
 │   ├── datasets.ts            # lists, creates and deletes datasets
@@ -336,24 +443,34 @@ src/
 │   ├── request.ts             # sends a request, turns any failure into a message, and says when a session ends
 │   └── session.ts             # checks the session, logs in and logs out
 ├── components/
-│   ├── Answer.tsx             # shows one answer or clarifying question, and its citations
+│   ├── Answer.tsx             # what came back, inside its card: an answer, a clarifying question or "not found"
 │   ├── ApiStatus.tsx          # shows whether the API is reachable
-│   ├── Ask.tsx                # asks a question about the selected dataset
+│   ├── Ask.tsx                # the box at the bottom that asks the next question
+│   ├── citationLabel.ts       # names a citation's place: its lines, or its pages for a PDF
 │   ├── ConfirmDelete.tsx      # a Delete button that asks first, inline
 │   ├── CreateDatasetForm.tsx  # names and creates a dataset
-│   ├── DatasetContents.tsx    # everything for one dataset: its documents and the questions
 │   ├── Datasets.tsx           # chooses a dataset, offers to create one and to delete it
-│   ├── Documents.tsx          # shows the upload form and the document list, with Delete buttons
+│   ├── Documents.tsx          # the document list, with trash buttons, and the upload
+│   ├── icons.tsx              # small line icons, drawn inline
 │   ├── LineViewer.tsx         # shows a citation's lines in the document, with a PDF's pages
 │   ├── LoginForm.tsx          # asks for the password
 │   ├── LogOutButton.tsx       # logs out
 │   ├── pageOfLine.ts          # finds the page of a PDF that holds a line
-│   ├── ReplyForm.tsx          # replies to a clarifying question
-│   ├── UploadForm.tsx         # chooses files, uploads them one by one and says how each went
-│   └── Workspace.tsx          # the app once logged in: the datasets, and the selected one's contents
+│   ├── QuestionCard.tsx       # one question of the session: its number, status, time and what came back
+│   ├── QuestionsColumn.tsx    # the middle column: the cards, an empty state, and the box to ask
+│   ├── ReplyForm.tsx          # replies to a clarifying question, inside its card
+│   ├── Sidebar.tsx            # the left column, and on a phone the drawer: datasets, documents, theme, account
+│   ├── SourcePanel.tsx        # the panel that shows a cited document around its citation
+│   ├── Sources.tsx            # a card for each citation: the file, its lines or pages, and the quote
+│   ├── ThemeSwitch.tsx        # System, Light or Dark
+│   ├── TopBar.tsx             # the bar of a narrow window, with the Menu button that opens the sidebar
+│   ├── Upload.tsx             # the drop zone, and a card that follows each file of an upload
+│   └── Workspace.tsx          # the app once logged in: lays out the columns and holds what they share
 ├── hooks/
 │   ├── useDatasets.ts         # loads the dataset list
 │   ├── useDocuments.ts        # loads the documents of a dataset
+│   ├── useMediaQuery.ts       # whether the window matches a media query, as it changes size
+│   ├── useQuestions.ts        # the questions of the session, kept for each dataset, and asking and replying
 │   └── useSession.ts          # whether a login is needed, and whether the session is still valid
 └── test/setup.ts              # test setup
 ```

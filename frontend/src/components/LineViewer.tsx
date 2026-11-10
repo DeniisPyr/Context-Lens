@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Citation } from '../api/ask.ts'
 import { type DocumentDetail, getDocument } from '../api/documents.ts'
+import { ChevronDownIcon, ChevronUpIcon } from './icons.tsx'
 import { pageOfLine } from './pageOfLine.ts'
 
 // A 1 MB file can hold up to a million lines, so only this many around the citation are shown at first.
@@ -76,7 +77,8 @@ export default function LineViewer({ citation }: { citation: Citation }) {
   return (
     <div className="line-viewer">
       {first > 1 && (
-        <button type="button" className="link-button" onClick={() => setLinesBefore(linesBefore + CONTEXT_LINES)}>
+        <button type="button" className="more-lines" onClick={() => setLinesBefore(linesBefore + CONTEXT_LINES)}>
+          <ChevronUpIcon className="icon-sm" />
           Show earlier lines
         </button>
       )}
@@ -98,7 +100,8 @@ export default function LineViewer({ citation }: { citation: Citation }) {
         {last === doc.lines.length && pageRows(doc.lines.length + 1)}
       </ol>
       {last < doc.lines.length && (
-        <button type="button" className="link-button" onClick={() => setLinesAfter(linesAfter + CONTEXT_LINES)}>
+        <button type="button" className="more-lines" onClick={() => setLinesAfter(linesAfter + CONTEXT_LINES)}>
+          <ChevronDownIcon className="icon-sm" />
           Show later lines
         </button>
       )}

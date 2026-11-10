@@ -1,6 +1,6 @@
 import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
-import { StrictMode, useState } from 'react'
+import { StrictMode, useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useDocuments } from '../hooks/useDocuments.ts'
 import Documents from './Documents.tsx'
@@ -14,16 +14,18 @@ function stubRoutes(routes: Record<string, Route>) {
   return fetchStub
 }
 
-// Documents gets its list as props, so this loads it with the real hook, the way DatasetContents does.
+// Documents gets its list as props, so this loads it with the real hook, the way Workspace does.
 function LoadedDocuments() {
   const { documents, error, reload, remove } = useDocuments('d1')
   const [busy, setBusy] = useState(false)
+  const input = useRef<HTMLInputElement>(null)
   return (
     <Documents
       datasetId="d1"
       documents={documents}
       error={error}
       busy={busy}
+      fileInputRef={input}
       onBusyChange={setBusy}
       onUploaded={reload}
       onDeleted={remove}
@@ -42,15 +44,26 @@ const rejectsOnAbort: Route = (init) =>
     init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
   })
 
-const fileInput = () => screen.getByLabelText<HTMLInputElement>('Choose .txt, .md or .pdf files')
-const uploadButton = () => screen.getByRole('button', { name: 'Upload' })
+const fileInput = () => screen.getByLabelText<HTMLInputElement>('Add files')
+// The zone is the input's label, so dragging and dropping happen on it.
+const dropZone = () => fileInput().closest('label')!
 const summary = () => screen.getByRole('status')
 const documentList = () => within(screen.getByRole('list', { name: 'Documents' }))
 const resultRows = () => within(screen.getByRole('list', { name: 'Upload results' })).getAllByRole('listitem')
+const clearButton = () => screen.queryByRole('button', { name: 'Clear upload results' })
 
+// Choosing files is all it takes: the upload starts at once.
 async function upload(user: UserEvent, ...files: File[]) {
   await user.upload(fileInput(), files.length > 0 ? files : new File(['one\ntwo\n'], 'notes.txt'))
-  await user.click(uploadButton())
+}
+
+// Drags files over the zone and drops them, as from the desktop. fireEvent returns false when the page called
+// preventDefault, which keeps the browser from opening a dropped file in place of the app.
+function drop(...files: File[]) {
+  const dataTransfer = { files, types: ['Files'], dropEffect: 'none' }
+  const draggedOver = fireEvent.dragOver(dropZone(), { dataTransfer })
+  const dropped = fireEvent.drop(dropZone(), { dataTransfer })
+  return { draggedOver, dropped, dataTransfer }
 }
 
 const named = (...filenames: string[]) => filenames.map((filename) => new File(['text'], filename))
@@ -146,6 +159,55 @@ describe('the document list', () => {
 
     await vi.waitFor(() => expect(result.current.documents).toEqual([notes]))
     expect(fetchStub).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops the old list and its error as soon as the id changes, before the new list arrives', async () => {
+    stubRoutes({
+      [GET_LIST]: () => new Response('Bad Gateway', { status: 502 }),
+      'GET /api/datasets/d2/documents': rejectsOnAbort,
+    })
+
+    const { result, rerender } = renderHook(({ id }) => useDocuments(id), { initialProps: { id: 'd1' } })
+    await vi.waitFor(() => expect(result.current.error).toBe('Could not load the documents.'))
+    rerender({ id: 'd2' })
+
+    expect(result.current.documents).toBeNull()
+    expect(result.current.error).toBeNull()
+  })
+
+  it('loads nothing while no dataset is selected', async () => {
+    const fetchStub = stubRoutes({})
+
+    const { result } = renderHook(() => useDocuments(undefined))
+    await act(async () => {})
+
+    expect(fetchStub).not.toHaveBeenCalled()
+    expect(result.current.documents).toBeNull()
+  })
+
+  it('says how many documents there are beside the heading, once they have loaded', async () => {
+    const short = { id: '2', filename: 'short.md', line_count: 1, page_count: null }
+    stubRoutes({ [GET_LIST]: () => Response.json([notes, short]) })
+
+    render(<LoadedDocuments />)
+    const head = screen.getByRole('heading', { name: 'Documents' }).parentElement!
+    expect(head).toHaveTextContent(/^Documents$/)
+
+    await screen.findByRole('list', { name: 'Documents' })
+    expect(head).toHaveTextContent(/^Documents2$/)
+  })
+
+  it('cuts a long filename short with an ellipsis, and keeps the whole name as its title', async () => {
+    const long = `${'long'.repeat(100)}.txt`
+    stubRoutes({ [GET_LIST]: () => Response.json([{ ...notes, filename: long }]) })
+
+    render(<LoadedDocuments />)
+    await screen.findByRole('list', { name: 'Documents' })
+    const name = documentList().getByText(long)
+
+    expect(name).toHaveAttribute('title', long)
+    expect(name).toHaveStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: '0px' })
+    expect(name.parentElement).toHaveStyle({ minWidth: '0px' })
   })
 
   it('shows two documents with the same filename without a key warning', async () => {
@@ -286,36 +348,37 @@ describe('uploading', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('asks for a file and sends nothing when no file is chosen', async () => {
+  it('starts as soon as files are chosen, with no button to press', async () => {
     const user = userEvent.setup()
+    const fetchStub = stubRoutes({
+      [GET_LIST]: () => Response.json([]),
+      [POST_FILE]: () => Response.json(notes, { status: 201 }),
+    })
+
+    render(<LoadedDocuments />)
+    await screen.findByText('No documents yet.')
+
+    expect(screen.queryByRole('button', { name: /^Upload/ })).not.toBeInTheDocument()
+
+    await user.upload(fileInput(), new File(['one\ntwo\n'], 'notes.txt'))
+
+    await vi.waitFor(() => expect(requestsTo(fetchStub, 'POST')).toHaveLength(1))
+  })
+
+  it('starts nothing and sends nothing when the chooser is closed with no file chosen', async () => {
     const fetchStub = stubRoutes({ [GET_LIST]: () => Response.json([]) })
 
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
-    await user.click(uploadButton())
+    fireEvent.change(fileInput(), { target: { files: [] } })
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Choose a file first.')
-    expect(fetchStub).toHaveBeenCalledTimes(1)
-  })
-
-  it('removes the alert about choosing a file when a run starts', async () => {
-    const user = userEvent.setup()
-    stubRoutes({
-      [GET_LIST]: () => Response.json([]),
-      [POST_FILE]: () => Response.json(notes, { status: 201 }),
-    })
-
-    render(<LoadedDocuments />)
-    await screen.findByText('No documents yet.')
-    await user.click(uploadButton())
-    await screen.findByRole('alert')
-    await upload(user)
-    await screen.findByText('Uploaded')
-
+    expect(requestsTo(fetchStub, 'POST')).toHaveLength(0)
+    expect(screen.queryByRole('list', { name: 'Upload results' })).not.toBeInTheDocument()
+    expect(fileInput()).toBeEnabled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('keeps the rows of the last run when no file is chosen, since nothing started', async () => {
+  it('keeps the rows of the last run when the chooser is closed with nothing chosen, as nothing started', async () => {
     const user = userEvent.setup()
     stubRoutes({
       [GET_LIST]: () => Response.json([]),
@@ -325,32 +388,22 @@ describe('uploading', () => {
     render(<LoadedDocuments />)
     await upload(user)
     await screen.findByText('Uploaded')
-    await user.click(uploadButton())
+    fireEvent.change(fileInput(), { target: { files: [] } })
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Choose a file first.')
     expect(screen.getByText('Uploaded')).toBeInTheDocument()
     expect(summary()).toHaveTextContent('1 uploaded, 0 failed.')
   })
 
-  it('stops the browser from submitting the form itself', async () => {
-    stubRoutes({ [GET_LIST]: () => Response.json([]) })
-
-    render(<LoadedDocuments />)
-    await screen.findByText('No documents yet.')
-
-    // fireEvent returns false when the handler called preventDefault.
-    expect(fireEvent.submit(fileInput().form!)).toBe(false)
-  })
-
   it('does not accept other file types in the file chooser', async () => {
     const user = userEvent.setup()
-    stubRoutes({ [GET_LIST]: () => Response.json([]) })
+    const fetchStub = stubRoutes({ [GET_LIST]: () => Response.json([]) })
 
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
     await user.upload(fileInput(), new File(['PK'], 'report.docx'))
 
     expect(fileInput().files).toHaveLength(0)
+    expect(requestsTo(fetchStub, 'POST')).toHaveLength(0)
   })
 
   it('accepts a PDF in the file chooser and uploads it like a text file', async () => {
@@ -374,7 +427,7 @@ describe('uploading', () => {
     expect(summary()).toHaveTextContent('1 uploaded, 0 failed.')
   })
 
-  it('disables the button while uploading and enables it after a failure', async () => {
+  it('disables the file input while uploading and enables it after a failure', async () => {
     const user = userEvent.setup()
     let answer!: (response: Response) => void
     stubRoutes({
@@ -385,12 +438,13 @@ describe('uploading', () => {
     render(<LoadedDocuments />)
     await upload(user)
 
-    expect(screen.getByRole('button', { name: 'Uploading 1 of 1…' })).toBeDisabled()
+    expect(screen.getByText('Uploading 1 of 1…')).toBeInTheDocument()
+    expect(fileInput()).toBeDisabled()
 
     answer(new Response('Bad Gateway', { status: 502 }))
 
     await screen.findByText('Could not upload the file.')
-    expect(uploadButton()).toBeEnabled()
+    expect(fileInput()).toBeEnabled()
   })
 
   it('aborts a slow first load when an upload finishes, so it cannot overwrite the result', async () => {
@@ -432,7 +486,8 @@ describe('uploading several files', () => {
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
 
-    expect(fileInput()).toHaveAccessibleName('Choose .txt, .md or .pdf files')
+    expect(fileInput()).toHaveAccessibleName('Add files')
+    expect(fileInput()).toHaveAccessibleDescription('.txt, .md, .pdf · up to 1\u00a0MB each')
     expect(fileInput()).toHaveAttribute('multiple')
     expect(fileInput()).toHaveAttribute('accept', '.txt,.md,.pdf')
   })
@@ -488,18 +543,24 @@ describe('uploading several files', () => {
     render(<LoadedDocuments />)
     await upload(user, ...named('a.txt', 'b.txt', 'c.txt'))
 
-    expect(screen.getByRole('button', { name: 'Uploading 1 of 3…' })).toBeDisabled()
+    const bar = () => screen.getByRole('progressbar', { name: /^Uploading/ })
+    expect(screen.getByText('Uploading 1 of 3…')).toBeInTheDocument()
+    expect(bar()).toHaveAttribute('max', '3')
+    expect(bar()).toHaveAttribute('value', '0')
     expect(fileInput()).toBeDisabled()
 
     await answer(0, uploaded('a.txt'))
-    expect(screen.getByRole('button', { name: 'Uploading 2 of 3…' })).toBeDisabled()
+    expect(screen.getByText('Uploading 2 of 3…')).toBeInTheDocument()
+    expect(bar()).toHaveAttribute('value', '1')
 
     await answer(1, new Response('Bad Gateway', { status: 502 }))
-    expect(screen.getByRole('button', { name: 'Uploading 3 of 3…' })).toBeDisabled()
+    expect(screen.getByText('Uploading 3 of 3…')).toBeInTheDocument()
+    expect(bar()).toHaveAttribute('value', '2')
     expect(fileInput()).toBeDisabled()
 
     await answer(2, uploaded('c.txt'))
-    expect(uploadButton()).toBeEnabled()
+    expect(screen.queryByText(/^Uploading \d/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
     expect(fileInput()).toBeEnabled()
   })
 
@@ -532,14 +593,13 @@ describe('uploading several files', () => {
       .fn<Route>()
       .mockResolvedValueOnce(Response.json(notes, { status: 201 }))
       .mockResolvedValueOnce(new Response('Bad Gateway', { status: 502 }))
-    stubRoutes({ [GET_LIST]: () => Response.json([]), [POST_FILE]: post })
+    // The list never loads, which puts a real alert on the page to compare with.
+    stubRoutes({ [GET_LIST]: () => new Response('Bad Gateway', { status: 502 }), [POST_FILE]: post })
 
     render(<LoadedDocuments />)
     await upload(user, ...named('a.txt', 'b.txt'))
     await vi.waitFor(() => expect(summary()).toHaveTextContent('1 uploaded, 1 failed.'))
 
-    // Clicking with no file chosen puts a real alert on the page to compare with.
-    await user.click(uploadButton())
     const alertColour = getComputedStyle(screen.getByRole('alert')).color
     const [good, bad] = resultRows()
     expect(getComputedStyle(bad).color).toBe(alertColour)
@@ -629,57 +689,84 @@ describe('uploading several files', () => {
     expect(documentList().getByText('c.txt')).toBeInTheDocument()
   })
 
-  it('shows each row as its file finishes', async () => {
+  it('lists every file of the run at once, and shows each result as its file finishes', async () => {
     const user = userEvent.setup()
     const { route, answer } = answers()
     stubRoutes({ [GET_LIST]: () => Response.json([]), [POST_FILE]: route })
+    const texts = () => resultRows().map((row) => row.textContent)
 
     render(<LoadedDocuments />)
-    await upload(user, ...named('a.txt', 'b.txt'))
-    expect(screen.queryByRole('list', { name: 'Upload results' })).not.toBeInTheDocument()
+    await upload(user, ...named('a.txt', 'b.txt', 'c.txt'))
+
+    expect(texts()).toEqual(['a.txtUploading…', 'b.txtWaiting', 'c.txtWaiting'])
 
     await answer(0, uploaded('a.txt'))
-    expect(resultRows()).toHaveLength(1)
+    expect(texts()).toEqual(['a.txtUploaded', 'b.txtUploading…', 'c.txtWaiting'])
 
-    await answer(1, uploaded('b.txt'))
-    expect(resultRows()).toHaveLength(2)
+    await answer(1, new Response('Bad Gateway', { status: 502 }))
+    expect(texts()).toEqual(['a.txtUploaded', 'b.txtCould not upload the file.', 'c.txtUploading…'])
+
+    await answer(2, uploaded('c.txt'))
+    expect(texts()).toEqual(['a.txtUploaded', 'b.txtCould not upload the file.', 'c.txtUploaded'])
   })
 
   it.each<[string, Route]>([
     ['every file worked', () => Response.json(notes, { status: 201 })],
     ['every file failed', () => new Response('Bad Gateway', { status: 502 })],
-  ])('empties the input when the run ends and %s, so the same files can be chosen again', async (_name, post) => {
+  ])('empties the input once it has the files, so when %s, the same files can go again', async (_name, post) => {
     const user = userEvent.setup()
-    stubRoutes({ [GET_LIST]: () => Response.json([]), [POST_FILE]: post })
+    const fetchStub = stubRoutes({ [GET_LIST]: () => Response.json([]), [POST_FILE]: post })
     const files = named('a.txt', 'b.txt')
 
     render(<LoadedDocuments />)
     await upload(user, ...files)
-    await vi.waitFor(() => expect(resultRows()).toHaveLength(2))
-    await vi.waitFor(() => expect(uploadButton()).toBeEnabled())
 
     expect(fileInput().files).toHaveLength(0)
     expect(fileInput().value).toBe('')
 
-    await user.upload(fileInput(), files)
+    await vi.waitFor(() => expect(summary()).not.toBeEmptyDOMElement())
+    await upload(user, ...files)
 
-    expect(fileInput().files).toHaveLength(2)
+    await vi.waitFor(() => expect(requestsTo(fetchStub, 'POST')).toHaveLength(4))
+    expect(requestsTo(fetchStub, 'POST').map(sentFile)).toEqual([...files, ...files])
   })
 
-  it('still sends every chosen file, although the input is emptied afterwards', async () => {
+  it('still sends every chosen file, although the input is emptied at once', async () => {
     const user = userEvent.setup()
     const fetchStub = stubRoutes({
       [GET_LIST]: () => Response.json([]),
       [POST_FILE]: () => Response.json(notes, { status: 201 }),
     })
+    const files = named('a.txt', 'b.txt')
 
     render(<LoadedDocuments />)
-    await upload(user, ...named('a.txt', 'b.txt'))
-    await vi.waitFor(() => expect(uploadButton()).toBeEnabled())
-    await user.click(uploadButton())
+    await upload(user, ...files)
+    await vi.waitFor(() => expect(summary()).toHaveTextContent('2 uploaded, 0 failed.'))
 
-    expect(requestsTo(fetchStub, 'POST')).toHaveLength(2)
-    expect(screen.getByRole('alert')).toHaveTextContent('Choose a file first.')
+    expect(requestsTo(fetchStub, 'POST').map(sentFile)).toEqual(files)
+  })
+
+  it('offers to clear the results once the run has ended, which hides the card and empties the status', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = answers()
+    stubRoutes({ [GET_LIST]: () => Response.json([]), [POST_FILE]: route })
+
+    render(<LoadedDocuments />)
+    await upload(user, ...named('a.txt'))
+
+    expect(clearButton()).not.toBeInTheDocument()
+
+    await answer(0, uploaded('a.txt'))
+    const status = summary()
+    await user.click(clearButton()!)
+
+    expect(screen.queryByRole('list', { name: 'Upload results' })).not.toBeInTheDocument()
+    expect(clearButton()).not.toBeInTheDocument()
+    // Still on the page, so it can announce the next run.
+    expect(summary()).toBe(status)
+    expect(status).toBeEmptyDOMElement()
+    // The button went with the card, so the focus goes to where the next run starts.
+    expect(fileInput()).toHaveFocus()
   })
 
   it('shows two files with the same name in a run without a key warning', async () => {
@@ -692,7 +779,7 @@ describe('uploading several files', () => {
 
     render(<LoadedDocuments />)
     await upload(user, ...named('a.txt', 'a.txt'))
-    await vi.waitFor(() => expect(resultRows()).toHaveLength(2))
+    await vi.waitFor(() => expect(summary()).toHaveTextContent('0 uploaded, 2 failed.'))
 
     expect(consoleError).not.toHaveBeenCalled()
   })
@@ -708,33 +795,126 @@ describe('uploading several files', () => {
     const { container } = render(<LoadedDocuments />)
     await upload(user, ...named(`${html}.txt`))
 
-    expect(await screen.findByText(`${html}.txt`)).toBeInTheDocument()
-    expect(screen.getByText(`${html} is too large.`)).toBeInTheDocument()
+    // The row is there from the start, so it's the message that says the file has finished.
+    expect(await screen.findByText(`${html} is too large.`)).toBeInTheDocument()
+    expect(screen.getByText(`${html}.txt`)).toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
   })
 
-  it('wraps a long filename instead of widening the page', async () => {
+  it('cuts a long filename short instead of widening the page, and wraps a long message', async () => {
     const user = userEvent.setup()
+    const long = `${'long'.repeat(100)}.txt`
     stubRoutes({
       [GET_LIST]: () => Response.json([]),
       [POST_FILE]: () => Response.json(notes, { status: 201 }),
     })
 
     render(<LoadedDocuments />)
-    await upload(user, ...named(`${'long'.repeat(100)}.txt`))
-    await vi.waitFor(() => expect(resultRows()).toHaveLength(1))
+    await upload(user, ...named(long))
+    await vi.waitFor(() => expect(summary()).toHaveTextContent('1 uploaded, 0 failed.'))
 
     expect(resultRows()[0]).toHaveStyle({ overflowWrap: 'anywhere', flexWrap: 'wrap' })
+    const name = within(resultRows()[0]).getByText(long)
+    expect(name).toHaveAttribute('title', long)
+    expect(name).toHaveStyle({ minWidth: '0px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
   })
 
-  it('lets the file input shrink to the width of a phone', async () => {
+  it('keeps the drop zone inside the sidebar, with the input hidden in it', async () => {
     stubRoutes({ [GET_LIST]: () => Response.json([]) })
 
     render(<LoadedDocuments />)
     await screen.findByText('No documents yet.')
 
-    expect(fileInput()).toHaveStyle({ minWidth: '0px', maxWidth: '100%' })
-    expect(fileInput().closest('label')).toHaveStyle({ minWidth: '0px' })
+    expect(fileInput()).toHaveStyle({ position: 'absolute', width: '1px', height: '1px' })
+    expect(dropZone()).toHaveStyle({ minWidth: '0px' })
+    expect(within(dropZone()).getByText('or drop them here', { exact: false })).toHaveStyle({ minWidth: '0px' })
+  })
+})
+
+describe('dropping files', () => {
+  const answers = postsAnsweredByTheTest
+  const uploaded = (filename: string) =>
+    Response.json({ id: filename, filename, line_count: 1, page_count: null }, { status: 201 })
+
+  it('uploads files dropped on the zone like chosen ones, one by one, in order', async () => {
+    const { route, started, answer } = answers()
+    const fetchStub = stubRoutes({ [GET_LIST]: () => Response.json([]), [POST_FILE]: route })
+    const files = named('b.md', 'a.txt')
+
+    render(<LoadedDocuments />)
+    await screen.findByText('No documents yet.')
+    const { draggedOver, dropped } = drop(...files)
+
+    // Both prevented, or the browser would refuse the drop or open the file in place of the app.
+    expect(draggedOver).toBe(false)
+    expect(dropped).toBe(false)
+    await settle()
+    expect(started()).toBe(1)
+    expect(fileInput()).toBeDisabled()
+
+    await answer(0, uploaded('b.md'))
+    await answer(1, uploaded('a.txt'))
+
+    await vi.waitFor(() => expect(summary()).toHaveTextContent('2 uploaded, 0 failed.'))
+    expect(requestsTo(fetchStub, 'POST').map(sentFile)).toEqual(files)
+  })
+
+  it('leaves it to the backend to turn away a file of another type', async () => {
+    stubRoutes({
+      [GET_LIST]: () => Response.json([]),
+      [POST_FILE]: () => Response.json({ detail: 'Only .txt, .md and .pdf files are accepted.' }, { status: 415 }),
+    })
+
+    render(<LoadedDocuments />)
+    await screen.findByText('No documents yet.')
+    drop(new File(['PK'], 'report.docx'))
+
+    expect(await screen.findByText('Only .txt, .md and .pdf files are accepted.')).toBeInTheDocument()
+    expect(resultRows()[0]).toHaveTextContent('report.docx')
+  })
+
+  it('shows that the zone will take the files while they are dragged over it', async () => {
+    stubRoutes({ [GET_LIST]: () => Response.json([]) })
+
+    render(<LoadedDocuments />)
+    await screen.findByText('No documents yet.')
+
+    fireEvent.dragOver(dropZone(), { dataTransfer: { files: [], types: ['Files'] } })
+    expect(dropZone()).toHaveClass('dragging')
+
+    // Moving onto the text inside the zone doesn't count as leaving it. jsdom has no DragEvent to carry
+    // relatedTarget, so these are mouse events of the same type.
+    const leaveFor = (relatedTarget: Element) => new MouseEvent('dragleave', { bubbles: true, relatedTarget })
+    fireEvent(dropZone(), leaveFor(within(dropZone()).getByText('Add files')))
+    expect(dropZone()).toHaveClass('dragging')
+
+    fireEvent(dropZone(), leaveFor(document.body))
+    expect(dropZone()).not.toHaveClass('dragging')
+
+    fireEvent.dragOver(dropZone(), { dataTransfer: { files: [], types: ['Files'] } })
+    fireEvent.drop(dropZone(), { dataTransfer: { files: [], types: ['Files'] } })
+    expect(dropZone()).not.toHaveClass('dragging')
+  })
+
+  it('turns away files dropped while a run goes on, still keeping the browser from opening them', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = answers()
+    const fetchStub = stubRoutes({ [GET_LIST]: () => Response.json([]), [POST_FILE]: route })
+
+    render(<LoadedDocuments />)
+    await upload(user, ...named('a.txt'))
+    const { draggedOver, dropped, dataTransfer } = drop(...named('b.txt'))
+
+    expect(draggedOver).toBe(false)
+    expect(dropped).toBe(false)
+    expect(dataTransfer.dropEffect).toBe('none')
+    expect(dropZone()).not.toHaveClass('dragging')
+
+    await answer(0, uploaded('a.txt'))
+    await settle()
+
+    expect(requestsTo(fetchStub, 'POST')).toHaveLength(1)
+    expect(resultRows()).toHaveLength(1)
   })
 })
 
@@ -777,6 +957,20 @@ describe('deleting a document', () => {
 
     expect(rowOf('notes.txt').getByRole('button', { name: 'Delete notes.txt' })).toHaveTextContent('Delete')
     expect(rowOf('short.md').getByRole('button', { name: 'Delete short.md' })).toBeEnabled()
+  })
+
+  // jsdom can't hover, and ignores the media query that shows it on touch screens, so only the focus is checked.
+  it('shows the Delete button of a row when the row holds the focus, and keeps it reachable when hidden', async () => {
+    await renderList()
+
+    expect(deleteButton('notes.txt')).toHaveStyle({ opacity: '0', width: '0px' })
+    expect(deleteButton('notes.txt')).not.toHaveStyle({ display: 'none' })
+    expect(deleteButton('notes.txt')).not.toHaveStyle({ visibility: 'hidden' })
+
+    deleteButton('notes.txt').focus()
+
+    expect(deleteButton('notes.txt')).toHaveStyle({ opacity: '1', width: '28px' })
+    expect(deleteButton('short.md')).toHaveStyle({ opacity: '0', width: '0px' })
   })
 
   it('asks in the row first and sends nothing until the user confirms', async () => {
@@ -939,7 +1133,6 @@ describe('deleting a document', () => {
     expect(confirmIn('notes.txt')).toBeDisabled()
     expect(cancelIn('notes.txt')).toBeDisabled()
     expect(deleteButton('short.md')).toBeEnabled()
-    expect(uploadButton()).toBeEnabled()
     expect(fileInput()).toBeEnabled()
 
     await user.click(confirmIn('notes.txt'))

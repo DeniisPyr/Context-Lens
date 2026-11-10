@@ -66,8 +66,11 @@ function waitingRoute() {
 const datasetSelect = () => screen.getByRole<HTMLSelectElement>('combobox', { name: 'Dataset' })
 const nameInput = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'New dataset name' })
 const createButton = () => screen.getByRole('button', { name: 'Create' })
+const newDatasetButton = () => screen.getByRole('button', { name: 'New dataset' })
 const questionBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Question' })
 const startMessage = 'Create a dataset to get started.'
+// The question a Delete button asks, for a dataset or a document. Named, because the theme switch is a group too.
+const deleteQuestion = () => screen.queryByRole('group', { name: /^Delete / })
 
 // Waits for a document's row in the list, by its Delete button, which names the file.
 const findDocument = (filename: string) => screen.findByRole('button', { name: `Delete ${filename}` })
@@ -75,7 +78,9 @@ const findDocument = (filename: string) => screen.findByRole('button', { name: `
 const requestsTo = (fetchStub: ReturnType<typeof stubRoutes>, url: string, method = 'GET') =>
   fetchStub.mock.calls.filter((call) => call[0] === url && (call[1]?.method ?? 'GET') === method)
 
+// Opens the form first when there are datasets already, and it's closed.
 async function createNamed(user: UserEvent, name: string) {
+  if (!screen.queryByRole('textbox', { name: 'New dataset name' })) await user.click(newDatasetButton())
   await user.clear(nameInput())
   await user.type(nameInput(), name)
   await user.click(createButton())
@@ -83,7 +88,8 @@ async function createNamed(user: UserEvent, name: string) {
 
 function expectNoDocumentsOrAsk() {
   expect(screen.queryByRole('heading', { name: 'Documents' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: /^Ask a question/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/^Add files to/)).not.toBeInTheDocument()
 }
 
 afterEach(() => {
@@ -100,6 +106,20 @@ describe('before any dataset exists', () => {
     expectNoDocumentsOrAsk()
     expect(screen.queryByRole('combobox', { name: 'Dataset' })).not.toBeInTheDocument()
     expect(nameInput()).toBeInTheDocument()
+    // Creating a dataset is all there is to do, so the form can't be closed.
+    expect(screen.queryByRole('button', { name: 'New dataset' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
+  })
+
+  it('leads from the start prompt to the name field in the sidebar', async () => {
+    const user = userEvent.setup()
+    stubPage([])
+
+    render(<App />)
+    await screen.findByText(startMessage)
+    await user.click(screen.getByRole('button', { name: 'Create a dataset' }))
+
+    expect(nameInput()).toHaveFocus()
   })
 
   it('says nothing while the first load is running', async () => {
@@ -176,7 +196,130 @@ describe('before any dataset exists', () => {
     expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(screen.queryByText(startMessage)).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
+    expect(screen.getByText('Add files to Reports to ask about them.')).toBeInTheDocument()
+    // The form closes, and the focus goes to the button that opens it again.
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+    expect(newDatasetButton()).toHaveFocus()
+  })
+})
+
+describe('the New dataset button', () => {
+  it('opens the form under it, with the focus in the name field', async () => {
+    const user = userEvent.setup()
+    stubPage([reports])
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+
+    expect(newDatasetButton()).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+
+    await user.click(newDatasetButton())
+
+    expect(newDatasetButton()).toHaveAttribute('aria-expanded', 'true')
+    expect(nameInput()).toHaveFocus()
+    expect(createButton()).toBeEnabled()
+  })
+
+  it.each([
+    ['Cancel', (user: UserEvent) => user.click(screen.getByRole('button', { name: 'Cancel' }))],
+    ['Escape', (user: UserEvent) => user.keyboard('{Escape}')],
+    ['New dataset again', (user: UserEvent) => user.click(newDatasetButton())],
+  ])('closes the form on %s, sends nothing and puts the focus back on New dataset', async (_name, close) => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([reports])
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await user.click(newDatasetButton())
+    await user.type(nameInput(), 'Invoices')
+    await close(user)
+
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+    expect(newDatasetButton()).toHaveFocus()
+    expect(newDatasetButton()).toHaveAttribute('aria-expanded', 'false')
+    expect(requestsTo(fetchStub, '/api/datasets', 'POST')).toHaveLength(0)
+
+    // Nothing typed is kept for the next time.
+    await user.click(newDatasetButton())
+    expect(nameInput()).toHaveValue('')
+  })
+
+  it('keeps the form open and the name typed when creating fails', async () => {
+    const user = userEvent.setup()
+    stubPage([reports], { 'POST /api/datasets': () => new Response('Bad Gateway', { status: 502 }) })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await createNamed(user, 'Invoices')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not create the dataset.')
+    expect(nameInput()).toHaveValue('Invoices')
+    expect(newDatasetButton()).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+describe('the card of the selected dataset', () => {
+  const document = (id: string) => ({ id, filename: `${id}.txt`, line_count: 1, page_count: null })
+
+  it('shows its name and how many documents it holds', async () => {
+    const user = userEvent.setup()
+    stubPage([reports, invoices, contracts], {
+      [listOf(contracts.id)]: () => Response.json([document('a'), document('b')]),
+      [listOf(reports.id)]: () => Response.json([document('c')]),
+    })
+
+    render(<App />)
+    await findDocument('a.txt')
+
+    expect(screen.getByText('Contracts', { selector: '.switcher-name' })).toBeInTheDocument()
+    expect(datasetSelect()).toHaveAccessibleDescription('2 documents')
+
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('c.txt')
+
+    expect(screen.getByText('Reports', { selector: '.switcher-name' })).toBeInTheDocument()
+    expect(datasetSelect()).toHaveAccessibleDescription('1 document')
+  })
+
+  it('leaves the number of documents out until they have loaded', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([reports, invoices], { [listOf(reports.id)]: route })
+
+    render(<App />)
+    await screen.findByText('No documents yet.')
+    await user.selectOptions(datasetSelect(), reports.id)
+
+    expect(datasetSelect()).toHaveAccessibleDescription('')
+
+    await answer(Response.json([document('a')]))
+
+    expect(datasetSelect()).toHaveAccessibleDescription('1 document')
+  })
+
+  // "7 documents · the only dataset" and "99 documents · 2 of 3 datasets" were cut short in the sidebar.
+  it('says only how many documents the dataset holds, once they have loaded', async () => {
+    const { route, answer } = waitingRoute()
+    stubPage([reports], { [listOf(reports.id)]: route })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+
+    expect(datasetSelect()).toHaveAccessibleDescription('')
+
+    await answer(Response.json([...'abcdefg'].map((id) => document(id))))
+
+    expect(datasetSelect()).toHaveAccessibleDescription('7 documents')
+  })
+
+  it('counts one document as one', async () => {
+    stubPage([reports], { [listOf(reports.id)]: () => Response.json([document('a')]) })
+
+    render(<App />)
+    await findDocument('a.txt')
+
+    expect(datasetSelect()).toHaveAccessibleDescription('1 document')
   })
 })
 
@@ -219,8 +362,7 @@ describe('the Dataset select', () => {
     render(<App />)
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Dataset' }), reports.id)
     await screen.findByText('No documents yet.')
-    await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'report.txt'))
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    await user.upload(screen.getByLabelText('Add files'), new File(['text'], 'report.txt'))
 
     await findDocument('report.txt')
     expect(datasetSelect()).toHaveValue(reports.id)
@@ -238,6 +380,7 @@ describe('the Dataset select', () => {
   })
 
   it('stays inside the page width', async () => {
+    const user = userEvent.setup()
     stubPage([reports])
 
     render(<App />)
@@ -246,6 +389,7 @@ describe('the Dataset select', () => {
       width: '100%',
       boxSizing: 'border-box',
     })
+    await user.click(newDatasetButton())
     expect(nameInput()).toHaveStyle({ width: '100%', boxSizing: 'border-box' })
   })
 })
@@ -296,7 +440,7 @@ describe('creating a dataset', () => {
     expect(JSON.parse(init.body as string)).toEqual({ name: 'Reports' })
   })
 
-  it('clears the input, reloads the list from the server and selects the new dataset', async () => {
+  it('closes the form, reloads the list from the server and selects the new dataset', async () => {
     const user = userEvent.setup()
     // The reloaded list also holds a dataset this page didn't create: appending the POST response can't show it.
     const fetchStub = stubPage([reports], {
@@ -311,7 +455,8 @@ describe('creating a dataset', () => {
 
     expect(await screen.findByRole('option', { name: 'Contracts' })).toBeInTheDocument()
     expect(datasetSelect()).toHaveValue(invoices.id)
-    expect(nameInput()).toHaveValue('')
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+    expect(newDatasetButton()).toHaveFocus()
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2)
     expect(requestsTo(fetchStub, documentsPath(contracts.id))).toHaveLength(0)
   })
@@ -416,7 +561,7 @@ describe('creating a dataset', () => {
     })
 
     render(<App />)
-    await screen.findByRole('textbox', { name: 'New dataset name' })
+    await screen.findByRole('button', { name: 'New dataset' })
     await createNamed(user, 'Reports')
     await screen.findByText('No documents yet.')
 
@@ -535,6 +680,8 @@ describe('switching to another dataset', () => {
     await user.click(screen.getByRole('button', { name: 'Ask' }))
   }
 
+  const oldCard = () => screen.queryByRole('article', { name: 'Q1 The old question' })
+
   it('removes the old list at once, before the new one has arrived', async () => {
     const user = userEvent.setup()
     const { route, answer } = waitingRoute()
@@ -582,21 +729,22 @@ describe('switching to another dataset', () => {
     expect(questionBox()).toHaveValue('')
   })
 
-  it('removes the answer', async () => {
+  it('shows only the cards of the new dataset', async () => {
     const user = userEvent.setup()
     stubTwoDatasets()
 
     await askTheOldDataset(user)
-    await screen.findByRole('article')
+    await screen.findByText('The old answer.')
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('new.txt')
 
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
     expect(screen.queryByText('The old answer.')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Ask your first question about Reports' })).toBeInTheDocument()
     expect(questionBox()).toHaveValue('')
   })
 
-  it('does not show an answer that arrives after the switch', async () => {
+  it('puts an answer that arrives after the switch in the cards of its own dataset', async () => {
     const user = userEvent.setup()
     const { route, answer } = waitingRoute()
     stubTwoDatasets({ 'POST /api/ask': route })
@@ -608,42 +756,96 @@ describe('switching to another dataset', () => {
     await answer(Response.json(answered))
 
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
+    expect(screen.queryByText('The old answer.')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
-  })
 
-  it('does not bring the old state back when switching back', async () => {
-    const user = userEvent.setup()
-    stubTwoDatasets()
-
-    await askTheOldDataset(user)
-    await screen.findByRole('article')
-    await user.selectOptions(datasetSelect(), reports.id)
-    await findDocument('new.txt')
     await user.selectOptions(datasetSelect(), invoices.id)
     await findDocument('old.txt')
 
-    expect(questionBox()).toHaveValue('')
-    expect(screen.queryByRole('article')).not.toBeInTheDocument()
+    expect(within(oldCard()!).getByText('The old answer.')).toBeInTheDocument()
   })
 
-  it('asks the new dataset, and names it in the ask section and the answer', async () => {
+  it('lets the new dataset be asked while a question of the old one is on its way, which still waits on return', async () => {
     const user = userEvent.setup()
-    const fetchStub = stubTwoDatasets()
+    // Each question waits for the test to answer it, by its position.
+    const pending: ((response: Response) => void)[] = []
+    const route: Route = () => new Promise((resolve) => pending.push(resolve))
+    const answer = (position: number, response: Response) => act(async () => pending[position](response))
+    const fetchStub = stubTwoDatasets({ 'POST /api/ask': route })
 
-    render(<App />)
-    await findDocument('old.txt')
-    expect(screen.getByRole('heading', { name: 'Ask a question about Invoices' })).toBeInTheDocument()
+    await askTheOldDataset(user)
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('new.txt')
     await user.type(questionBox(), 'Why?')
     await user.click(screen.getByRole('button', { name: 'Ask' }))
-    await screen.findByRole('article')
+
+    expect(requestsTo(fetchStub, '/api/ask', 'POST')).toHaveLength(2)
+    expect(screen.getByRole('article', { name: 'Q1 Why?' })).toBeInTheDocument()
+
+    await user.selectOptions(datasetSelect(), invoices.id)
+    await findDocument('old.txt')
+
+    expect(within(oldCard()!).getByText('Asking…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Asking…' })).toBeDisabled()
+
+    await answer(0, Response.json(answered))
+
+    expect(within(oldCard()!).getByText('The old answer.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
+  })
+
+  it('brings the earlier cards back when switching back, with an empty question box', async () => {
+    const user = userEvent.setup()
+    stubTwoDatasets()
+
+    await askTheOldDataset(user)
+    await screen.findByText('The old answer.')
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('new.txt')
+    await user.type(questionBox(), 'Not sent')
+    await user.selectOptions(datasetSelect(), invoices.id)
+    await findDocument('old.txt')
+
+    expect(questionBox()).toHaveValue('')
+    expect(oldCard()).toBeInTheDocument()
+    expect(screen.getByText('The old answer.')).toBeInTheDocument()
+  })
+
+  it('numbers the questions of each dataset from Q1', async () => {
+    const user = userEvent.setup()
+    stubTwoDatasets()
+
+    await askTheOldDataset(user)
+    await screen.findByText('The old answer.')
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('new.txt')
+    await user.type(questionBox(), 'Why?')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+
+    expect(await screen.findByRole('article', { name: 'Q1 Why?' })).toBeInTheDocument()
+  })
+
+  it('asks the new dataset, and names it in the header and the question box', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubTwoDatasets()
+    const questionsColumn = () => within(screen.getByRole('main'))
+
+    render(<App />)
+    await findDocument('old.txt')
+    expect(questionBox()).toHaveAttribute('placeholder', 'Ask a question about Invoices')
+    expect(questionsColumn().getByText('Invoices')).toBeInTheDocument()
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('new.txt')
+    await user.type(questionBox(), 'Why?')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+    await screen.findByText('The old answer.')
 
     const [[, init]] = requestsTo(fetchStub, '/api/ask', 'POST')
     expect(JSON.parse(init?.body as string)).toEqual({ dataset_id: reports.id, question: 'Why?' })
-    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Ask a question about Invoices' })).not.toBeInTheDocument()
-    expect(screen.getByText('You asked about Reports: Why?')).toBeInTheDocument()
+    expect(questionBox()).toHaveAttribute('placeholder', 'Ask a question about Reports')
+    expect(questionsColumn().getByText('Reports')).toBeInTheDocument()
+    expect(questionsColumn().queryByText('Invoices')).not.toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'Q1 Why?' })).toBeInTheDocument()
   })
 
   it('offers no form when the new dataset has no documents', async () => {
@@ -655,8 +857,7 @@ describe('switching to another dataset', () => {
     await user.selectOptions(datasetSelect(), reports.id)
     await screen.findByText('No documents yet.')
 
-    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
-    expect(screen.getByText('Upload a document to ask about it.')).toBeInTheDocument()
+    expect(screen.getByText('Add files to Reports to ask about them.')).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ask' })).not.toBeInTheDocument()
   })
@@ -673,6 +874,102 @@ describe('switching to another dataset', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(questionBox()).toHaveValue('')
+  })
+
+  describe('with a question or a reply that could not be sent', () => {
+    const detail = 'Gemini is unavailable right now. Please try again.'
+    const failure = () => Response.json({ detail }, { status: 503 })
+    const clarifying = { status: 'needs_clarification', answer: 'Which contract?', citations: [] }
+    const replyBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Your reply' })
+
+    async function switchTo(dataset: typeof reports, filename: string) {
+      const user = userEvent.setup()
+      await user.selectOptions(datasetSelect(), dataset.id)
+      await findDocument(filename)
+    }
+
+    it('brings back the error and the question as typed on the way back, until the next question is sent', async () => {
+      const user = userEvent.setup()
+      stubTwoDatasets({
+        'POST /api/ask': vi.fn<Route>().mockResolvedValueOnce(failure()).mockResolvedValue(Response.json(answered)),
+      })
+
+      await askTheOldDataset(user)
+      expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+      await switchTo(reports, 'new.txt')
+      await switchTo(invoices, 'old.txt')
+
+      expect(screen.getByRole('alert')).toHaveTextContent(detail)
+      expect(questionBox()).toHaveValue('The old question')
+      expect(oldCard()).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Ask' }))
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(await screen.findByText('The old answer.')).toBeInTheDocument()
+      await switchTo(reports, 'new.txt')
+      await switchTo(invoices, 'old.txt')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(questionBox()).toHaveValue('')
+    })
+
+    it('keeps a question that fails after the switch for its own dataset, and shows it on the way back', async () => {
+      const user = userEvent.setup()
+      const { route, answer } = waitingRoute()
+      stubTwoDatasets({ 'POST /api/ask': route })
+
+      await askTheOldDataset(user)
+      await switchTo(reports, 'new.txt')
+      await answer(failure())
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(questionBox()).toHaveValue('')
+
+      await switchTo(invoices, 'old.txt')
+
+      expect(screen.getByRole('alert')).toHaveTextContent(detail)
+      expect(questionBox()).toHaveValue('The old question')
+      expect(oldCard()).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
+    })
+
+    it('does not overwrite a question typed after coming back, before the failure came', async () => {
+      const user = userEvent.setup()
+      const { route, answer } = waitingRoute()
+      stubTwoDatasets({ 'POST /api/ask': route })
+
+      await askTheOldDataset(user)
+      await switchTo(reports, 'new.txt')
+      await switchTo(invoices, 'old.txt')
+      await user.type(questionBox(), 'A new question')
+      await answer(failure())
+
+      expect(screen.getByRole('alert')).toHaveTextContent(detail)
+      expect(questionBox()).toHaveValue('A new question')
+    })
+
+    it('keeps a reply that fails after the switch on its card, with the error, for the way back', async () => {
+      const user = userEvent.setup()
+      const { route, answer } = waitingRoute()
+      stubTwoDatasets({
+        'POST /api/ask': vi.fn<Route>().mockResolvedValueOnce(Response.json(clarifying)).mockImplementation(route),
+      })
+
+      await askTheOldDataset(user)
+      await user.type(await screen.findByRole('textbox', { name: 'Your reply' }), ' The main one.\n')
+      await user.click(screen.getByRole('button', { name: 'Reply' }))
+      await switchTo(reports, 'new.txt')
+      await answer(failure())
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      await switchTo(invoices, 'old.txt')
+
+      const asked = oldCard()!
+      expect(within(asked).getByText('Needs your reply')).toBeInTheDocument()
+      expect(within(asked).getByRole('textbox', { name: 'Your reply' })).toBe(replyBox())
+      expect(replyBox()).toHaveValue(' The main one.\n')
+      expect(within(asked).getByRole('alert')).toHaveTextContent(detail)
+      expect(within(asked).getByRole('button', { name: 'Reply' })).toBeEnabled()
+    })
   })
 
   it('removes an error about the old list', async () => {
@@ -697,12 +994,12 @@ describe('switching to another dataset', () => {
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('new.txt')
 
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
 
     await user.selectOptions(datasetSelect(), invoices.id)
     await screen.findByRole('button', { name: 'Delete old.txt' })
 
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
     expect(fetchStub.mock.calls.filter((call) => call[1]?.method === 'DELETE')).toHaveLength(0)
   })
 
@@ -716,8 +1013,7 @@ describe('switching to another dataset', () => {
     await findDocument('old.txt')
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('new.txt')
-    await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'another.txt'))
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    await user.upload(screen.getByLabelText('Add files'), new File(['text'], 'another.txt'))
 
     await vi.waitFor(() => expect(requestsTo(fetchStub, documentsPath(reports.id), 'POST')).toHaveLength(1))
     expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
@@ -728,12 +1024,12 @@ describe('during an upload run', () => {
   const uploaded = () =>
     Response.json({ id: '1', filename: 'a.txt', line_count: 1, page_count: null }, { status: 201 })
 
+  // Choosing the files starts the run.
   async function startRun(user: UserEvent, ...filenames: string[]) {
     await user.upload(
-      await screen.findByLabelText(/^Choose/),
+      await screen.findByLabelText('Add files'),
       filenames.map((filename) => new File(['text'], filename)),
     )
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
   }
 
   function postsAnsweredByTheTest() {
@@ -742,7 +1038,7 @@ describe('during an upload run', () => {
     return { route, answer: (position: number, response: Response) => act(async () => pending[position](response)) }
   }
 
-  it('disables the select and the Create button until the run ends', async () => {
+  it('disables the select and the New dataset and Delete dataset buttons until the run ends', async () => {
     const user = userEvent.setup()
     const { route, answer } = postsAnsweredByTheTest()
     stubPage([reports, invoices], { [`POST ${documentsPath(invoices.id)}`]: route })
@@ -751,17 +1047,19 @@ describe('during an upload run', () => {
     await startRun(user, 'a.txt', 'b.txt')
 
     expect(datasetSelect()).toBeDisabled()
-    expect(createButton()).toBeDisabled()
+    expect(newDatasetButton()).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Delete dataset' })).toBeDisabled()
 
     await answer(0, uploaded())
 
     expect(datasetSelect()).toBeDisabled()
-    expect(createButton()).toBeDisabled()
+    expect(newDatasetButton()).toBeDisabled()
 
     await answer(1, new Response('Bad Gateway', { status: 502 }))
 
     expect(datasetSelect()).toBeEnabled()
-    expect(createButton()).toBeEnabled()
+    expect(newDatasetButton()).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Delete dataset' })).toBeEnabled()
   })
 
   it('sends every file to the dataset selected when the run started', async () => {
@@ -773,7 +1071,7 @@ describe('during an upload run', () => {
     await screen.findByText('No documents yet.')
     await startRun(user, 'a.txt', 'b.txt')
 
-    await vi.waitFor(() => expect(createButton()).toBeEnabled())
+    await vi.waitFor(() => expect(newDatasetButton()).toBeEnabled())
     expect(requestsTo(fetchStub, documentsPath(reports.id), 'POST')).toHaveLength(2)
     expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
   })
@@ -820,20 +1118,46 @@ describe('while a dataset is being created', () => {
     })
 
     render(<App />)
-    const fileInput = await screen.findByLabelText(/^Choose/)
+    const fileInput = await screen.findByLabelText('Add files')
     await createNamed(user, 'Invoices')
 
     expect(datasetSelect()).toBeDisabled()
     expect(createButton()).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled()
+    expect(newDatasetButton()).toBeDisabled()
     expect(fileInput).toBeDisabled()
 
     await answer(Response.json(invoices, { status: 201 }))
 
     expect(datasetSelect()).toBeEnabled()
     expect(datasetSelect()).toHaveValue(invoices.id)
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(screen.getByLabelText('Add files')).toBeEnabled()
     expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
+  })
+
+  it('cannot be cancelled meanwhile, by the button or Escape, so its outcome still shows', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([reports], {
+      'GET /api/datasets': listThatChanges([reports], [reports, invoices]),
+      'POST /api/datasets': route,
+      [listOf(invoices.id)]: () => Response.json([]),
+    })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await createNamed(user, 'Invoices')
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    await user.click(nameInput())
+    await user.keyboard('{Escape}')
+    expect(nameInput()).toHaveValue('Invoices')
+
+    await answer(Response.json({ detail: 'A dataset with this name already exists.' }, { status: 409 }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('A dataset with this name already exists.')
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
   })
 
   it('lets go of them when creating fails', async () => {
@@ -843,13 +1167,13 @@ describe('while a dataset is being created', () => {
     })
 
     render(<App />)
-    await screen.findByLabelText(/^Choose/)
+    await screen.findByLabelText('Add files')
     await createNamed(user, 'Reports')
     await screen.findByRole('alert')
 
     expect(datasetSelect()).toBeEnabled()
     expect(createButton()).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(screen.getByLabelText('Add files')).toBeEnabled()
   })
 })
 
@@ -857,8 +1181,8 @@ describe('deleting a dataset', () => {
   const deleteDatasetButton = () => screen.getByRole('button', { name: 'Delete dataset' })
   const questionFor = (name: string) =>
     screen.queryByRole('group', { name: `Delete ${name} and all its documents? This can't be undone.` })
-  const confirmButton = () => within(screen.getByRole('group')).getByRole('button', { name: 'Delete' })
-  const cancelButton = () => within(screen.getByRole('group')).getByRole('button', { name: 'Cancel' })
+  const confirmButton = () => within(deleteQuestion()!).getByRole('button', { name: 'Delete' })
+  const cancelButton = () => within(deleteQuestion()!).getByRole('button', { name: 'Cancel' })
   const deleted: Route = () => new Response(null, { status: 204 })
   const deletesOf = (fetchStub: ReturnType<typeof stubRoutes>) =>
     fetchStub.mock.calls.filter((call) => call[1]?.method === 'DELETE').map(([url]) => url)
@@ -937,7 +1261,7 @@ describe('deleting a dataset', () => {
     // Once when Contracts was the default at the start, and again now that the page has fallen back to it.
     await waitFor(() => expect(requestsTo(fetchStub, documentsPath(contracts.id))).toHaveLength(2))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
   })
 
   it('moves to the newest remaining dataset at once, without waiting for the reload', async () => {
@@ -962,6 +1286,60 @@ describe('deleting a dataset', () => {
     await answer(Response.json([reports]))
 
     expect(datasetSelect()).toHaveValue(reports.id)
+  })
+
+  describe('with questions asked about it', () => {
+    const doc = { id: 'doc', filename: 'doc.txt', line_count: 3, page_count: null }
+    const answer = { status: 'answered', answer: 'The answer.', citations: [] }
+
+    // Invoices, the newest, holds a document. After the delete, the reloaded list still names it, as a stale one
+    // could, so the page goes back to it and shows whatever it still keeps for it.
+    function stubStaleList(routes: Record<string, Route> = {}) {
+      return stubPage([reports, invoices], {
+        [listOf(invoices.id)]: () => Response.json([doc]),
+        'DELETE /api/datasets/i': deleted,
+        'POST /api/ask': () => Response.json(answer),
+        ...routes,
+      })
+    }
+
+    async function askInvoices(user: UserEvent) {
+      render(<App />)
+      await user.type(await screen.findByRole('textbox', { name: 'Question' }), 'Why?')
+      await user.click(screen.getByRole('button', { name: 'Ask' }))
+    }
+
+    it('forgets their cards', async () => {
+      const user = userEvent.setup()
+      const fetchStub = stubStaleList()
+
+      await askInvoices(user)
+      await screen.findByText('The answer.')
+      await deleteSelected(user)
+      await vi.waitFor(() => expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2))
+      await screen.findByRole('heading', { name: 'Ask your first question about Invoices' })
+
+      expect(datasetSelect()).toHaveValue(invoices.id)
+      expect(screen.queryByRole('article')).not.toBeInTheDocument()
+    })
+
+    it('drops an answer that arrives after the delete', async () => {
+      const user = userEvent.setup()
+      const { route, answer: respond } = waitingRoute()
+      const fetchStub = stubStaleList({ 'POST /api/ask': route })
+
+      await askInvoices(user)
+      await screen.findByRole('article', { name: 'Q1 Why?' })
+      await deleteSelected(user)
+      await vi.waitFor(() => expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2))
+      await screen.findByRole('heading', { name: 'Ask your first question about Invoices' })
+
+      await respond(Response.json(answer))
+
+      expect(screen.queryByRole('article')).not.toBeInTheDocument()
+      expect(screen.queryByText('The answer.')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
+    })
   })
 
   it('shows the start prompt again once the last dataset is deleted', async () => {
@@ -1013,12 +1391,12 @@ describe('deleting a dataset', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(detail)
     expect(datasetSelect()).toHaveValue(invoices.id)
     expect(screen.getByRole('option', { name: 'Invoices' })).toBeInTheDocument()
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
     expect(deleteDatasetButton()).toHaveFocus()
     // The page lets go again.
     expect(datasetSelect()).toBeEnabled()
-    expect(createButton()).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
+    expect(newDatasetButton()).toBeEnabled()
+    expect(screen.getByLabelText('Add files')).toBeEnabled()
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(1)
   })
 
@@ -1047,15 +1425,14 @@ describe('deleting a dataset', () => {
     })
 
     render(<App />)
-    const fileInput = await screen.findByLabelText(/^Choose/)
+    const fileInput = await screen.findByLabelText('Add files')
     await screen.findByRole('button', { name: 'Delete a.txt' })
     await deleteSelected(user)
 
     expect(confirmButton()).toBeDisabled()
     expect(cancelButton()).toBeDisabled()
     expect(datasetSelect()).toBeDisabled()
-    expect(createButton()).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled()
+    expect(newDatasetButton()).toBeDisabled()
     expect(fileInput).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Delete a.txt' })).toBeDisabled()
 
@@ -1063,7 +1440,7 @@ describe('deleting a dataset', () => {
 
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(datasetSelect()).toBeEnabled()
-    expect(createButton()).toBeEnabled()
+    expect(newDatasetButton()).toBeEnabled()
   })
 
   it('cannot be deleted during an upload run', async () => {
@@ -1073,8 +1450,7 @@ describe('deleting a dataset', () => {
 
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Delete dataset' }))
-    await user.upload(screen.getByLabelText(/^Choose/), new File(['text'], 'a.txt'))
-    await user.click(screen.getByRole('button', { name: 'Upload' }))
+    await user.upload(screen.getByLabelText('Add files'), new File(['text'], 'a.txt'))
 
     expect(confirmButton()).toBeDisabled()
     expect(cancelButton()).toBeEnabled()
@@ -1111,7 +1487,7 @@ describe('deleting a dataset', () => {
     await user.click(deleteDatasetButton())
     await user.selectOptions(datasetSelect(), reports.id)
 
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
     expect(deleteDatasetButton()).toBeEnabled()
     expect(deletesOf(fetchStub)).toEqual([])
   })
@@ -1147,7 +1523,7 @@ describe('deleting a dataset', () => {
     expect(container.querySelector('img')).toBeNull()
   })
 
-  it('wraps a long name in the question, and lets the button go below the select on a phone', async () => {
+  it('wraps a long name in the question, and cuts it short in the card of the select', async () => {
     const user = userEvent.setup()
     const name = 'x'.repeat(100)
     stubPage([{ id: 'x', name }])
@@ -1158,6 +1534,8 @@ describe('deleting a dataset', () => {
 
     expect(questionFor(name)).toHaveStyle({ overflowWrap: 'anywhere', flexWrap: 'wrap', minWidth: '0px' })
     expect(questionFor(name)?.parentElement).toHaveStyle({ flexWrap: 'wrap' })
-    expect(datasetSelect().closest('label')).toHaveStyle({ minWidth: '0px' })
+    const shownName = screen.getByText(name, { selector: '.switcher-name' })
+    expect(shownName).toHaveStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+    expect(shownName.parentElement).toHaveStyle({ minWidth: '0px' })
   })
 })

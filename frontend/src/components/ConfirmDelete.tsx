@@ -1,10 +1,14 @@
-import { useId, useRef, useState } from 'react'
+import { type ReactNode, useId, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 
 type Props = {
   // The button's text, and its accessible name when the text alone wouldn't say what goes, as in a list.
   label: string
   accessibleLabel?: string
+  // Drawn before the text. With iconOnly, the icon is all that shows, and the name is there for screen readers only.
+  icon?: ReactNode
+  iconOnly?: boolean
+  className?: string
   question: string
   // While the page is busy, nothing can be deleted. Cancel still works.
   disabled: boolean
@@ -14,7 +18,16 @@ type Props = {
 }
 
 // A Delete button that asks first, inline, and only deletes once the user confirms.
-export default function ConfirmDelete({ label, accessibleLabel, question, disabled, onConfirm }: Props) {
+export default function ConfirmDelete({
+  label,
+  accessibleLabel,
+  icon,
+  iconOnly = false,
+  className,
+  question,
+  disabled,
+  onConfirm,
+}: Props) {
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -70,8 +83,17 @@ export default function ConfirmDelete({ label, accessibleLabel, question, disabl
           </button>
         </div>
       ) : (
-        <button ref={deleteButton} type="button" aria-label={accessibleLabel} disabled={disabled} onClick={handleAsk}>
-          {label}
+        <button
+          ref={deleteButton}
+          type="button"
+          className={className}
+          aria-label={iconOnly ? undefined : accessibleLabel}
+          disabled={disabled}
+          onClick={handleAsk}
+        >
+          {icon}
+          {/* Hidden text rather than aria-label, so the name is in the button like any other button's. */}
+          {iconOnly ? <span className="visually-hidden">{accessibleLabel ?? label}</span> : label}
         </button>
       )}
       {error && (

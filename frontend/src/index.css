@@ -1,388 +1,2384 @@
+/* Every colour the page uses, so a theme is one set of values. These are the light ones. */
 :root {
-  color-scheme: light dark;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  line-height: 1.5;
+  color-scheme: light;
+  /* Surfaces */
+  --canvas: #f9fafb;
+  --chrome: #ffffff;
+  --panel: #f9fafb;
+  --panel-alt: #ffffff;
+  --card: #ffffff;
+  --raised: #f3f4f6;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  /* Text */
+  --text: #111827;
+  --text-2: #374151;
+  --muted: #4b5563;
+  --subtle: #6b7280;
+  /* Accent: solid fills, then text, thin bars and tinted backgrounds */
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --on-accent: #ffffff;
+  --accent-text: #4338ca;
+  --accent-bar: #4f46e5;
+  --accent-soft: #eef2ff;
+  --accent-border: #c7d2fe;
+  --source-bg: #f8f9ff;
+  --hit-bg: #eef2ff;
+  --hit-no: #4338ca;
+  --mark: #c7d2fe;
+  /* Status */
+  --ok: #15803d;
+  --ok-dot: #16a34a;
+  --ok-ring: #dcfce7;
+  --err: #b91c1c;
+  --on-err: #ffffff;
+  --err-soft: #fef2f2;
+  --dot-neutral: #9ca3af;
+  --pdf: #9f1239;
+  --pdf-bg: #fff1f2;
+  --pdf-border: #fecdd3;
+  --skel-a: #eef0f3;
+  --skel-b: #f6f7f9;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06);
+  /* What lies over the page on a narrow window: the drawer and the source panel, and the shade behind the drawer */
+  --shadow-overlay: 0 0 32px rgba(16, 24, 40, 0.18);
+  --backdrop: rgba(16, 24, 40, 0.32);
+  /* The theme switch: its track, and the segment that is chosen */
+  --seg-track: var(--raised);
+  --seg-on-bg: var(--card);
+  --seg-on-fg: var(--text);
+  --seg-on-bd: var(--border-strong);
+
+  --radius: 10px;
+  --radius-sm: 8px;
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Dark follows the device unless the stored choice is Light... */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --canvas: #0a0a0a;
+    --chrome: #0a0a0a;
+    --panel: #0f0f10;
+    --panel-alt: #0f0f10;
+    --card: #151517;
+    --raised: #1c1c1f;
+    --border: #26262a;
+    --border-strong: #36363c;
+    --text: #ededed;
+    --text-2: #d4d4d8;
+    --muted: #a1a1aa;
+    /* #71717a is under 4.5:1 for small text, so it is kept for dots only. */
+    --subtle: #8b8b93;
+    /* White on it is 4.85:1, where #6366f1 is 4.47:1. */
+    --accent: #5a5ff0;
+    --accent-hover: #4f54e6;
+    --on-accent: #ffffff;
+    --accent-text: #a5b4fc;
+    --accent-bar: #818cf8;
+    --accent-soft: rgba(99, 102, 241, 0.16);
+    --accent-border: rgba(129, 140, 248, 0.3);
+    --source-bg: rgba(99, 102, 241, 0.07);
+    --hit-bg: rgba(99, 102, 241, 0.18);
+    --hit-no: #a5b4fc;
+    --mark: rgba(129, 140, 248, 0.4);
+    --ok: #4ade80;
+    --ok-dot: #22c55e;
+    --ok-ring: rgba(34, 197, 94, 0.18);
+    --err: #f87171;
+    --on-err: #0a0a0a;
+    --err-soft: rgba(248, 113, 113, 0.12);
+    --dot-neutral: #71717a;
+    --pdf: #fb7185;
+    --pdf-bg: rgba(251, 113, 133, 0.1);
+    --pdf-border: rgba(251, 113, 133, 0.28);
+    --skel-a: #222226;
+    --skel-b: #2c2c31;
+    --shadow-sm: none;
+    --shadow-card: none;
+    --shadow-overlay: 0 0 32px rgba(0, 0, 0, 0.7);
+    --backdrop: rgba(0, 0, 0, 0.6);
+    --seg-track: #0a0a0a;
+    --seg-on-bg: #26262a;
+    --seg-on-fg: var(--text);
+    --seg-on-bd: #3a3a40;
+  }
+}
+
+/* ...or when the stored choice is Dark. Keep both blocks the same. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #0a0a0a;
+  --chrome: #0a0a0a;
+  --panel: #0f0f10;
+  --panel-alt: #0f0f10;
+  --card: #151517;
+  --raised: #1c1c1f;
+  --border: #26262a;
+  --border-strong: #36363c;
+  --text: #ededed;
+  --text-2: #d4d4d8;
+  --muted: #a1a1aa;
+  /* #71717a is under 4.5:1 for small text, so it is kept for dots only. */
+  --subtle: #8b8b93;
+  /* White on it is 4.85:1, where #6366f1 is 4.47:1. */
+  --accent: #5a5ff0;
+  --accent-hover: #4f54e6;
+  --on-accent: #ffffff;
+  --accent-text: #a5b4fc;
+  --accent-bar: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --accent-border: rgba(129, 140, 248, 0.3);
+  --source-bg: rgba(99, 102, 241, 0.07);
+  --hit-bg: rgba(99, 102, 241, 0.18);
+  --hit-no: #a5b4fc;
+  --mark: rgba(129, 140, 248, 0.4);
+  --ok: #4ade80;
+  --ok-dot: #22c55e;
+  --ok-ring: rgba(34, 197, 94, 0.18);
+  --err: #f87171;
+  --on-err: #0a0a0a;
+  --err-soft: rgba(248, 113, 113, 0.12);
+  --dot-neutral: #71717a;
+  --pdf: #fb7185;
+  --pdf-bg: rgba(251, 113, 133, 0.1);
+  --pdf-border: rgba(251, 113, 133, 0.28);
+  --skel-a: #222226;
+  --skel-b: #2c2c31;
+  --shadow-sm: none;
+  --shadow-card: none;
+  --shadow-overlay: 0 0 32px rgba(0, 0, 0, 0.7);
+  --backdrop: rgba(0, 0, 0, 0.6);
+  --seg-track: #0a0a0a;
+  --seg-on-bg: #26262a;
+  --seg-on-fg: var(--text);
+  --seg-on-bd: #3a3a40;
+}
+
+/* ---------- Base ---------- */
+
+/* Two rules, because jsdom drops a rule whose selectors include a pseudo-element, and the tests read box-sizing. */
+* {
+  box-sizing: border-box;
+}
+
+::before,
+::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  background-color: var(--canvas);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-main {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.3;
+  letter-spacing: -0.01em;
 }
 
-section {
-  margin-top: 2rem;
+/* The element rules sit in :where(), so any class that styles a control wins over them. */
+:where(button, input, select, textarea) {
+  font: inherit;
+  color: inherit;
 }
 
-h2 {
-  margin: 0 0 1rem;
-  font-size: 1.25rem;
+:where(button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.25;
+  cursor: pointer;
 }
 
-[role='alert'],
-.upload-failed {
-  color: light-dark(#b3261e, #ff8a80);
+:where(button:hover:not(:disabled)) {
+  background-color: var(--raised);
+  color: var(--text);
 }
 
-/* The Log out button shares the title's row, at the right, and goes below the title when there's no room. Lined up
-   on the baseline, because the title's margin above would push a centred button up. */
-.page-header {
+/* The button that sends a form is the one to press. */
+:where(button[type='submit']) {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+:where(button[type='submit']:hover:not(:disabled)) {
+  border-color: var(--accent-hover);
+  background-color: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+:where(button:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
+
+:where(input[type='text'], input[type='password'], textarea, select) {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  color: var(--text);
+}
+
+::placeholder {
+  color: var(--subtle);
+  opacity: 1;
+}
+
+/* One focus ring for everything a keyboard can reach. A text field shows it as soon as it has the focus. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:where(input, textarea, select):focus-visible {
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+[role='alert'] {
+  color: var(--err);
+}
+
+/* Hidden on screen, still read by a screen reader and, for a control, still reached with the keyboard. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-sm {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- Theme switch ---------- */
+
+.theme-switch {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--seg-track);
+}
+
+/* Holds its radio button, which is hidden on screen but keeps the keyboard and the screen reader. */
+.theme-option {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.theme-option-face {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0 1rem;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-/* A flex item's margin doesn't collapse with the intro's below it, so the gap would nearly double. */
-.page-header h1 {
-  margin-bottom: 0;
+.theme-option-face:hover {
+  color: var(--text);
 }
 
-.page-header [role='alert'] {
-  flex-basis: 100%;
-  margin: 0.5rem 0 0;
+.theme-option input:checked + .theme-option-face {
+  border-color: var(--seg-on-bd);
+  background-color: var(--seg-on-bg);
+  color: var(--seg-on-fg);
+  box-shadow: var(--shadow-sm);
 }
 
-/* The login form is laid out like the create form: the button beside the field, or below it when there's no room. */
-.dataset-form,
+.theme-option input:focus-visible + .theme-option-face {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+
+/* Small controls in the sidebar's rows, such as New dataset and Delete: text with an icon, no frame until hovered. */
+.mini-button {
+  gap: 4px;
+  min-height: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.mini-button.accent,
+.mini-button.accent:hover:not(:disabled) {
+  color: var(--accent-text);
+}
+
+.mini-button:hover:not(:disabled) {
+  background-color: var(--raised);
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background-color: var(--raised);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.api-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--dot-neutral);
+}
+
+.status-dot.online {
+  background-color: var(--ok-dot);
+  box-shadow: 0 0 0 3px var(--ok-ring);
+}
+
+.status-dot.offline {
+  background-color: var(--err);
+  box-shadow: 0 0 0 3px var(--err-soft);
+}
+
+/* ---------- Before the app: checking the session, its error, the login form ---------- */
+
+/* One card in the middle of the window, which scrolls only when the window is shorter than the card. */
+.gate {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 24px 16px;
+  background-color: var(--canvas);
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 400px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background-color: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.gate-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 32px 0;
+  text-align: center;
+}
+
+.gate-head .logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.gate-head .logo .icon {
+  width: 24px;
+  height: 24px;
+}
+
+.gate-head .app-name {
+  margin-top: 14px;
+  font-size: 20px;
+}
+
+.gate-head .tagline {
+  max-width: 19rem;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.gate-error,
+.login {
+  margin-top: 24px;
+  padding: 24px 32px 0;
+  border-top: 1px solid var(--border);
+}
+
+.login h2 {
+  margin: 0 0 14px;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+/* The field, then the error, then the button, each across the whole card. */
 .login-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.5rem 1rem;
+  display: grid;
+  gap: 12px;
 }
 
-.dataset-form label,
 .login-form label {
-  flex: 1 1 16rem;
+  display: block;
   min-width: 0;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
-.dataset-form [role='alert'],
-.login-form [role='alert'] {
-  flex-basis: 100%;
-  margin: 0;
+.login-form input {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 400;
 }
 
-.upload-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
+.login-form button[type='submit'],
+.gate-error button {
+  width: 100%;
+  min-height: 40px;
+  font-size: 14px;
 }
 
-.upload-form label {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-  min-width: 0;
-}
-
-/* Otherwise a flex item stays as wide as its content, and a file input's can be wider than a phone. */
-.upload-form input {
-  min-width: 0;
-  max-width: 100%;
-}
-
-.upload-form [role='alert'] {
-  flex-basis: 100%;
-  margin: 0;
-}
-
-.upload-summary {
-  margin: 0;
-}
-
-.upload-summary:not(:empty) {
-  margin-top: 1rem;
-}
-
-.upload-results {
-  margin: 0.5rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* Wraps, so that a long filename and a long message each get the whole width on a phone. */
-.upload-results li {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0 1rem;
-  padding: 0.5rem 0;
-  border-top: 1px solid light-dark(#ddd, #444);
+.gate-error,
+.login-form {
   overflow-wrap: anywhere;
 }
 
-.document-list {
-  margin: 1rem 0 0;
-  padding: 0;
-  list-style: none;
+/* An error or the reason the form is back, on a soft red ground so it isn't missed. */
+.login-form [role='alert'],
+.gate-error [role='alert'] {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background-color: var(--err-soft);
+  font-size: 13px;
 }
 
-/* Wraps, so that a row's question or error gets a line of its own below the filename. */
-.document-list li {
+.gate-error [role='alert'] {
+  margin-bottom: 12px;
+}
+
+/* Small, at the bottom of the card. */
+.gate-foot {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+  padding: 12px 32px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- The workspace: the sidebar and the questions ---------- */
+
+/* Exactly the window's height, so the page never scrolls: each column scrolls inside instead. */
+.workspace {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* With a source open, the panel takes a third column, and the questions give it the room. */
+.workspace.with-source {
+  grid-template-columns: 280px minmax(0, 1fr) 420px;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background-color: var(--panel);
+}
+
+/* The sidebar only takes the focus as a drawer, so a screen reader names it. It isn't a control, and Tab goes on to
+   the first control inside. */
+.sidebar:focus {
+  outline: none;
+}
+
+.sidebar-head {
+  flex: none;
+  padding: 16px 16px 0;
+}
+
+/* The status goes under the name when the two don't fit on one line. */
+.brand {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 1rem;
-  padding: 0.5rem 0;
-  border-top: 1px solid light-dark(#ddd, #444);
-  overflow-wrap: anywhere;
+  gap: 4px 10px;
+  padding-bottom: 4px;
 }
 
-/* A basis of 0, so that a long filename wraps beside its length instead of pushing it onto the next line. */
-.document-name {
-  flex: 1 1 0;
+.logo {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.logo .icon {
+  stroke-width: 2;
+}
+
+.app-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.brand .api-status {
+  margin-left: auto;
+}
+
+.sidebar-head .tagline {
+  margin: 0;
+  padding-top: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* Positioned, like the list of questions, so the hidden labels inside scroll with it and stay inside it. Placed
+   against the page instead, one far down the list would stretch the page, and the page would scroll. */
+.sidebar-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 12px 12px;
+}
+
+.sidebar-foot {
+  display: grid;
+  flex: none;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 0 2px 0 4px;
+}
+
+.avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background-color: var(--raised);
+  color: var(--muted);
+}
+
+.account-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+}
+
+.account-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.account-sub {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.logout-button {
+  min-height: 30px;
+  height: 30px;
+  margin-left: auto;
+  padding: 0 10px;
+}
+
+.account [role='alert'] {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+/* ---------- Dataset ---------- */
+
+/* Wraps, so a question about deleting the dataset, or its error, gets a line of its own under the buttons. */
+.dataset-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 0 0 6px 4px;
+}
+
+.dataset-row .eyebrow {
+  margin-right: auto;
+}
+
+.dataset-choice > [role='alert'] {
+  margin: 0 4px 8px;
+  font-size: 12.5px;
+}
+
+.dataset-form {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+}
+
+.dataset-form label {
+  display: block;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* width: 100% stops a long name from widening the sidebar. */
+.dataset-form input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  font-size: 13.5px;
+  font-weight: 400;
+}
+
+.dataset-form-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.dataset-form-actions button {
+  min-height: 30px;
+  height: 30px;
+}
+
+.dataset-form [role='alert'] {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+/* The card that shows the selected dataset. The real select covers it, unseen, and takes the clicks and the keys. */
+.switcher {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+
+.switcher:hover:not(:has(select:disabled)) {
+  border-color: var(--border-strong);
+}
+
+.switcher:has(select:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switcher:has(select:disabled) {
+  opacity: 0.6;
+}
+
+.switcher-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.switcher-icon .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* min-width: 0 lets a long name shrink to the card and end in an ellipsis instead of widening the sidebar. */
+.switcher-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
 }
 
-.document-length {
-  flex-shrink: 0;
-  opacity: 0.7;
+.switcher-name,
+.switcher-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
 }
 
+.switcher-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* A line high even while it's empty, as it is while the only dataset's documents load, so the card doesn't grow. */
+.switcher-caption {
+  min-height: 1lh;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.switcher-chevrons {
+  color: var(--subtle);
+}
+
+.switcher-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switcher-select:disabled {
+  cursor: default;
+}
+
+/* ---------- The question to confirm a delete, for a dataset or a document ---------- */
+
+/* Takes a line of its own, and wraps a long name instead of widening the sidebar. */
 .confirm-delete {
   display: flex;
   flex-basis: 100%;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 1rem;
+  gap: 6px;
   min-width: 0;
+  margin: 4px 0 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  color: var(--text-2);
+  font-size: 12.5px;
   overflow-wrap: anywhere;
+}
+
+.confirm-delete > span {
+  flex-basis: 100%;
+}
+
+.confirm-delete button {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
 }
 
 .delete-error {
   flex-basis: 100%;
   margin: 0;
+  padding: 2px 4px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
 }
 
-/* The alert colour marks the button that deletes, and its text says Delete, so it doesn't rely on the colour. */
-.danger-button {
-  padding: 0.125rem 0.75rem;
-  border: 1px solid light-dark(#b3261e, #ff8a80);
-  border-radius: 4px;
-  background: light-dark(#b3261e, #ff8a80);
-  color: light-dark(#fff, #1a1a1a);
-  cursor: pointer;
+/* The alert colour marks the button that deletes, and its text says Delete, so it doesn't rely on the colour. The
+   colour is set on its own, so the tests can compare it with an alert's. */
+.danger-button,
+.danger-button:hover:not(:disabled) {
+  border-color: var(--err);
+  background-color: var(--err);
+  color: var(--on-err);
 }
 
-.danger-button:disabled {
-  opacity: 0.5;
-  cursor: default;
+/* ---------- Documents ---------- */
+
+.documents {
+  margin-top: 18px;
 }
 
-.danger-button:focus-visible {
-  outline: 2px solid light-dark(#b3261e, #ff8a80);
-  outline-offset: 2px;
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
 }
 
-/* Like the create form: the button sits beside the select, and goes below it when there's no room. */
-.dataset-choice {
+.section-head h2 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.documents > [role='alert'],
+.documents-empty {
+  margin: 0 4px 6px;
+  font-size: 12.5px;
+}
+
+.documents-empty {
+  color: var(--muted);
+}
+
+.document-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Wraps, so that a row's question or error gets a line of its own below the filename. */
+.document-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.5rem 1rem;
-  margin-bottom: 0.75rem;
+  align-items: center;
+  gap: 0 10px;
+  min-height: 40px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
 }
 
-.dataset-choice label {
-  flex: 1 1 16rem;
+.document-row:hover {
+  background-color: var(--raised);
+}
+
+.file-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background-color: var(--card);
+  color: var(--subtle);
+}
+
+.file-tile .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.file-tile.pdf {
+  border-color: var(--pdf-border);
+  background-color: var(--pdf-bg);
+  color: var(--pdf);
+}
+
+/* A basis of 0 and min-width: 0, so that a long filename ends in an ellipsis instead of pushing the button out. */
+.document-meta {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
   min-width: 0;
 }
 
-/* It names the dataset, and a name can be 100 characters without a space. */
-.ask-heading {
-  overflow-wrap: anywhere;
-}
-
-.ask-form label,
-.reply-form label {
-  display: block;
-  margin-bottom: 0.75rem;
-}
-
-/* width: 100% stops a long name from widening a control past the page. */
-.dataset-choice select,
-.dataset-form input,
-.login-form input,
-.ask-form textarea,
-.reply-form textarea {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  margin-top: 0.25rem;
-  font: inherit;
-}
-
-.ask-form textarea,
-.reply-form textarea {
-  resize: vertical;
-}
-
-.ask-form [role='alert'],
-.reply-form [role='alert'] {
-  margin: 0.5rem 0 0;
-}
-
-.reply-form {
-  margin-top: 1rem;
-}
-
-.answer {
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid light-dark(#ddd, #444);
-  overflow-wrap: anywhere;
-}
-
-.answer h3 {
-  margin: 1rem 0 0.5rem;
-  font-size: 1rem;
-}
-
-.answer-asked,
-.answer-text,
-.answer blockquote {
-  white-space: pre-wrap;
-}
-
-.answer-asked {
-  margin: 0 0 0.75rem;
-  opacity: 0.7;
-}
-
-.answer-text {
-  margin: 0;
-}
-
-.answer-not-found {
-  margin: 0;
-  padding: 0.5rem 0.75rem;
-  border-radius: 4px;
-  background: light-dark(#f2f2f2, #2a2a2a);
-  color: light-dark(#555, #aaa);
-  font-style: italic;
-}
-
-.citation-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* Only the citations: the lines of an open viewer are list items inside these. */
-.citation-list > li {
-  padding: 0.5rem 0;
-  border-top: 1px solid light-dark(#ddd, #444);
-}
-
-.citation-source {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.answer blockquote {
-  margin: 0.25rem 0 0;
-  padding-left: 0.75rem;
-  border-left: 3px solid light-dark(#ccc, #555);
-}
-
-.link-button {
-  padding: 0;
-  border: none;
-  background: none;
-  color: light-dark(#0b57d0, #8ab4f8);
-  font: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.link-button:focus-visible,
-.line-list:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
-}
-
-/* A long filename next to it wraps instead, and the button stays level with the first line of it. */
-.citation-lines {
-  flex-shrink: 0;
-  align-self: flex-start;
+.document-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.line-viewer {
-  margin: 0.5rem 0 0;
+.document-length {
+  color: var(--subtle);
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
-.line-viewer .link-button {
+.document-row:hover .document-length {
+  color: var(--muted);
+}
+
+/* Shows on a row under the pointer or holding the focus, and always where there's no pointer to hover with. Until
+   then it takes no room, so the filename has the whole row, but it isn't display: none, so the keyboard still
+   reaches it, and the row opens it as soon as it has the focus. */
+.row-delete {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 0;
+  min-height: 28px;
+  height: 28px;
+  margin-left: -10px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 7px;
+  background-color: transparent;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.document-row:hover .row-delete,
+.document-row:focus-within .row-delete,
+.document-row:has(.delete-error) .row-delete {
+  width: 28px;
+  margin-left: 0;
+  opacity: 1;
+}
+
+.document-row:hover .row-delete:disabled {
+  opacity: 0.4;
+}
+
+.row-delete:hover:not(:disabled) {
+  background-color: var(--err-soft);
+  color: var(--err);
+}
+
+@media (hover: none) {
+  .row-delete {
+    width: 28px;
+    margin-left: 0;
+    opacity: 1;
+  }
+}
+
+/* ---------- Upload ---------- */
+
+/* The whole zone is the file input's label, so a click anywhere on it opens the file chooser. */
+.dropzone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background-color: var(--card);
+  cursor: pointer;
+}
+
+.dropzone:hover:not(.disabled) {
+  border-color: var(--accent-border);
+}
+
+/* Files are being dragged over it: the zone says it will take them. */
+.dropzone.dragging {
+  border-style: solid;
+  border-color: var(--accent-bar);
+  background-color: var(--accent-soft);
+}
+
+.dropzone.disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The input itself is hidden, so the zone shows where the keyboard is. */
+.dropzone:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dropzone-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.dropzone-text {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dropzone-text strong {
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dropzone-hint {
   display: block;
 }
 
-/* The first column fits the widest number shown, and subgrid lines every row up on it. */
+/* Square buttons that hold only an icon, such as the one that closes the upload card. */
+.icon-button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--muted);
+}
+
+.icon-button:hover:not(:disabled) {
+  background-color: var(--raised);
+  color: var(--text);
+}
+
+.upload-card {
+  margin-top: 10px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--card);
+}
+
+/* Before the first run and after Clear, only the empty status is left, and it takes no room. */
+.upload-card.empty {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+}
+
+.upload-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.upload-head-icon {
+  color: var(--accent-text);
+}
+
+.upload-head-icon.uploaded {
+  color: var(--ok);
+}
+
+.upload-head-icon.failed {
+  color: var(--err);
+}
+
+.upload-progress,
+.upload-summary {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+/* Not display: none, which would take it out of what a screen reader follows: empty, it only takes no room. */
+.upload-summary:empty {
+  flex: none;
+}
+
+.upload-head .icon-button {
+  width: 22px;
+  min-height: 22px;
+  height: 22px;
+  margin: -2px -4px -2px auto;
+  border-radius: 6px;
+}
+
+/* A thin bar in the accent colour. Each browser draws a progress element its own way, so all of them are styled. */
+.upload-bar {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin: 8px 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background-color: var(--raised);
+  color: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.upload-bar::-webkit-progress-bar {
+  border-radius: 4px;
+  background-color: var(--raised);
+}
+
+.upload-bar::-webkit-progress-value {
+  border-radius: 4px;
+  background-color: var(--accent);
+}
+
+.upload-bar::-moz-progress-bar {
+  border-radius: 4px;
+  background-color: var(--accent);
+}
+
+.upload-results {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The icon and the filename on one line, the state under the filename. Wraps, so a long message gets the whole
+   width instead of widening the sidebar. The row's colour is its state's, which the icon and the state take. */
+.upload-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 8px;
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.upload-row .icon {
+  margin-top: 2px;
+}
+
+/* One line, cut short with an ellipsis: its title holds the whole name. */
+.upload-file {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-state {
+  flex-basis: 100%;
+  padding-left: 22px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.upload-row.uploaded {
+  color: var(--ok);
+}
+
+.upload-row.failed {
+  color: var(--err);
+}
+
+.upload-row.uploading {
+  color: var(--accent-text);
+}
+
+.upload-row.waiting {
+  color: var(--muted);
+}
+
+.spinner {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* ---------- Questions ---------- */
+
+.questions {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background-color: var(--canvas);
+}
+
+/* The note goes under the heading when the column is too narrow for both. */
+.questions-header {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px 16px;
+  min-height: 82px;
+  padding: 12px 32px 13px;
+  border-bottom: 1px solid var(--border);
+  background-color: var(--chrome);
+}
+
+.questions-title {
+  min-width: 0;
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* A dataset's name can be 100 characters without a space. */
+.crumb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.questions-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+}
+
+.questions-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* Positioned, so a hidden label in a card, such as a collapse button's name, scrolls with the cards and stays inside
+   the list. Placed against the page, the newest card's would stretch the page past the window's bottom, and bringing
+   that card into view would scroll the whole page up. */
+.questions-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 32px;
+}
+
+.empty-state {
+  margin: 48px auto;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* What to do, then the button that leads to it in the sidebar. */
+.empty-state p {
+  margin: 0 0 12px;
+}
+
+/* What the first question can bring back, until there is one. A dataset's name can be 100 characters without a space. */
+.first-question {
+  max-width: 28rem;
+  margin: 56px auto;
+  overflow-wrap: anywhere;
+}
+
+.first-question-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto;
+  border-radius: var(--radius);
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.first-question-icon .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.first-question h3 {
+  margin: 14px 0 16px;
+  font-size: 16px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.first-question ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--card);
+  color: var(--text-2);
+  font-size: 13.5px;
+  list-style: none;
+}
+
+.first-question li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.first-question li .icon {
+  margin-top: 2px;
+  color: var(--accent-text);
+}
+
+/* ---------- A question's card ---------- */
+
+.question-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* A long word in a question, an answer or a filename wraps instead of widening the column. The margin keeps a little
+   room above a card the column scrolls to. */
+.question-card {
+  padding: 14px 18px 16px;
+  border: 1px solid;
+  border-color: var(--border);
+  border-radius: var(--radius);
+  background-color: var(--card);
+  overflow-wrap: anywhere;
+  scroll-margin-top: 14px;
+}
+
+/* The card whose source is open in the panel. */
+.question-card.showing {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-card);
+}
+
+/* Waiting for its answer: a dashed outline, like something not finished. */
+.question-card.pending {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-title {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.q-tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 6px;
+  background-color: var(--raised);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+
+/* As typed, line breaks too. */
+.q-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.status-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid;
+  border-color: var(--border);
+  border-radius: 999px;
+  background-color: var(--card);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+.chip-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--dot-neutral);
+}
+
+.status-chip.answered .chip-dot {
+  background-color: var(--ok-dot);
+}
+
+.status-chip.clarified .chip-dot,
+.status-chip.needs-reply .chip-dot {
+  background-color: var(--accent-bar);
+}
+
+/* On its way, or waiting for the user: tinted, so it stands out from the finished ones. */
+.status-chip.busy,
+.status-chip.needs-reply {
+  gap: 5px;
+  border-color: var(--accent-border);
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.card-head time {
+  flex: none;
+  color: var(--subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-head .collapse-button {
+  width: 26px;
+  min-height: 26px;
+  height: 26px;
+  margin-right: -6px;
+}
+
+/* Waiting for the answer: one bar where the answer will be, shimmering unless motion is reduced. */
+.skeleton {
+  width: 58%;
+  height: 9px;
+  margin-top: 12px;
+  border-radius: 5px;
+  background-image: linear-gradient(90deg, var(--skel-a), var(--skel-b) 50%, var(--skel-a));
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+.pending-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ---------- The answer, and its sources ---------- */
+
+.answer-text {
+  margin: 10px 0 0;
+  color: var(--text);
+  font-size: 14.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+/* Muted, with a search icon: the documents don't say. */
+.answer-not-found {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+  white-space: pre-wrap;
+}
+
+.answer-not-found .icon {
+  margin-top: 2px;
+  color: var(--subtle);
+}
+
+.sources-title {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.source-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.source-card {
+  position: relative;
+  min-width: 0;
+  padding: 9px 12px 10px;
+  border: 1px solid;
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--canvas);
+}
+
+/* The one open in the panel: tinted, with the accent bar at its edge. */
+.source-card.showing {
+  border-color: var(--accent-border);
+  background-color: var(--source-bg);
+}
+
+.source-card.showing::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: -1px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background-color: var(--accent-bar);
+}
+
+/* The filename wraps under its icon before the chip leaves the row. */
+.source-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.source-icon {
+  color: var(--subtle);
+}
+
+.source-icon.pdf {
+  color: var(--pdf);
+}
+
+.source-name {
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* The chip that shows a source's lines: framed like a tag, in the accent colour, and never squeezed. */
+.source-chip {
+  flex-shrink: 0;
+  min-height: 24px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid;
+  border-color: var(--border);
+  border-radius: 6px;
+  background-color: var(--card);
+  color: var(--accent-text);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.source-chip:hover:not(:disabled),
+.source-chip[aria-pressed='true'] {
+  border-color: var(--accent-border);
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+/* Says, at the end of the row, that the panel shows this source. */
+.source-showing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Quote marks drawn around it, outside the text, so a copy is the quote alone. */
+.source-card blockquote {
+  margin: 6px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: 13.5px;
+  white-space: pre-wrap;
+  quotes: '\201C' '\201D';
+}
+
+.source-card blockquote::before {
+  content: open-quote;
+}
+
+.source-card blockquote::after {
+  content: close-quote;
+}
+
+/* After a reply: what was asked back and what the user said, beside a thin accent bar. */
+.exchange {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--accent-border);
+}
+
+.exchange div {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  column-gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.exchange dt {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.exchange dd {
+  margin: 0;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+.why-toggle {
+  gap: 4px;
+  min-height: 24px;
+  margin-top: 10px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.why-toggle:hover:not(:disabled) {
+  background-color: var(--raised);
+}
+
+/* ---------- Replying, inside the card ---------- */
+
+.reply-form {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid;
+  border-top-color: var(--border);
+}
+
+.reply-form label {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* width: 100% stops a long reply from widening the card. */
+.reply-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  resize: vertical;
+}
+
+.reply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+}
+
+.reply-actions [role='alert'] {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* ---------- The ask box, pinned under the cards ---------- */
+
+.ask-bar {
+  flex: none;
+  margin: 0;
+  padding: 12px 32px 16px;
+  border-top: 1px solid;
+  border-top-color: var(--border);
+  background-color: var(--chrome);
+}
+
+.ask-form {
+  padding: 10px 10px 10px 14px;
+  border: 1px solid;
+  border-color: var(--border-strong);
+  border-radius: 12px;
+  background-color: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+
+/* The field has no frame of its own, so the box shows where the keyboard is. */
+.ask-form:has(textarea:focus-visible) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Grows with the question where the browser can, up to a few lines, then scrolls. width: 100% stops a long question
+   from widening the column. */
+.ask-form textarea {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  max-height: 10rem;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  font-size: 14.5px;
+  line-height: 1.5;
+  resize: none;
+  field-sizing: content;
+}
+
+.ask-form textarea:focus-visible {
+  outline: none;
+}
+
+.ask-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 4px;
+}
+
+.ask-hint {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ask-counter {
+  margin-left: auto;
+  color: var(--subtle);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ask-form button[type='submit'] {
+  min-height: 34px;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+.ask-bar > [role='alert'] {
+  margin: 8px 2px 0;
+  font-size: 13px;
+}
+
+.ask-unavailable {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- The source panel ---------- */
+
+.source-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background-color: var(--panel-alt);
+}
+
+/* As tall as the header of the questions column, so the two lines up. */
+.source-panel-head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 82px;
+  padding: 12px 14px 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-panel-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* One line, cut short with an ellipsis: its title holds the whole name. */
+.source-panel h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The chip in the header only labels: it has the open chip's look, without being a button. */
+.source-panel-top .source-chip {
+  display: inline-flex;
+  align-items: center;
+  border-color: var(--accent-border);
+  background-color: var(--accent-soft);
+}
+
+.source-panel-close {
+  margin-left: auto;
+}
+
+.source-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.source-panel-meta .icon {
+  color: var(--ok);
+}
+
+/* ---------- The lines around a citation ---------- */
+
+/* Fills the panel under its header. The buttons stay at the ends, and the lines scroll between them. */
+.line-viewer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 0 12px;
+}
+
+/* Loading, or the error. */
+p.line-viewer {
+  padding: 16px 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+p.line-viewer[role='alert'] {
+  color: var(--err);
+}
+
+.more-lines {
+  flex: none;
+  gap: 6px;
+  width: calc(100% - 28px);
+  min-height: 30px;
+  height: 30px;
+  margin: 0 14px;
+  border: 1px dashed;
+  border-color: var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--panel-alt);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.more-lines:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background-color: var(--raised);
+  color: var(--text);
+}
+
+.line-list + .more-lines {
+  margin-top: 10px;
+}
+
+/* The first column fits the widest number shown, and subgrid lines every row up on it. It takes the height its lines
+   need, and no more than the panel has, scrolling when they're more. */
 .line-list {
   display: grid;
+  flex: 0 1 auto;
   grid-template-columns: max-content minmax(0, 1fr);
-  max-height: 24rem;
-  margin: 0.25rem 0;
+  align-content: start;
+  min-height: 0;
+  max-height: 100%;
+  margin: 2px 0 0;
   padding: 0;
   overflow-y: auto;
-  border: 1px solid light-dark(#ddd, #444);
-  border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.875rem;
+  /* The stack itself rather than var(--mono): jsdom doesn't resolve variables, and a test checks for monospace. */
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 20px;
   list-style: none;
+}
+
+/* The list scrolls with the keyboard, so it shows the focus inside its own edges. */
+.line-list:focus-visible {
+  outline-offset: -2px;
 }
 
 .line-list li {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
+  padding: 1px 0;
 }
 
-/* A page of a PDF starts with a row across both columns. Like a line number, it stays out of a copy of the lines. */
+/* A page of a PDF starts with a row across both columns: its name and a rule. Like a line number, it stays out of a
+   copy of the lines. */
 .line-list .page-start {
-  display: block;
-  padding: 0.25rem 0.5rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px 18px 6px;
+  color: var(--muted);
+  font-family: var(--sans);
   -webkit-user-select: none;
   user-select: none;
 }
 
+.page-start::after {
+  content: '';
+  flex: 1;
+  order: 1;
+  height: 1px;
+  background-color: var(--border);
+}
+
 .page-start h4 {
   margin: 0;
-  font-size: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .page-start p {
-  margin: 0;
-  opacity: 0.7;
+  flex-basis: 100%;
+  order: 2;
+  margin: 2px 0 0;
+  font-size: 12px;
   font-style: italic;
 }
 
+/* The cited lines: tinted, with the accent bar at their edge. */
 .line-list li[aria-current='true'] {
-  background: light-dark(#ffe58a, #5c4a00);
-  box-shadow: inset 3px 0 0 light-dark(#8a6d00, #ffd54f);
-  color: light-dark(#1a1a1a, #fff);
+  padding: 3px 0;
+  background-color: var(--hit-bg);
+  box-shadow: inset 3px 0 0 var(--accent-bar);
+  color: var(--text);
 }
 
-/* Safari only knows the prefixed user-select. */
+/* Room for two digits at least, so short documents keep the gutter of long ones. Safari only knows the prefixed
+   user-select. */
 .line-number {
-  padding: 0 0.75rem 0 0.5rem;
-  opacity: 0.7;
+  min-width: 57px;
+  padding: 0 12px 0 15px;
+  color: var(--subtle);
   text-align: right;
   -webkit-user-select: none;
   user-select: none;
 }
 
+.line-list li[aria-current='true'] .line-number {
+  color: var(--hit-no);
+  font-weight: 700;
+}
+
 .line-text {
-  padding-right: 0.5rem;
+  padding-right: 16px;
+  color: var(--text-2);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.line-list li[aria-current='true'] .line-text {
+  color: var(--text);
+}
+
+/* ---------- Narrow windows ---------- */
+
+/* The bar across the top of a narrow window, with the Menu button that opens the sidebar as a drawer. It is hidden
+   from 900 px up rather than shown below it, so the tests, which see no media queries, can reach the button. Above
+   the drawer, so the drawer's shadow doesn't fall on it. */
+.top-bar {
+  position: relative;
+  z-index: 50;
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background-color: var(--chrome);
+}
+
+.menu-button {
+  flex: none;
+  gap: 6px;
+  min-height: 34px;
+  height: 34px;
+  margin-right: 4px;
+  padding: 0 12px 0 10px;
+}
+
+.menu-button[aria-expanded='true'] {
+  border-color: var(--accent-border);
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.top-bar .logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.top-bar .logo .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* min-width: 0, so a long dataset name ends in an ellipsis instead of widening the bar. */
+.top-bar-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+}
+
+.top-bar-name {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.top-bar-dataset {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+.top-bar-dataset-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The shade beside the open drawer, under the top bar, so the Menu button stays in view to close it. */
+.drawer-backdrop {
+  position: fixed;
+  inset: 56px 0 0;
+  z-index: 30;
+  background-color: var(--backdrop);
+}
+
+@media (min-width: 900px) {
+  .top-bar,
+  .drawer-backdrop {
+    display: none;
+  }
+}
+
+/* The shade over the rest of the page while the source panel lies over it as a modal sheet, under 1280 px. Over the
+   top bar too, whose Menu waits until the panel closes. Workspace only renders it then. */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background-color: var(--backdrop);
+}
+
+/* Under 1280 px a third column would squeeze the questions, so the source panel lies over their right side instead,
+   and they keep their width. Fixed to the window, which the workspace fills: positioning the workspace instead would
+   let the hidden labels deep in the cards stretch it, and scrolling a card into view would then scroll it too. */
+@media (max-width: 1279px) {
+  .workspace.with-source {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .source-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    width: min(420px, 100%);
+    box-shadow: var(--shadow-overlay);
+  }
+}
+
+/* Under 900 px the questions take the whole width under the top bar. The sidebar waits off the left edge, hidden from
+   the keyboard and screen readers too, until Menu slides it in over the page. */
+@media (max-width: 899px) {
+  .workspace,
+  .workspace.with-source {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(320px, calc(100% - 48px));
+    box-shadow: var(--shadow-overlay);
+    transform: translateX(-100%);
+    visibility: hidden;
+    /* Closing, it stays visible while it slides out, and only then leaves the keyboard and screen readers. */
+    transition:
+      transform 0.2s ease,
+      visibility 0s linear 0.2s;
+  }
+
+  /* Opening, it's visible at once, so it can take the focus as soon as Menu is pressed. A hidden element can't, and
+     the focus would stay on Menu. */
+  .workspace.drawer-open .sidebar {
+    transform: none;
+    visibility: visible;
+    transition:
+      transform 0.2s ease,
+      visibility 0s;
+  }
+
+  /* Over the whole width, under the top bar. */
+  .source-panel {
+    top: 56px;
+    left: 0;
+    width: auto;
+    border-left: 0;
+    box-shadow: none;
+  }
+
+  /* The top bar names the dataset already. */
+  .questions-header .crumb {
+    display: none;
+  }
+
+  .questions-header,
+  .source-panel-head {
+    min-height: 0;
+  }
+
+  .questions-header {
+    padding: 12px 20px;
+  }
+
+  .questions-body {
+    padding: 12px 20px;
+  }
+
+  .ask-bar {
+    padding: 10px 20px 12px;
+  }
+
+  .source-panel-head {
+    padding: 10px 12px 10px 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .workspace.drawer-open .sidebar {
+    transition: none;
+  }
+}
+
+/* A phone: the card's header and the rows of a reply stack, so the question keeps a readable width. */
+@media (max-width: 599px) {
+  .questions-header,
+  .questions-body,
+  .ask-bar {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .question-card {
+    padding: 12px 14px 14px;
+  }
+
+  /* The question on the first line, beside the collapse button, and the chip and the time under it. */
+  .card-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .card-title {
+    flex-basis: calc(100% - 36px);
+  }
+
+  .card-head .collapse-button {
+    order: 1;
+    align-self: flex-start;
+    margin-top: -3px;
+  }
+
+  .status-chip {
+    order: 2;
+  }
+
+  .card-head time {
+    order: 3;
+  }
+
+  .exchange {
+    gap: 8px;
+  }
+
+  .exchange div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The hint gives its lines to the cards, and stays the question box's description for screen readers. The header
+     says the same: each question is answered on its own. */
+  .ask-form {
+    position: relative;
+  }
+
+  .ask-hint {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* Safari on a phone zooms into a field whose text is under 16 px when it takes the focus. */
+@media (pointer: coarse) {
+  .ask-form textarea,
+  .reply-form textarea,
+  .dataset-form input,
+  .login-form input,
+  .switcher-select {
+    font-size: 16px;
+  }
 }
