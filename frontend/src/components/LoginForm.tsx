@@ -34,8 +34,9 @@ export default function LoginForm({ notice, onLoggedIn }: Props) {
     }
   }
 
+  // The error sits between the field and the button, where the eye is when the button has just been pressed.
   return (
-    <section>
+    <section className="login">
       <h2>Log in</h2>
       <form className="login-form" onSubmit={handleSubmit}>
         <label>
@@ -48,10 +49,10 @@ export default function LoginForm({ notice, onLoggedIn }: Props) {
             onChange={(event) => setPassword(event.target.value)}
           />
         </label>
+        {error && <p role="alert">{error}</p>}
         <button type="submit" disabled={loggingIn}>
           {loggingIn ? 'Logging in…' : 'Log in'}
         </button>
-        {error && <p role="alert">{error}</p>}
       </form>
     </section>
   )
