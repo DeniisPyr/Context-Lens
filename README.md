@@ -22,6 +22,74 @@ On the 78 evaluation questions about 7 fictional documents, each asked 3 times w
 - **No needless questions back:** none in the 216 runs of clear questions. It asked back in 12 of the 17 runs where it should have, and then answered every reply right.
 - **The weak spot:** questions that need two documents are right in only half the runs, because one search for the whole question tends to find only one of them.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    browser["Browser<br/>React + TypeScript"]
+    subgraph compose["Docker Compose"]
+        nginx["nginx<br/>serves the page<br/>passes /api on<br/>caps sizes and rates"]
+        backend["FastAPI backend<br/>routers, services, stores"]
+        db[("Postgres + pgvector<br/>datasets, documents,<br/>chunks and embeddings")]
+    end
+    gemini["Gemini API<br/>gemini-embedding-2<br/>gemini-3.8-flash"]
+    browser -- "the page and /api" --> nginx
+    nginx -- "/api" --> backend
+    backend -- "SQL" --> db
+    backend -- "HTTPS" --> gemini
+```
+
+In development, Vite serves the page and passes `/api` on instead of nginx. The backend is split by job. Routers only turn HTTP requests into calls. Services hold the logic and don't import FastAPI. The stores in `db/` are the only code that knows SQL, and `clients/gemini.py` is the only code that talks to Gemini. [Project structure](#project-structure) lists every file.
+
+An upload is checked, chunked and embedded before anything is saved:
+
+```mermaid
+sequenceDiagram
+    participant UI as Browser
+    participant API as Backend
+    participant G as Gemini
+    participant DB as Postgres
+    UI->>API: POST /api/datasets/{id}/documents
+    API->>API: read the text in a worker thread
+    API->>DB: can the dataset take this file?
+    API->>API: split the lines into chunks
+    API->>G: embed each chunk, labelled with its filename
+    API->>DB: save the document and its chunks together
+    API-->>UI: the document, with its lines or pages
+```
+
+A question is searched, answered and checked:
+
+```mermaid
+sequenceDiagram
+    participant UI as Browser
+    participant API as Backend
+    participant G as Gemini
+    participant DB as Postgres
+    UI->>API: POST /api/ask
+    API->>G: embed the question
+    API->>DB: find the 8 closest chunks in the dataset
+    API->>API: merge them into excerpts with numbered lines
+    API->>G: the excerpts and the question, with a JSON schema
+    G-->>API: status, answer, citations
+    API->>DB: read the cited documents
+    API->>API: check every quote against their lines
+    API-->>UI: the answer and its citations, or "not found"
+```
+
+[How a question is answered](#how-a-question-is-answered) has the details.
+
+### Design decisions
+
+- **Check, don't trust.** Citations are checked by code, not by another model. Each quote must be word for word in the lines it cites, and those lines must be among the ones Gemini was shown. One failed citation turns the whole answer into "not found": a wrong "not found" does less harm than a wrong answer that looks sourced.
+- **Line numbers everywhere.** A document is a list of numbered lines, and chunks, excerpts, citations and the viewer all use those numbers. A PDF's lines are numbered through the whole file, and the line each page starts on is stored with it, so PDFs go through the same pipeline and only the labels differ.
+- **The schema sets the rules.** Gemini must answer in JSON that matches a Pydantic model. The answer to a reply uses a model without the "ask back" status, so a user is asked one question at most, whatever Gemini makes of the prompt.
+- **No connection waits for Gemini.** The stores finish their transactions before a Gemini call and start new ones after it, so none stays open while Gemini works. An upload or a question that the database would refuse is refused before any credits are spent.
+- **Exact search.** A dataset holds at most 100 documents by default, so Postgres compares the question with every chunk of the dataset. That's fast at this size and never misses a closer chunk. A vector index such as HNSW is the next step for bigger datasets.
+- **Gemini keeps nothing.** Answer requests are sent with `store=False`, so Gemini doesn't store them, or the excerpts in them.
+- **Measured changes.** Changes to search and to the prompt are judged on the evaluation set. It's graded by plain text matching, so the same answers always get the same scores.
+- **A stateless login.** The session cookie holds an expiry, signed with a key derived from the password. The server keeps no sessions, and changing the password ends them all.
+
 ## Run locally
 
 ### With Docker
