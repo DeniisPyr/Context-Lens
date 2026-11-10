@@ -301,6 +301,8 @@ def no_developer_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         "MAX_UPLOAD_BYTES",
         "MAX_DOCUMENTS_PER_DATASET",
         "CHUNKS_PER_QUESTION",
+        "ACCESS_PASSWORD",
+        "SECURE_COOKIES",
     ):
         monkeypatch.delenv(name, raising=False)
     # Replaced rather than removed, because the default is the developer's own database.
@@ -353,6 +355,20 @@ def anyio_backend() -> str:
 @pytest.fixture
 def fake_gemini() -> FakeGemini:
     return FakeGemini()
+
+
+@pytest.fixture
+def scrypt_calls(monkeypatch: pytest.MonkeyPatch) -> list[None]:
+    # One item for each time a session signing key is derived.
+    calls: list[None] = []
+    scrypt = hashlib.scrypt
+
+    def counting_scrypt(password: bytes, **options: int | bytes) -> bytes:
+        calls.append(None)
+        return scrypt(password, **options)
+
+    monkeypatch.setattr(hashlib, "scrypt", counting_scrypt)
+    return calls
 
 
 @pytest.fixture

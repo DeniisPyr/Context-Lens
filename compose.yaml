@@ -1,3 +1,13 @@
+# The database alone, for development and the backend's tests:
+#   docker compose up -d --wait
+# The whole app, with the migrations, the backend and nginx in front of it:
+#   docker compose --profile app up -d --build --wait
+# and then open http://127.0.0.1:8080. Its settings come from .env (see .env.example).
+# If it doesn't start, `docker compose --profile app logs` says why.
+
+# The backend's database: db on the network Compose sets up for these services.
+x-database-url: &database-url "postgresql+psycopg://${POSTGRES_USER:-context_lens}:${POSTGRES_PASSWORD:-context_lens}@db:5432/${POSTGRES_DB:-context_lens}"
+
 services:
   db:
     # pgvector rather than plain Postgres, because document search will need it.
@@ -21,6 +31,85 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  # Applies the migrations and exits. The backend starts only once it has succeeded.
+  migrate:
+    profiles: [app]
+    build: ./backend
+    image: context-lens-backend
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      db:
+        condition: service_healthy
+    # The image's health check is for the API, which this one doesn't run.
+    healthcheck:
+      disable: true
+    # Here and below: no Linux capabilities and no way to gain any, since none of these
+    # services runs as root or needs them.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+  backend:
+    profiles: [app]
+    build: ./backend
+    image: context-lens-backend
+    environment:
+      DATABASE_URL: *database-url
+      # Both required: see the command below.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ACCESS_PASSWORD: ${ACCESS_PASSWORD:-}
+      # Optional. Empty means the backend's default.
+      SECURE_COOKIES: ${SECURE_COOKIES:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      GEMINI_EMBEDDING_MODEL: ${GEMINI_EMBEDDING_MODEL:-}
+      GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-}
+      # Raise client_max_body_size in frontend/nginx/default.conf with it.
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-}
+      MAX_DOCUMENTS_PER_DATASET: ${MAX_DOCUMENTS_PER_DATASET:-}
+      CHUNKS_PER_QUESTION: ${CHUNKS_PER_QUESTION:-}
+      # Only nginx can reach the backend, so uvicorn takes the client's address and the
+      # scheme from the headers nginx sets.
+      FORWARDED_ALLOW_IPS: "*"
+    # Refuses to start without the Gemini key or a password, so that the app never runs
+    # in Docker without a login, though the backend alone can. Checked here rather than
+    # with ${...:?}, because Compose checks those whenever it reads this file, and then
+    # the database couldn't start without them either.
+    command:
+      - sh
+      - -c
+      - |
+        for name in GEMINI_API_KEY ACCESS_PASSWORD; do
+          if [ -z "$$(printenv "$$name")" ]; then
+            echo "Set $$name in .env, see .env.example." >&2
+            exit 1
+          fi
+        done
+        exec uvicorn context_lens.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # No published port: the backend is reached through nginx only.
+    # Restarted when it fails, but not when Docker starts, because the database isn't
+    # either: start them together with the command at the top.
+    restart: on-failure
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+  frontend:
+    profiles: [app]
+    build: ./frontend
+    image: context-lens-frontend
+    ports:
+      # This machine only, until the app is served over HTTPS (see the nginx config).
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: on-failure
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
 
 volumes:
   db-data:

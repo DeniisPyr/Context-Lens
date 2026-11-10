@@ -1,0 +1,14 @@
+# Only what the image is built from. Everything else stays out of the build: .env above
+# all, which holds the real Gemini key, and also .venv, the caches, tests/ and evals/.
+*
+!pyproject.toml
+!uv.lock
+!src/
+!alembic.ini
+!migrations/
+
+# Not even inside the folders above.
+**/.env
+**/.env.*
+**/__pycache__
+**/*.py[co]

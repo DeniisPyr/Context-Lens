@@ -2,9 +2,25 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing. When the answer depends on something the question doesn't say, it asks.
 
-> Work in progress: a FastAPI backend and a React frontend. Text, Markdown and PDF documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. When the documents answer a question differently for different situations and the question doesn't say which one applies, Gemini asks one clarifying question, citing the lines that differ, and answers the user's reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
+> Work in progress: a FastAPI backend and a React frontend that run together with one Docker command, behind a password login. Text, Markdown and PDF documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. When the documents answer a question differently for different situations and the question doesn't say which one applies, Gemini asks one clarifying question, citing the lines that differ, and answers the user's reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
 
 ## Run locally
+
+### With Docker
+
+Requirements: [Docker](https://docs.docker.com/get-docker/) and a [Gemini API key](https://aistudio.google.com/apikey). From the repo root:
+
+```bash
+cp .env.example .env  # then set GEMINI_API_KEY and ACCESS_PASSWORD in .env
+docker compose --profile app up -d --build --wait
+```
+
+Then open http://127.0.0.1:8080 and log in with `ACCESS_PASSWORD`. This runs Postgres, the migrations, the backend, and nginx, which serves the page and passes `/api` on to the backend. The app is published on this machine only.
+
+- **Without a key or a password,** the backend refuses to start. `docker compose --profile app logs` says why.
+- **To stop it,** run `docker compose --profile app down`. The documents stay in the database volume, which the development setup below uses too.
+
+### For development
 
 Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), a [Gemini API key](https://aistudio.google.com/apikey), [Node 26](https://nodejs.org/), and [Docker](https://docs.docker.com/get-docker/).
 
@@ -27,6 +43,8 @@ uv run uvicorn context_lens.main:app --reload
 - Health check: http://localhost:8000/api/health
 - Interactive API docs: http://localhost:8000/docs
 
+No login is needed unless you set `ACCESS_PASSWORD` in `backend/.env`. Then the page asks for it, as the Docker app does. Without it, the backend warns at startup that anyone who can reach it can use it.
+
 To run the frontend, keep the backend running and use another terminal:
 
 ```bash
@@ -37,7 +55,7 @@ npm run dev
 
 Then open http://localhost:5173, create a dataset, upload `.txt`, `.md` or `.pdf` files into it (up to 1 MB each), and ask a question about the dataset. If the answer depends on something the question doesn't say, you get a question back, with the lines that show why, and a box to reply in. Click a citation's lines, or its page for a PDF, to read them in its document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 
-You can also call the API directly. Create a dataset and upload a file into it using the `id` from its response, then read the document, ask about it or delete it using the `id` from the upload response. When an answer's `status` is `needs_clarification`, its `answer` is a question back: send the question again with that text and your reply in `clarification`. Deleting the dataset deletes its documents too:
+You can also call the API directly. Create a dataset and upload a file into it using the `id` from its response, then read the document, ask about it or delete it using the `id` from the upload response. When an answer's `status` is `needs_clarification`, its `answer` is a question back: send the question again with that text and your reply in `clarification`. Deleting the dataset deletes its documents too. With a password set, log in first with `curl -c cookies.txt -X POST http://localhost:8000/api/session -H "Content-Type: application/json" -d '{"password": "<ACCESS_PASSWORD>"}'`, and add `-b cookies.txt` to each command below:
 
 ```bash
 curl -X POST http://localhost:8000/api/datasets \
@@ -126,6 +144,24 @@ In step 3, Gemini can ask a clarifying question instead of answering, when the e
 The reply is sent with the question and the clarifying question. Search then embeds the question and the reply together, so it looks for the lines about the situation the reply names, and the prompt ends with all three. This time Gemini can only answer or say "not found", because the answer format it's given has no status for asking again. So a user is asked one question at most, and the conversation can't loop.
 
 A dataset without chunks gets "not found" without asking Gemini. That includes documents uploaded before chunks existed and not yet indexed (see [Chunks and embeddings](#chunks-and-embeddings)).
+
+## Security
+
+The app holds private documents and spends Gemini credits on every upload and question, so:
+
+- **Login:**
+  - With `ACCESS_PASSWORD` set, every API route except the health check needs a session.
+  - Logging in sets a cookie that lasts 12 hours. JavaScript can't read it (HttpOnly), and the browser sends it only to this site's `/api` (SameSite=Strict).
+  - The cookie is signed with a key derived from the password with scrypt, so a stolen cookie doesn't make the password quick to guess. Changing the password ends every session.
+  - The server keeps no sessions, so a restart logs no one out.
+- **nginx, in the Docker setup:**
+  - It refuses a request over 2 MB before the backend writes it to disk.
+  - Each address gets 5 login attempts a minute, 10 questions a minute, and 30 uploads a minute after a burst of 100, the size of a full dataset.
+  - It sends a strict Content-Security-Policy, and headers that stop the page from being framed or a response from being sniffed as another type.
+  - It doesn't pass on the backend's interactive API docs.
+- **Containers:** both run as unprivileged users without Linux capabilities, and an `.env` file never goes into an image. Base images are pinned by digest.
+- **Logs:** document text, quotes, questions and Gemini's answers are never logged. Neither are pypdf's messages, which can quote a PDF.
+- **Before serving it to others:** put it behind a proxy that adds HTTPS, set `SECURE_COOKIES=true`, and follow the checklist at the top of `frontend/nginx/default.conf`.
 
 ## Evaluation
 
@@ -227,9 +263,10 @@ The backend lives in `backend/src/context_lens/`, and each file has one job:
 context_lens/
 ├── main.py                  # creates the app, registers routers and handlers
 ├── settings.py              # configuration, from the environment or .env
-├── dependencies.py          # what routes can ask for: GeminiDep, ChunkStoreDep, DatasetStoreDep, DocumentStoreDep, SettingsDep
+├── dependencies.py          # what routes can ask for: GeminiDep, ChunkStoreDep, DatasetStoreDep, DocumentStoreDep, SettingsDep, and the session check
 ├── exception_handlers.py    # maps domain and database errors to HTTP responses
 ├── index_documents.py       # the command that indexes documents stored before chunks existed
+├── session_cookie.py        # the session cookie's name and flags, and setting and clearing it
 ├── clients/gemini.py        # talks to the Gemini API: answers and embeddings
 ├── db/                      # everything that knows about Postgres
 │   ├── chunk_store.py       # finds the chunks of a dataset closest to a question
@@ -249,9 +286,9 @@ context_lens/
 │   ├── runner.py            # asks every question, and records what Gemini was shown and what it cost
 │   └── scoring.py           # scores each answer and sums the scores up
 ├── routers/                 # route functions only
-│   └── api.py, ask.py, datasets.py, documents.py, health.py
+│   └── api.py, ask.py, datasets.py, documents.py, health.py, session.py
 ├── schemas/                 # API request and response models
-│   └── ask.py, datasets.py, documents.py, health.py
+│   └── ask.py, datasets.py, documents.py, health.py, session.py
 └── services/                # logic, no FastAPI imports
     ├── answering.py         # builds the prompt from excerpts and any reply, asks Gemini, verifies citations
     ├── chunking.py          # splits a document into chunks of lines
@@ -259,14 +296,17 @@ context_lens/
     ├── documents.py         # validates uploads, reads the text of PDFs, splits text into lines
     ├── embeddings.py        # the embedding size, and how a chunk is labelled for it
     ├── indexing.py          # chunks a document and embeds the chunks
-    └── search.py            # answers a question from the chunks a search finds in a dataset
+    ├── search.py            # answers a question from the chunks a search finds in a dataset
+    └── sessions.py          # checks the password, and signs and checks session cookies
 ```
 
-Postgres, the migrations and the evaluation questions live outside that folder:
+Postgres, Docker, the migrations and the evaluation questions live outside that folder:
 
 ```
-compose.yaml                 # runs Postgres for development
+compose.yaml                 # runs Postgres for development, and with --profile app the whole app
+scripts/check-docker-stack.sh  # checks a running Docker app: login, size cap, rate limit, headers
 backend/
+├── Dockerfile               # the backend image, which also applies the migrations
 ├── alembic.ini              # Alembic's settings, without the database URL
 ├── evals/                   # the evaluation
 │   ├── questions.toml       # the questions, with the facts and lines a right answer needs
@@ -275,6 +315,9 @@ backend/
 └── migrations/
     ├── env.py               # runs migrations against DATABASE_URL
     └── versions/            # one file for each schema change
+frontend/
+├── Dockerfile               # builds the page and serves it with nginx
+└── nginx/default.conf       # serves the page, passes /api on, and caps sizes, rates and headers
 ```
 
 The frontend lives in `frontend/src/`:
@@ -282,7 +325,7 @@ The frontend lives in `frontend/src/`:
 ```
 src/
 ├── main.tsx                   # starts React
-├── App.tsx                    # the page: puts the parts below together and keeps the selected dataset
+├── App.tsx                    # the page: checks the session, then shows the login form or the app
 ├── index.css                  # page styles
 ├── api/                       # every HTTP call lives here
 │   ├── ask.ts                 # asks a question about a dataset
@@ -290,7 +333,8 @@ src/
 │   ├── documents.ts           # lists, uploads, reads and deletes documents
 │   ├── errors.ts              # turns a failed response into a readable message
 │   ├── health.ts              # asks the backend whether it's healthy
-│   └── request.ts             # sends a request and turns any failure into a message
+│   ├── request.ts             # sends a request, turns any failure into a message, and says when a session ends
+│   └── session.ts             # checks the session, logs in and logs out
 ├── components/
 │   ├── Answer.tsx             # shows one answer or clarifying question, and its citations
 │   ├── ApiStatus.tsx          # shows whether the API is reachable
@@ -301,12 +345,16 @@ src/
 │   ├── Datasets.tsx           # chooses a dataset, offers to create one and to delete it
 │   ├── Documents.tsx          # shows the upload form and the document list, with Delete buttons
 │   ├── LineViewer.tsx         # shows a citation's lines in the document, with a PDF's pages
+│   ├── LoginForm.tsx          # asks for the password
+│   ├── LogOutButton.tsx       # logs out
 │   ├── pageOfLine.ts          # finds the page of a PDF that holds a line
 │   ├── ReplyForm.tsx          # replies to a clarifying question
-│   └── UploadForm.tsx         # chooses files, uploads them one by one and says how each went
+│   ├── UploadForm.tsx         # chooses files, uploads them one by one and says how each went
+│   └── Workspace.tsx          # the app once logged in: the datasets, and the selected one's contents
 ├── hooks/
 │   ├── useDatasets.ts         # loads the dataset list
-│   └── useDocuments.ts        # loads the documents of a dataset
+│   ├── useDocuments.ts        # loads the documents of a dataset
+│   └── useSession.ts          # whether a login is needed, and whether the session is still valid
 └── test/setup.ts              # test setup
 ```
 
@@ -329,3 +377,5 @@ npm run lint
 npm test
 npm run build
 ```
+
+`scripts/check-docker-stack.sh` checks a running Docker app: the login, the size cap, a rate limit and the security headers. CI builds the images, starts the app and runs it on every push.

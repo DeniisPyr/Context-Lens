@@ -84,6 +84,7 @@ const clarifying = {
 function stubPage(documents: (typeof notes)[], routes: Record<string, Route> = {}) {
   return stubRoutes({
     'GET /api/health': () => Response.json({ status: 'ok' }),
+    'GET /api/session': () => Response.json({ login_required: false, logged_in: true }),
     [GET_DATASETS]: () => Response.json([reports]),
     [GET_LIST]: () => Response.json(documents),
     'POST /api/ask': () => Response.json(answered),

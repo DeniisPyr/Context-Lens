@@ -28,19 +28,43 @@ h2 {
   color: light-dark(#b3261e, #ff8a80);
 }
 
-.dataset-form {
+/* The Log out button shares the title's row, at the right, and goes below the title when there's no room. Lined up
+   on the baseline, because the title's margin above would push a centred button up. */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 1rem;
+}
+
+/* A flex item's margin doesn't collapse with the intro's below it, so the gap would nearly double. */
+.page-header h1 {
+  margin-bottom: 0;
+}
+
+.page-header [role='alert'] {
+  flex-basis: 100%;
+  margin: 0.5rem 0 0;
+}
+
+/* The login form is laid out like the create form: the button beside the field, or below it when there's no room. */
+.dataset-form,
+.login-form {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.5rem 1rem;
 }
 
-.dataset-form label {
+.dataset-form label,
+.login-form label {
   flex: 1 1 16rem;
   min-width: 0;
 }
 
-.dataset-form [role='alert'] {
+.dataset-form [role='alert'],
+.login-form [role='alert'] {
   flex-basis: 100%;
   margin: 0;
 }
@@ -187,6 +211,7 @@ h2 {
 /* width: 100% stops a long name from widening a control past the page. */
 .dataset-choice select,
 .dataset-form input,
+.login-form input,
 .ask-form textarea,
 .reply-form textarea {
   display: block;

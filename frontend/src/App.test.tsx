@@ -20,6 +20,7 @@ function stubFetch(answers: Record<string, unknown>) {
 it('shows the title, the API status, the datasets, the documents and the ask section', async () => {
   stubFetch({
     '/api/health': { status: 'ok' },
+    '/api/session': { login_required: false, logged_in: true },
     '/api/datasets': [{ id: 'r', name: 'Reports' }],
     '/api/datasets/r/documents': [],
   })
@@ -27,14 +28,18 @@ it('shows the title, the API status, the datasets, the documents and the ask sec
   render(<App />)
 
   expect(screen.getByRole('heading', { name: 'Context-Lens' })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Datasets' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Datasets' })).toBeInTheDocument()
   expect(await screen.findByText('API: online')).toBeInTheDocument()
   expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
 })
 
 it('shows only the datasets section before any dataset exists', async () => {
-  stubFetch({ '/api/health': { status: 'ok' }, '/api/datasets': [] })
+  stubFetch({
+    '/api/health': { status: 'ok' },
+    '/api/session': { login_required: false, logged_in: true },
+    '/api/datasets': [],
+  })
 
   render(<App />)
 

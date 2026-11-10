@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -12,10 +13,18 @@ from context_lens.exception_handlers import register_exception_handlers
 from context_lens.routers import api
 from context_lens.settings import Settings
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = Settings()
+    if settings.access_password is None:
+        # A warning rather than an error: on a developer's own machine it's fine.
+        logger.warning(
+            "ACCESS_PASSWORD isn't set, so anyone who can reach the app can read "
+            "every document and spend the Gemini credits."
+        )
     # Doesn't connect until the first query, so the app starts with the database down.
     engine = create_database_engine(settings)
     gemini_client = GeminiClient(
