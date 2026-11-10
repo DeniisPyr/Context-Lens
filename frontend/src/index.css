@@ -815,7 +815,9 @@ h4 {
   font-weight: 600;
 }
 
+/* A line high even while it's empty, as it is while the only dataset's documents load, so the card doesn't grow. */
 .switcher-caption {
+  min-height: 1lh;
   color: var(--muted);
   font-size: 12px;
 }

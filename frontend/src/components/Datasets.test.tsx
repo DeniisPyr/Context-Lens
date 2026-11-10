@@ -262,7 +262,7 @@ describe('the New dataset button', () => {
 describe('the card of the selected dataset', () => {
   const document = (id: string) => ({ id, filename: `${id}.txt`, line_count: 1, page_count: null })
 
-  it('shows its name, how many documents it holds and where it is in the list', async () => {
+  it('shows its name and how many documents it holds', async () => {
     const user = userEvent.setup()
     stubPage([reports, invoices, contracts], {
       [listOf(contracts.id)]: () => Response.json([document('a'), document('b')]),
@@ -273,27 +273,53 @@ describe('the card of the selected dataset', () => {
     await findDocument('a.txt')
 
     expect(screen.getByText('Contracts', { selector: '.switcher-name' })).toBeInTheDocument()
-    expect(datasetSelect()).toHaveAccessibleDescription('2 documents · 3 of 3 datasets')
+    expect(datasetSelect()).toHaveAccessibleDescription('2 documents')
 
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('c.txt')
 
     expect(screen.getByText('Reports', { selector: '.switcher-name' })).toBeInTheDocument()
-    expect(datasetSelect()).toHaveAccessibleDescription('1 document · 1 of 3 datasets')
+    expect(datasetSelect()).toHaveAccessibleDescription('1 document')
   })
 
-  it('leaves the number of documents out until they have loaded, and says when it is the only dataset', async () => {
+  it('leaves the number of documents out until they have loaded', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([reports, invoices], { [listOf(reports.id)]: route })
+
+    render(<App />)
+    await screen.findByText('No documents yet.')
+    await user.selectOptions(datasetSelect(), reports.id)
+
+    expect(datasetSelect()).toHaveAccessibleDescription('')
+
+    await answer(Response.json([document('a')]))
+
+    expect(datasetSelect()).toHaveAccessibleDescription('1 document')
+  })
+
+  // "7 documents · the only dataset" and "99 documents · 2 of 3 datasets" were cut short in the sidebar.
+  it('says only how many documents the dataset holds, once they have loaded', async () => {
     const { route, answer } = waitingRoute()
     stubPage([reports], { [listOf(reports.id)]: route })
 
     render(<App />)
     await screen.findByRole('combobox', { name: 'Dataset' })
 
-    expect(datasetSelect()).toHaveAccessibleDescription('the only dataset')
+    expect(datasetSelect()).toHaveAccessibleDescription('')
 
-    await answer(Response.json([]))
+    await answer(Response.json([...'abcdefg'].map((id) => document(id))))
 
-    expect(datasetSelect()).toHaveAccessibleDescription('0 documents · the only dataset')
+    expect(datasetSelect()).toHaveAccessibleDescription('7 documents')
+  })
+
+  it('counts one document as one', async () => {
+    stubPage([reports], { [listOf(reports.id)]: () => Response.json([document('a')]) })
+
+    render(<App />)
+    await findDocument('a.txt')
+
+    expect(datasetSelect()).toHaveAccessibleDescription('1 document')
   })
 })
 

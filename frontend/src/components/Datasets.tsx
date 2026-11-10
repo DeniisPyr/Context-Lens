@@ -20,12 +20,11 @@ type Props = {
   onDeleted: (id: string) => void
 }
 
-// The line under the dataset's name, such as "7 documents · 1 of 3 datasets".
-function captionOf(datasets: Dataset[], selected: Dataset, documentCount: number | null) {
-  const documents = documentCount === null ? null : documentCount === 1 ? '1 document' : `${documentCount} documents`
-  const place =
-    datasets.length === 1 ? 'the only dataset' : `${datasets.indexOf(selected) + 1} of ${datasets.length} datasets`
-  return documents ? `${documents} · ${place}` : place
+// The line under the dataset's name, such as "7 documents", left empty while they load. Where the dataset is in the
+// list isn't added: the select shows the list, and "99 documents · 2 of 3 datasets" doesn't fit the sidebar.
+function captionOf(documentCount: number | null) {
+  if (documentCount === null) return ''
+  return documentCount === 1 ? '1 document' : `${documentCount} documents`
 }
 
 // The top of the sidebar: which dataset is selected, and the buttons that create and delete one.
@@ -146,7 +145,7 @@ export default function Datasets({
           <span className="switcher-text" aria-hidden="true">
             <span className="switcher-name">{selected.name}</span>
             <span className="switcher-caption" id={captionId}>
-              {captionOf(datasets, selected, documentCount)}
+              {captionOf(documentCount)}
             </span>
           </span>
           <ChevronsUpDownIcon className="icon-sm switcher-chevrons" />
