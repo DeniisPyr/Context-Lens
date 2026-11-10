@@ -4,14 +4,14 @@ Ask questions about your own documents and get answers backed by exact quotes, e
 
 ![Logging in, creating a dataset and uploading seven documents, one of them a PDF. Then three questions: one answered from page 3 of the PDF, with its citation opened in the line viewer; one the documents don't answer, which gets "not found"; and one that gets a clarifying question back, with the lines that show why, then an answer to the reply.](docs/demo.gif)
 
-*The waits for Gemini are cut short in this recording. The documents are the fictional ones from the evaluation set.*
+*The waits for Gemini are cut short in this recording. The documents are the fictional ones from the evaluation set, with the leaflet turned into a PDF.*
 
 ## What it does
 
 - **Datasets:** upload many `.txt`, `.md` and `.pdf` files at once into a named dataset, stored in Postgres.
 - **Search:** each document is split into chunks of lines, which Gemini embeds and pgvector stores. A question finds the 8 chunks of the dataset closest to it.
-- **Cited answers:** Gemini answers from those chunks only, and cites the file, the lines and an exact quote for every claim, plus the page for a PDF.
-- **Checked citations:** every quote is checked in code against the document's real lines. If one fails, the answer becomes "not found", so nothing unchecked reaches the user.
+- **Cited answers:** Gemini answers from those chunks only, and cites the file, the lines and an exact quote for every claim. For a PDF, the app works out the page.
+- **Checked citations:** every quote is checked in code against the document's real lines. If one fails, or there are none, the answer becomes "not found", so every quote the user sees is really in the document.
 - **Clarifying questions:** when the documents answer differently for different situations and the question doesn't say which one applies, it asks one question back, citing the lines that differ.
 - **Line viewer:** each citation opens at its lines in the document.
 - **Evaluation:** a fixed set of 78 questions scores the answers and compares search with sending whole documents.
@@ -21,10 +21,10 @@ Ask questions about your own documents and get answers backed by exact quotes, e
 
 On the 78 evaluation questions about 7 fictional documents, each asked 3 times with gemini-3.8-flash (details in [Evaluation](#results-search-compared-with-whole-documents)):
 
-- **94% right** on the questions that need no clarifying question (203 of 216 runs). Sending whole documents gets 100%, but search is 20% cheaper per question, and a dataset of 100 documents couldn't be sent whole at all.
-- **No made-up answers:** "not found" in all 60 runs of questions the documents don't answer.
+- **94% right** on the questions that need no clarifying question (203 of 216 runs). Sending each question's own documents whole, and telling Gemini which one holds the answer, gets 100%. But search is 20% cheaper per question, and a full dataset, up to 100 files of up to 1 MB each, can hold far more text than one prompt can take.
+- **"Not found" when it should be:** in all 60 runs of the 20 questions the documents don't answer.
 - **No needless questions back:** none in the 216 runs of clear questions. It asked back in 12 of the 17 runs where it should have, and then answered every reply right.
-- **The weak spot:** questions that need two documents are right in only half the runs, because one search for the whole question tends to find only one of them.
+- **The weak spot:** questions that need two documents are right in only half the runs (9 of 18). For two of the three questions that failed, one search for the whole question found only one of the documents. For the third, search found both, and Gemini still said "not found" (see [Limitations](#limitations-and-next-steps)).
 
 ## Architecture
 
@@ -43,7 +43,7 @@ flowchart LR
     backend -- "HTTPS" --> gemini
 ```
 
-In development, Vite serves the page and passes `/api` on instead of nginx. The backend is split by job. Routers only turn HTTP requests into calls. Services hold the logic and don't import FastAPI. The stores in `db/` are the only code that knows SQL, and `clients/gemini.py` is the only code that talks to Gemini. [Project structure](#project-structure) lists every file.
+In development, Vite serves the page and passes `/api` on instead of nginx. The backend is split by job. Routers only turn HTTP requests into calls. Services hold the logic and don't import FastAPI. The stores in `db/` are the only code that knows SQL, and `clients/gemini.py` is the only code that talks to Gemini. [Project structure](#project-structure) says what each source file does.
 
 An upload is checked, chunked and embedded before anything is saved:
 
@@ -59,7 +59,7 @@ sequenceDiagram
     API->>API: split the lines into chunks
     API->>G: embed each chunk, labelled with its filename
     API->>DB: save the document and its chunks together
-    API-->>UI: the document, with its lines or pages
+    API-->>UI: the document's id and filename, and how many lines or pages it has
 ```
 
 A question is searched, answered and checked:
@@ -71,7 +71,8 @@ sequenceDiagram
     participant G as Gemini
     participant DB as Postgres
     UI->>API: POST /api/ask
-    API->>G: embed the question
+    API->>DB: does the dataset exist?
+    API->>G: embed the question, and any reply
     API->>DB: find the 8 closest chunks in the dataset
     API->>API: merge them into excerpts with numbered lines
     API->>G: the excerpts and the question, with a JSON schema
@@ -86,11 +87,11 @@ sequenceDiagram
 ### Design decisions
 
 - **Check, don't trust.** Citations are checked by code, not by another model. Each quote must be word for word in the lines it cites, and those lines must be among the ones Gemini was shown. One failed citation turns the whole answer into "not found": a wrong "not found" does less harm than a wrong answer that looks sourced.
-- **Line numbers everywhere.** A document is a list of numbered lines, and chunks, excerpts, citations and the viewer all use those numbers. A PDF's lines are numbered through the whole file, and the line each page starts on is stored with it, so PDFs go through the same pipeline and only the labels differ.
+- **Line numbers everywhere.** A document is a list of numbered lines, and chunks, excerpts, citations and the viewer all find lines by those numbers. A PDF's lines are numbered through the whole file, and the line each page starts on is stored with it, so PDFs go through the same pipeline. Only what the user sees differs: the page, with lines counted from 1 on each page.
 - **The schema sets the rules.** Gemini must answer in JSON that matches a Pydantic model. The answer to a reply uses a model without the "ask back" status, so a user is asked one question at most, whatever Gemini makes of the prompt.
 - **No connection waits for Gemini.** The stores finish their transactions before a Gemini call and start new ones after it, so none stays open while Gemini works. An upload or a question that the database would refuse is refused before any credits are spent.
 - **Exact search.** A dataset holds at most 100 documents by default, so Postgres compares the question with every chunk of the dataset. That's fast at this size and never misses a closer chunk. A vector index such as HNSW is the next step for bigger datasets.
-- **Gemini keeps nothing.** Answer requests are sent with `store=False`, so Gemini doesn't store them, or the excerpts in them.
+- **Answers aren't stored.** Answer requests are sent with `store=False`, so Gemini doesn't keep them, or the excerpts in them. Embedding requests, which carry each chunk and each question, have no such option.
 - **Measured changes.** Changes to search and to the prompt are judged on the evaluation set. It's graded by plain text matching, so the same answers always get the same scores.
 - **A stateless login.** The session cookie holds an expiry, signed with a key derived from the password. The server keeps no sessions, and changing the password ends them all.
 
@@ -348,12 +349,13 @@ Searching once for each part of a question, or giving it more chunks, might fix 
 ## Limitations and next steps
 
 - **Answers in two places.** One search for the whole question often finds only one of them, which is the main reason search scores below whole documents. Searching once for each part of the question, or again with what the first answer names, should help. The evaluation can show how much.
-- **Line numbers in quotes.** Gemini sometimes copies a line's number from the prompt into its quote, and the check then rejects a right answer. Removing such a number before the check would keep those answers.
+- **Only the quotes are checked.** The check proves that each quote is in the document, not that the answer says what its quotes say.
+- **Line numbers in quotes.** Once in 233 runs, Gemini copied a line's number from the prompt into its quote, and the check rejected a right answer. Removing such a number before the check should keep those answers.
 - **A side effect of clarifying questions.** One question that needs two documents was answered right in 2 of 3 runs before Gemini could ask back, and got "not found" in all 3 after. Running both instructions on that question side by side would show whether the new one is the cause.
 - **PDFs.** There's no OCR, so scanned PDFs can't be read, and columns and tables come out in the order pypdf reads them.
 - **One password for everyone.** Everyone who logs in sees every dataset. Sharing it between people would need user accounts, with datasets of their own.
-- **One machine.** The Docker setup is published on this machine only. To serve it to others, it needs HTTPS in front, `SECURE_COOKIES=true`, and nginx set to see each client's real address for the rate limits, as the checklist in `frontend/nginx/default.conf` says.
-- **Gemini's errors.** When the Gemini account runs out of prepaid credits, the app says only that Gemini rejected the request.
+- **One machine.** The Docker setup is published on this machine only. To serve it to others, it needs HTTPS in front, `SECURE_COOKIES=true`, and nginx set to see each client's real address for the rate limits. The checklist at the top of `frontend/nginx/default.conf` lists these steps and the rest.
+- **Gemini's errors.** When the Gemini account runs out of prepaid credits, the app says only that Gemini could not answer the question, or could not index the document. The reason is only in the backend's log.
 
 ## Project structure
 
