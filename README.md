@@ -2,7 +2,25 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing. When the answer depends on something the question doesn't say, it asks.
 
-> Work in progress: a FastAPI backend and a React frontend that run together with one Docker command, behind a password login. Text, Markdown and PDF documents are uploaded into named datasets and stored in Postgres, and each one is split into chunks of lines that Gemini embeds and pgvector stores. A question is asked of a whole dataset: the closest chunks are found, and Gemini answers from them, citing the file, the lines and an exact quote for every claim. Citations are checked against the documents, and answers that can't be verified get a "not found" reply. When the documents answer a question differently for different situations and the question doesn't say which one applies, Gemini asks one clarifying question, citing the lines that differ, and answers the user's reply. The frontend creates and deletes datasets, uploads many files at once, deletes documents, asks questions of the selected dataset and opens each citation at its lines. An evaluation command scores the answers on a fixed set of questions and compares them with answers from whole documents.
+## What it does
+
+- **Datasets:** upload many `.txt`, `.md` and `.pdf` files at once into a named dataset, stored in Postgres.
+- **Search:** each document is split into chunks of lines, which Gemini embeds and pgvector stores. A question finds the 8 chunks of the dataset closest to it.
+- **Cited answers:** Gemini answers from those chunks only, and cites the file, the lines and an exact quote for every claim, plus the page for a PDF.
+- **Checked citations:** every quote is checked in code against the document's real lines. If one fails, the answer becomes "not found", so nothing unchecked reaches the user.
+- **Clarifying questions:** when the documents answer differently for different situations and the question doesn't say which one applies, it asks one question back, citing the lines that differ.
+- **Line viewer:** each citation opens at its lines in the document.
+- **Evaluation:** a fixed set of 78 questions scores the answers and compares search with sending whole documents.
+- **One command:** Docker Compose runs it all behind a password login, with nginx capping request sizes and rates.
+
+## Results at a glance
+
+On the 78 evaluation questions about 7 fictional documents, each asked 3 times with gemini-3.8-flash (details in [Evaluation](#results-search-compared-with-whole-documents)):
+
+- **94% right** on the questions that need no clarifying question (203 of 216 runs). Sending whole documents gets 100%, but search is 20% cheaper per question, and a dataset of 100 documents couldn't be sent whole at all.
+- **No made-up answers:** "not found" in all 60 runs of questions the documents don't answer.
+- **No needless questions back:** none in the 216 runs of clear questions. It asked back in 12 of the 17 runs where it should have, and then answered every reply right.
+- **The weak spot:** questions that need two documents are right in only half the runs, because one search for the whole question tends to find only one of them.
 
 ## Run locally
 
