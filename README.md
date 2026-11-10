@@ -234,7 +234,7 @@ In step 3, Gemini can ask a clarifying question instead of answering, when the e
 
 The reply is sent with the question and the clarifying question. Search then embeds the question and the reply together, so it looks for the lines about the situation the reply names, and the prompt ends with all three. This time Gemini can only answer or say "not found", because the answer format it's given has no status for asking again. So a user is asked one question at most, and the conversation can't loop.
 
-A dataset without chunks gets "not found" without asking Gemini. That includes documents uploaded before chunks existed and not yet indexed (see [Chunks and embeddings](#chunks-and-embeddings)).
+A dataset without chunks gets "not found" without asking Gemini for an answer; only the question is embedded. That includes documents uploaded before chunks existed and not yet indexed (see [Chunks and embeddings](#chunks-and-embeddings)).
 
 ## Security
 
@@ -342,7 +342,7 @@ What this shows:
 - **It's cheaper, and its cost doesn't grow with the documents.**
   - Search sends 44% fewer input tokens. It sends about the same for the 726-line SOP as for a short leaflet.
   - Gemini thinks a little longer over excerpts, so the saving here is 20% per question.
-  - The bigger point is scale: a dataset of 100 documents can't be sent whole at all.
+  - The bigger point is scale: a full dataset, up to 100 files of up to 1 MB each, can hold far more text than one prompt can take.
 
 Searching once for each part of a question, or giving it more chunks, might fix the questions whose answer sits in two places, and also show Gemini the situations it needs to see before it can ask back. This set can measure either change.
 
