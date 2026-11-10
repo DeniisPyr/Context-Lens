@@ -341,6 +341,16 @@ What this shows:
 
 Searching once for each part of a question, or giving it more chunks, might fix the questions whose answer sits in two places, and also show Gemini the situations it needs to see before it can ask back. This set can measure either change.
 
+## Limitations and next steps
+
+- **Answers in two places.** One search for the whole question often finds only one of them, which is the main reason search scores below whole documents. Searching once for each part of the question, or again with what the first answer names, should help. The evaluation can show how much.
+- **Line numbers in quotes.** Gemini sometimes copies a line's number from the prompt into its quote, and the check then rejects a right answer. Removing such a number before the check would keep those answers.
+- **A side effect of clarifying questions.** One question that needs two documents was answered right in 2 of 3 runs before Gemini could ask back, and got "not found" in all 3 after. Running both instructions on that question side by side would show whether the new one is the cause.
+- **PDFs.** There's no OCR, so scanned PDFs can't be read, and columns and tables come out in the order pypdf reads them.
+- **One password for everyone.** Everyone who logs in sees every dataset. Sharing it between people would need user accounts, with datasets of their own.
+- **One machine.** The Docker setup is published on this machine only. To serve it to others, it needs HTTPS in front, `SECURE_COOKIES=true`, and nginx set to see each client's real address for the rate limits, as the checklist in `frontend/nginx/default.conf` says.
+- **Gemini's errors.** When the Gemini account runs out of prepaid credits, the app says only that Gemini rejected the request.
+
 ## Project structure
 
 The backend lives in `backend/src/context_lens/`, and each file has one job:
