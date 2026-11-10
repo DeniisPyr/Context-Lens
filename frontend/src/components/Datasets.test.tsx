@@ -88,7 +88,8 @@ async function createNamed(user: UserEvent, name: string) {
 
 function expectNoDocumentsOrAsk() {
   expect(screen.queryByRole('heading', { name: 'Documents' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: /^Ask a question/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/^Add files to/)).not.toBeInTheDocument()
 }
 
 afterEach(() => {
@@ -184,7 +185,7 @@ describe('before any dataset exists', () => {
     expect(await screen.findByText('No documents yet.')).toBeInTheDocument()
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(screen.queryByText(startMessage)).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
+    expect(screen.getByText('Add files to Reports to ask about them.')).toBeInTheDocument()
     // The form closes, and the focus goes to the button that opens it again.
     expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
     expect(newDatasetButton()).toHaveFocus()
@@ -642,6 +643,8 @@ describe('switching to another dataset', () => {
     await user.click(screen.getByRole('button', { name: 'Ask' }))
   }
 
+  const oldCard = () => screen.queryByRole('article', { name: 'Q1 The old question' })
+
   it('removes the old list at once, before the new one has arrived', async () => {
     const user = userEvent.setup()
     const { route, answer } = waitingRoute()
@@ -689,21 +692,22 @@ describe('switching to another dataset', () => {
     expect(questionBox()).toHaveValue('')
   })
 
-  it('removes the answer', async () => {
+  it('shows only the cards of the new dataset', async () => {
     const user = userEvent.setup()
     stubTwoDatasets()
 
     await askTheOldDataset(user)
-    await screen.findByRole('article')
+    await screen.findByText('The old answer.')
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('new.txt')
 
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
     expect(screen.queryByText('The old answer.')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Ask your first question about Reports' })).toBeInTheDocument()
     expect(questionBox()).toHaveValue('')
   })
 
-  it('does not show an answer that arrives after the switch', async () => {
+  it('puts an answer that arrives after the switch in the cards of its own dataset', async () => {
     const user = userEvent.setup()
     const { route, answer } = waitingRoute()
     stubTwoDatasets({ 'POST /api/ask': route })
@@ -715,42 +719,96 @@ describe('switching to another dataset', () => {
     await answer(Response.json(answered))
 
     expect(screen.queryByRole('article')).not.toBeInTheDocument()
+    expect(screen.queryByText('The old answer.')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
-  })
 
-  it('does not bring the old state back when switching back', async () => {
-    const user = userEvent.setup()
-    stubTwoDatasets()
-
-    await askTheOldDataset(user)
-    await screen.findByRole('article')
-    await user.selectOptions(datasetSelect(), reports.id)
-    await findDocument('new.txt')
     await user.selectOptions(datasetSelect(), invoices.id)
     await findDocument('old.txt')
 
-    expect(questionBox()).toHaveValue('')
-    expect(screen.queryByRole('article')).not.toBeInTheDocument()
+    expect(within(oldCard()!).getByText('The old answer.')).toBeInTheDocument()
   })
 
-  it('asks the new dataset, and names it in the ask section and the answer', async () => {
+  it('lets the new dataset be asked while a question of the old one is on its way, which still waits on return', async () => {
     const user = userEvent.setup()
-    const fetchStub = stubTwoDatasets()
+    // Each question waits for the test to answer it, by its position.
+    const pending: ((response: Response) => void)[] = []
+    const route: Route = () => new Promise((resolve) => pending.push(resolve))
+    const answer = (position: number, response: Response) => act(async () => pending[position](response))
+    const fetchStub = stubTwoDatasets({ 'POST /api/ask': route })
 
-    render(<App />)
-    await findDocument('old.txt')
-    expect(screen.getByRole('heading', { name: 'Ask a question about Invoices' })).toBeInTheDocument()
+    await askTheOldDataset(user)
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('new.txt')
     await user.type(questionBox(), 'Why?')
     await user.click(screen.getByRole('button', { name: 'Ask' }))
-    await screen.findByRole('article')
+
+    expect(requestsTo(fetchStub, '/api/ask', 'POST')).toHaveLength(2)
+    expect(screen.getByRole('article', { name: 'Q1 Why?' })).toBeInTheDocument()
+
+    await user.selectOptions(datasetSelect(), invoices.id)
+    await findDocument('old.txt')
+
+    expect(within(oldCard()!).getByText('Asking…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Asking…' })).toBeDisabled()
+
+    await answer(0, Response.json(answered))
+
+    expect(within(oldCard()!).getByText('The old answer.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
+  })
+
+  it('brings the earlier cards back when switching back, with an empty question box', async () => {
+    const user = userEvent.setup()
+    stubTwoDatasets()
+
+    await askTheOldDataset(user)
+    await screen.findByText('The old answer.')
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('new.txt')
+    await user.type(questionBox(), 'Not sent')
+    await user.selectOptions(datasetSelect(), invoices.id)
+    await findDocument('old.txt')
+
+    expect(questionBox()).toHaveValue('')
+    expect(oldCard()).toBeInTheDocument()
+    expect(screen.getByText('The old answer.')).toBeInTheDocument()
+  })
+
+  it('numbers the questions of each dataset from Q1', async () => {
+    const user = userEvent.setup()
+    stubTwoDatasets()
+
+    await askTheOldDataset(user)
+    await screen.findByText('The old answer.')
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('new.txt')
+    await user.type(questionBox(), 'Why?')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+
+    expect(await screen.findByRole('article', { name: 'Q1 Why?' })).toBeInTheDocument()
+  })
+
+  it('asks the new dataset, and names it in the header and the question box', async () => {
+    const user = userEvent.setup()
+    const fetchStub = stubTwoDatasets()
+    const questionsColumn = () => within(screen.getByRole('main'))
+
+    render(<App />)
+    await findDocument('old.txt')
+    expect(questionBox()).toHaveAttribute('placeholder', 'Ask a question about Invoices')
+    expect(questionsColumn().getByText('Invoices')).toBeInTheDocument()
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('new.txt')
+    await user.type(questionBox(), 'Why?')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+    await screen.findByText('The old answer.')
 
     const [[, init]] = requestsTo(fetchStub, '/api/ask', 'POST')
     expect(JSON.parse(init?.body as string)).toEqual({ dataset_id: reports.id, question: 'Why?' })
-    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Ask a question about Invoices' })).not.toBeInTheDocument()
-    expect(screen.getByText('You asked about Reports: Why?')).toBeInTheDocument()
+    expect(questionBox()).toHaveAttribute('placeholder', 'Ask a question about Reports')
+    expect(questionsColumn().getByText('Reports')).toBeInTheDocument()
+    expect(questionsColumn().queryByText('Invoices')).not.toBeInTheDocument()
+    expect(screen.getByRole('article', { name: 'Q1 Why?' })).toBeInTheDocument()
   })
 
   it('offers no form when the new dataset has no documents', async () => {
@@ -762,8 +820,7 @@ describe('switching to another dataset', () => {
     await user.selectOptions(datasetSelect(), reports.id)
     await screen.findByText('No documents yet.')
 
-    expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
-    expect(screen.getByText('Upload a document to ask about it.')).toBeInTheDocument()
+    expect(screen.getByText('Add files to Reports to ask about them.')).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Ask' })).not.toBeInTheDocument()
   })
@@ -1070,6 +1127,60 @@ describe('deleting a dataset', () => {
     await answer(Response.json([reports]))
 
     expect(datasetSelect()).toHaveValue(reports.id)
+  })
+
+  describe('with questions asked about it', () => {
+    const doc = { id: 'doc', filename: 'doc.txt', line_count: 3, page_count: null }
+    const answer = { status: 'answered', answer: 'The answer.', citations: [] }
+
+    // Invoices, the newest, holds a document. After the delete, the reloaded list still names it, as a stale one
+    // could, so the page goes back to it and shows whatever it still keeps for it.
+    function stubStaleList(routes: Record<string, Route> = {}) {
+      return stubPage([reports, invoices], {
+        [listOf(invoices.id)]: () => Response.json([doc]),
+        'DELETE /api/datasets/i': deleted,
+        'POST /api/ask': () => Response.json(answer),
+        ...routes,
+      })
+    }
+
+    async function askInvoices(user: UserEvent) {
+      render(<App />)
+      await user.type(await screen.findByRole('textbox', { name: 'Question' }), 'Why?')
+      await user.click(screen.getByRole('button', { name: 'Ask' }))
+    }
+
+    it('forgets their cards', async () => {
+      const user = userEvent.setup()
+      const fetchStub = stubStaleList()
+
+      await askInvoices(user)
+      await screen.findByText('The answer.')
+      await deleteSelected(user)
+      await vi.waitFor(() => expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2))
+      await screen.findByRole('heading', { name: 'Ask your first question about Invoices' })
+
+      expect(datasetSelect()).toHaveValue(invoices.id)
+      expect(screen.queryByRole('article')).not.toBeInTheDocument()
+    })
+
+    it('drops an answer that arrives after the delete', async () => {
+      const user = userEvent.setup()
+      const { route, answer: respond } = waitingRoute()
+      const fetchStub = stubStaleList({ 'POST /api/ask': route })
+
+      await askInvoices(user)
+      await screen.findByRole('article', { name: 'Q1 Why?' })
+      await deleteSelected(user)
+      await vi.waitFor(() => expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2))
+      await screen.findByRole('heading', { name: 'Ask your first question about Invoices' })
+
+      await respond(Response.json(answer))
+
+      expect(screen.queryByRole('article')).not.toBeInTheDocument()
+      expect(screen.queryByText('The answer.')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
+    })
   })
 
   it('shows the start prompt again once the last dataset is deleted', async () => {

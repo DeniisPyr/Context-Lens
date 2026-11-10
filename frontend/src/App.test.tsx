@@ -39,7 +39,7 @@ it('shows the title, the API status, the dataset and its documents in the sideba
   expect(within(sidebar()).getByRole('heading', { name: 'Documents' })).toBeInTheDocument()
   expect(within(questionsColumn()).getByRole('heading', { name: 'Questions in this session' })).toBeInTheDocument()
   expect(within(questionsColumn()).getByText('Reports')).toBeInTheDocument()
-  expect(within(questionsColumn()).getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
+  expect(within(questionsColumn()).getByText('Add files to Reports to ask about them.')).toBeInTheDocument()
 })
 
 it('shows only the datasets section before any dataset exists', async () => {
@@ -53,7 +53,8 @@ it('shows only the datasets section before any dataset exists', async () => {
 
   expect(await screen.findByText('Create a dataset to get started.')).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Documents' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: /^Ask a question/ })).not.toBeInTheDocument()
+  expect(screen.queryByText(/^Add files to/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
 })
 
 it('ends the sidebar with the theme switch, and with Log out when a login is required', async () => {

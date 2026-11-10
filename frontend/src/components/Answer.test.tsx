@@ -86,7 +86,7 @@ function rejectsOnAbort(_url: string, init?: RequestInit) {
 }
 
 function renderCitations(...citations: Citation[]) {
-  render(<Answer datasetName="Reports" question="Why?" result={answered(...citations)} />)
+  render(<Answer result={answered(...citations)} />)
 }
 
 const lineButton = (name = 'Line 3') => screen.getByRole('button', { name })
@@ -108,23 +108,30 @@ describe('an answer', () => {
   it('shows two identical citations without a key warning', () => {
     const consoleError = vi.spyOn(console, 'error')
 
-    render(<Answer datasetName="Reports" question="Why?" result={answered(oneLine, oneLine)} />)
+    render(<Answer result={answered(oneLine, oneLine)} />)
 
     expect(screen.getAllByRole('blockquote')).toHaveLength(2)
     expect(consoleError).not.toHaveBeenCalled()
   })
 
-  it('shows the question it answers and the answer text', () => {
-    render(<Answer datasetName="Reports" question="Why?" result={answered(oneLine)} />)
+  it('shows the answer text', () => {
+    render(<Answer result={answered(oneLine)} />)
 
-    expect(screen.getByText('You asked about Reports: Why?')).toBeInTheDocument()
     expect(screen.getByText('The answer.')).toBeInTheDocument()
+  })
+
+  it('leaves out the Sources heading when it cites nothing', () => {
+    render(<Answer result={answered()} />)
+
+    expect(screen.getByText('The answer.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Sources' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 
   it('shows the filename, the lines and the quote of each citation, in order', () => {
     const other = { ...threeLines, filename: 'other.md' }
 
-    render(<Answer datasetName="Reports" question="Why?" result={answered(oneLine, other)} />)
+    render(<Answer result={answered(oneLine, other)} />)
 
     expect(screen.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
     const [first, second] = screen.getAllByRole('listitem')
@@ -165,30 +172,35 @@ describe('an answer', () => {
     const citation = { ...oneLine, filename: `${html}.txt`, quote: `${html} quote` }
     const result = { ...answered(citation), answer: `${html} answer` }
 
-    const { container } = render(<Answer datasetName="Reports" question={`${html} question`} result={result} />)
+    const { container } = render(<Answer result={result} />)
 
-    expect(screen.getByText(`You asked about Reports: ${html} question`)).toBeInTheDocument()
     expect(screen.getByText(`${html} answer`)).toBeInTheDocument()
     expect(screen.getByText(`${html}.txt`)).toBeInTheDocument()
     expect(screen.getByRole('blockquote').textContent).toBe(`${html} quote`)
     expect(container.querySelector('img')).toBeNull()
   })
 
-  it('keeps line breaks in the question, the answer and the quotes, and wraps long text', () => {
+  it('keeps line breaks in the answer and the quotes', () => {
     const result = { ...answered({ ...oneLine, quote: 'one\ntwo' }), answer: 'first\nsecond' }
 
-    render(<Answer datasetName="Reports" question={'line one\nline two'} result={result} />)
+    render(<Answer result={result} />)
 
     const quote = screen.getByRole('blockquote')
     const answerText = screen.getByText(/first/)
-    const asked = screen.getByText(/line one/)
     expect(quote.textContent).toBe('one\ntwo')
     expect(answerText.textContent).toBe('first\nsecond')
-    expect(asked.textContent).toBe('You asked about Reports: line one\nline two')
-    for (const element of [quote, answerText, asked]) {
+    for (const element of [quote, answerText]) {
       expect(element).toHaveStyle({ whiteSpace: 'pre-wrap' })
     }
-    expect(screen.getByRole('article')).toHaveStyle({ overflowWrap: 'anywhere' })
+  })
+
+  it('marks a citation in a PDF with the PDF icon, and one in a text file with the file icon', () => {
+    renderCitations(onePage, oneLine)
+
+    const [pdfIcon, fileIcon] = screen.getAllByRole('listitem').map((item) => item.querySelector('svg'))
+    expect(pdfIcon).toHaveClass('pdf')
+    expect(fileIcon).not.toHaveClass('pdf')
+    expect(pdfIcon).toHaveAttribute('aria-hidden', 'true')
   })
 })
 
@@ -334,22 +346,17 @@ describe('opening a citation', () => {
   })
 
   it('has no citation buttons when the dataset does not hold the answer', () => {
-    render(<Answer datasetName="Reports" question="Why?" result={notFound} />)
+    render(<Answer result={notFound} />)
 
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })
 
 describe('the citation button', () => {
-  it('looks like a link, and does not shrink next to a long filename', () => {
+  it('looks like a chip, and does not shrink or wrap next to a long filename', () => {
     renderCitations(oneLine)
 
-    expect(lineButton()).toHaveStyle({
-      textDecoration: 'underline',
-      flexShrink: '0',
-      alignSelf: 'flex-start',
-      whiteSpace: 'nowrap',
-    })
+    expect(lineButton()).toHaveStyle({ borderTopStyle: 'solid', flexShrink: '0', whiteSpace: 'nowrap' })
     expect(lineButton()).toHaveAttribute('type', 'button')
   })
 
@@ -375,7 +382,7 @@ describe('the citation button', () => {
 
     const row = within(viewer).getAllByRole('listitem')[0]
     expect(row).not.toHaveStyle({ borderTopStyle: 'solid' })
-    expect(row).not.toHaveStyle({ paddingTop: '8px' })
+    expect(row).not.toHaveStyle({ paddingTop: '9px' })
   })
 })
 
@@ -449,7 +456,7 @@ describe('cancelling the request of an open citation', () => {
   it('aborts when the answer goes away', async () => {
     const user = userEvent.setup()
     const fetchStub = stubFetch(rejectsOnAbort)
-    const { unmount } = render(<Answer datasetName="Reports" question="Why?" result={answered(oneLine)} />)
+    const { unmount } = render(<Answer result={answered(oneLine)} />)
 
     await user.click(lineButton())
     unmount()
@@ -459,10 +466,9 @@ describe('cancelling the request of an open citation', () => {
 })
 
 describe('when the dataset does not hold the answer', () => {
-  it('shows the question and the message, with no sources', () => {
-    render(<Answer datasetName="Reports" question="Why?" result={notFound} />)
+  it('shows the message, with no sources', () => {
+    render(<Answer result={notFound} />)
 
-    expect(screen.getByText('You asked about Reports: Why?')).toBeInTheDocument()
     expect(screen.getByText(notFound.answer)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Sources' })).not.toBeInTheDocument()
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
@@ -471,30 +477,30 @@ describe('when the dataset does not hold the answer', () => {
   it('shows HTML in the message as plain text', () => {
     const html = '<img src=x onerror=alert(1)>'
 
-    const { container } = render(
-      <Answer datasetName="Reports" question="Why?" result={{ ...notFound, answer: html }} />,
-    )
+    const { container } = render(<Answer result={{ ...notFound, answer: html }} />)
 
     expect(screen.getByText(html)).toBeInTheDocument()
     expect(container.querySelector('img')).toBeNull()
   })
 
-  it('looks different from an answer', () => {
-    const { unmount } = render(<Answer datasetName="Reports" question="Why?" result={answered(oneLine)} />)
-    expect(screen.getByText('The answer.')).not.toHaveStyle({ fontStyle: 'italic' })
+  it('looks different from an answer: muted, with a search icon', () => {
+    const { unmount } = render(<Answer result={answered(oneLine)} />)
+    const answerColour = window.getComputedStyle(screen.getByText('The answer.')).color
     unmount()
 
-    render(<Answer datasetName="Reports" question="Why?" result={notFound} />)
+    render(<Answer result={notFound} />)
 
-    expect(screen.getByText(notFound.answer)).toHaveStyle({ fontStyle: 'italic' })
+    const message = screen.getByText(notFound.answer)
+    expect(window.getComputedStyle(message).color).not.toBe(answerColour)
+    expect(message.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+    expect(message).toHaveStyle({ whiteSpace: 'pre-wrap' })
   })
 })
 
 describe('a clarifying question', () => {
   it("shows the question with the lines that answer differently, under Why I'm asking", () => {
-    render(<Answer datasetName="Reports" question="What do I do?" result={clarifying} />)
+    render(<Answer result={clarifying} />)
 
-    expect(screen.getByText('You asked about Reports: What do I do?')).toBeInTheDocument()
     expect(screen.getByText(clarifying.answer)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: "Why I'm asking" })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Sources' })).not.toBeInTheDocument()
@@ -508,17 +514,22 @@ describe('a clarifying question', () => {
   })
 
   it('looks like an answer, not like a missing one', () => {
-    render(<Answer datasetName="Reports" question="What do I do?" result={clarifying} />)
+    const { unmount } = render(<Answer result={notFound} />)
+    const notFoundColour = window.getComputedStyle(screen.getByText(notFound.answer)).color
+    unmount()
+
+    render(<Answer result={clarifying} />)
 
     const text = screen.getByText(clarifying.answer)
-    expect(text).not.toHaveStyle({ fontStyle: 'italic' })
+    expect(window.getComputedStyle(text).color).not.toBe(notFoundColour)
+    expect(text.querySelector('svg')).toBeNull()
     expect(text).toHaveStyle({ whiteSpace: 'pre-wrap' })
   })
 
   it('opens the lines of a source in the viewer, as an answer does', async () => {
     const user = userEvent.setup()
     const fetchStub = stubDocuments()
-    render(<Answer datasetName="Reports" question="What do I do?" result={clarifying} />)
+    render(<Answer result={clarifying} />)
 
     await user.click(lineButton())
 
@@ -530,67 +541,9 @@ describe('a clarifying question', () => {
   it('shows HTML as plain text', () => {
     const html = '<img src=x onerror=alert(1)>'
 
-    const { container } = render(
-      <Answer datasetName="Reports" question="Why?" result={{ ...clarifying, answer: `${html} question` }} />,
-    )
+    const { container } = render(<Answer result={{ ...clarifying, answer: `${html} question` }} />)
 
     expect(screen.getByText(`${html} question`)).toBeInTheDocument()
-    expect(container.querySelector('img')).toBeNull()
-  })
-})
-
-describe('the answer to a reply', () => {
-  const clarification = { question: clarifying.answer, reply: 'A laptop.' }
-
-  function renderReply(result: AnswerResult) {
-    render(<Answer datasetName="Reports" question="What do I do?" clarification={clarification} result={result} />)
-  }
-
-  it('shows the question, the clarifying question and the reply above the answer', () => {
-    renderReply(answered(oneLine))
-
-    expect(screen.getAllByRole('paragraph').map((paragraph) => paragraph.textContent)).toEqual([
-      'You asked about Reports: What do I do?',
-      'I asked: Did you lose a company laptop or a phone?',
-      'You replied: A laptop.',
-      'The answer.',
-    ])
-    expect(screen.getByRole('heading', { name: 'Sources' })).toBeInTheDocument()
-    expect(screen.getByRole('blockquote')).toHaveTextContent('the third line')
-  })
-
-  it('shows the exchange above a missing answer too', () => {
-    renderReply(notFound)
-
-    expect(screen.getAllByRole('paragraph').map((paragraph) => paragraph.textContent)).toEqual([
-      'You asked about Reports: What do I do?',
-      'I asked: Did you lose a company laptop or a phone?',
-      'You replied: A laptop.',
-      notFound.answer,
-    ])
-  })
-
-  it('shows no exchange on the answer to a question', () => {
-    render(<Answer datasetName="Reports" question="Why?" result={answered(oneLine)} />)
-
-    expect(screen.queryByText(/I asked/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/You replied/)).not.toBeInTheDocument()
-  })
-
-  it('keeps line breaks in the exchange, and shows HTML in it as plain text', () => {
-    const html = '<img src=x onerror=alert(1)>'
-    const withHtml = { question: `${html}\nquestion`, reply: `${html}\nreply` }
-
-    const { container } = render(
-      <Answer datasetName="Reports" question="Why?" clarification={withHtml} result={answered(oneLine)} />,
-    )
-
-    const asked = screen.getByText(/I asked/)
-    const replied = screen.getByText(/You replied/)
-    expect(asked.textContent).toBe(`I asked: ${html}\nquestion`)
-    expect(replied.textContent).toBe(`You replied: ${html}\nreply`)
-    expect(asked).toHaveStyle({ whiteSpace: 'pre-wrap' })
-    expect(replied).toHaveStyle({ whiteSpace: 'pre-wrap' })
     expect(container.querySelector('img')).toBeNull()
   })
 })

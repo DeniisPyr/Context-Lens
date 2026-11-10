@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Dataset } from '../api/datasets.ts'
 import { useDatasets } from '../hooks/useDatasets.ts'
 import { useDocuments } from '../hooks/useDocuments.ts'
+import { useQuestions } from '../hooks/useQuestions.ts'
 import Datasets from './Datasets.tsx'
 import Documents from './Documents.tsx'
 import QuestionsColumn from './QuestionsColumn.tsx'
@@ -28,10 +29,17 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
   // Here because both columns need them: the sidebar lists them, and the questions column only offers to ask once
   // there's something to search. They go as soon as another dataset is selected.
   const documents = useDocuments(selected?.id)
+  // The cards of every dataset asked about since the login. Only the selected dataset's show.
+  const questions = useQuestions()
 
   function handleCreated(dataset: Dataset) {
     add(dataset)
     setChosenId(dataset.id)
+  }
+
+  function handleDeleted(id: string) {
+    remove(id)
+    questions.forget(id)
   }
 
   return (
@@ -46,7 +54,7 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
           onBusyChange={setBusy}
           onChoose={setChosenId}
           onCreated={handleCreated}
-          onDeleted={remove}
+          onDeleted={handleDeleted}
         />
         {selected && (
           // Keyed by the dataset, so the results of an upload and any open question about a document stay with it.
@@ -65,7 +73,10 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
       <QuestionsColumn
         dataset={selected}
         noDatasets={datasets?.length === 0}
-        hasDocuments={documents.documents !== null && documents.documents.length > 0}
+        documentCount={documents.documents?.length ?? null}
+        questions={(selected && questions.byDataset[selected.id]) ?? []}
+        onAsk={questions.ask}
+        onReply={questions.reply}
       />
     </div>
   )

@@ -38,7 +38,7 @@ export function useDocuments(datasetId: string | undefined) {
   }
 
   // Takes a deleted document off the list at once, without waiting for the reload: its row goes, and when it was
-  // the last one, so does the Ask form, since the dataset has nothing left to search.
+  // the last one, so does the ask box, since the dataset has nothing left to search.
   function remove(id: string) {
     setDocuments((current) => current?.filter((doc) => doc.id !== id) ?? null)
     reload()

@@ -204,3 +204,70 @@ export function MoonIcon(props: Props) {
     </Icon>
   )
 }
+
+// An arrow pointing up, on the button that sends a question.
+export function ArrowUpIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <path d="M12 19V5" />
+      <path d="m6 11 6-6 6 6" />
+    </Icon>
+  )
+}
+
+export function ChevronUpIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <path d="m6 15 6-6 6 6" />
+    </Icon>
+  )
+}
+
+export function ChevronDownIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </Icon>
+  )
+}
+
+// A shield with a tick: the quote was found in the document.
+export function ShieldCheckIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6l-7-3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </Icon>
+  )
+}
+
+// A window with a panel on its right: the source viewer.
+export function PanelIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M14 4v16" />
+    </Icon>
+  )
+}
+
+// A magnifier with a dash in it: nothing was found.
+export function SearchOffIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16 16l4.5 4.5" />
+      <path d="M8.5 11h5" />
+    </Icon>
+  )
+}
+
+// A question mark in a circle: a question back to the user.
+export function HelpIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17h.01" />
+    </Icon>
+  )
+}

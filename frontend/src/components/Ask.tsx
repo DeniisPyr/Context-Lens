@@ -1,96 +1,95 @@
-import { type SubmitEvent, useState } from 'react'
-import { type Answer as AnswerResult, askQuestion, type Clarification, MAX_QUESTION_LENGTH } from '../api/ask.ts'
-import Answer from './Answer.tsx'
-import ReplyForm from './ReplyForm.tsx'
+import { type KeyboardEvent, type SubmitEvent, useId, useState } from 'react'
+import { MAX_QUESTION_LENGTH } from '../api/ask.ts'
+import { ArrowUpIcon } from './icons.tsx'
 
 type Props = {
-  datasetId: string
   datasetName: string
-  // Also false while the list is still loading, so the form only shows once there's something to search.
-  hasDocuments: boolean
+  // True while a question of this dataset is on its way.
+  asking: boolean
+  // True while a question or a reply of this dataset is on its way: the next question waits for it.
+  waiting: boolean
+  // Adds the question's card and asks the whole dataset: the backend searches all its documents for the passages that
+  // answer it. Throws an Error with a readable message when it can't.
+  onAsk: (question: string) => Promise<void>
 }
 
-// The answer to a reply also keeps the clarifying question and the reply, so the whole exchange can be shown.
-type Result = {
-  question: string
-  answer: AnswerResult
-  clarification?: Clarification
-}
+const counted = (count: number) => count.toLocaleString('en-US')
 
-// Asks the whole dataset: the backend searches all its documents for the passages that answer the question.
-export default function Ask({ datasetId, datasetName, hasDocuments }: Props) {
+// The box at the bottom of the questions column, which starts it over for another dataset, so nothing typed
+// about one dataset is sent to another.
+export default function Ask({ datasetName, asking, waiting, onAsk }: Props) {
   const [question, setQuestion] = useState('')
-  const [asking, setAsking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The question is kept with the answer because the form stays editable. The dataset can't change under it:
-  // Workspace starts this section over for another dataset.
-  const [result, setResult] = useState<Result | null>(null)
-  // True while a reply is on its way. No new question goes out meanwhile, so its answer can't replace a newer one.
-  const [replying, setReplying] = useState(false)
+  const questionId = useId()
+  const hintId = useId()
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    const asked = question.trim()
+    // Enter sends without the button, so it's checked here too.
+    if (waiting) return
+    const typed = question
+    const asked = typed.trim()
     if (!asked) {
       setError('Type a question first.')
       return
     }
 
-    setAsking(true)
+    // The question has its card now, so the box is free for the next one.
     setError(null)
-    setResult(null)
+    setQuestion('')
     try {
-      setResult({ question: asked, answer: await askQuestion(datasetId, asked) })
+      await onAsk(asked)
     } catch (err) {
       setError((err as Error).message)
-    } finally {
-      setAsking(false)
+      // Back in the box as typed, so it can be sent again, unless something new was typed meanwhile.
+      setQuestion((current) => (current === '' ? typed : current))
     }
   }
 
+  // Enter sends, and Shift+Enter starts a new line. While an input method is composing, Enter picks the characters
+  // instead. Safari ends the composition before the keydown, but still marks that keydown with the code 229.
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) return
+    event.preventDefault()
+    event.currentTarget.form?.requestSubmit()
+  }
+
   return (
-    <section>
-      <h2 className="ask-heading">Ask a question about {datasetName}</h2>
-      {hasDocuments ? (
-        <form className="ask-form" onSubmit={handleSubmit}>
-          <label>
-            Question
-            <textarea
-              rows={3}
-              maxLength={MAX_QUESTION_LENGTH}
-              value={question}
-              onChange={(event) => setQuestion(event.target.value)}
-            />
-          </label>
-          <button type="submit" disabled={asking || replying}>
-            {asking ? 'Asking…' : 'Ask'}
+    <div className="ask-bar">
+      <form className="ask-form" onSubmit={handleSubmit}>
+        <label className="visually-hidden" htmlFor={questionId}>
+          Question
+        </label>
+        <textarea
+          id={questionId}
+          rows={2}
+          maxLength={MAX_QUESTION_LENGTH}
+          placeholder={`Ask a question about ${datasetName}`}
+          aria-describedby={hintId}
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <div className="ask-foot">
+          <span className="ask-hint" id={hintId}>
+            Include everything the question needs. Answers cite the exact lines.
+          </span>
+          <span className="ask-counter">
+            {counted(question.length)} / {counted(MAX_QUESTION_LENGTH)}
+          </span>
+          <button type="submit" disabled={waiting}>
+            {asking ? (
+              'Asking…'
+            ) : (
+              <>
+                Ask
+                <ArrowUpIcon className="icon-sm" />
+              </>
+            )}
           </button>
-          {error && <p role="alert">{error}</p>}
-        </form>
-      ) : (
-        <p>Upload a document to ask about it.</p>
-      )}
-      {result && (
-        // Keyed by whether it answers a reply, so the answer to a reply starts with its citations closed.
-        <Answer
-          key={result.clarification ? 'reply' : 'question'}
-          datasetName={datasetName}
-          question={result.question}
-          clarification={result.clarification}
-          result={result.answer}
-        />
-      )}
-      {/* One round only: the answer to a reply gets no reply form, even if it asks again. */}
-      {result?.answer.status === 'needs_clarification' && !result.clarification && (
-        <ReplyForm
-          datasetId={datasetId}
-          question={result.question}
-          clarifyingQuestion={result.answer.answer}
-          replying={replying}
-          onReplyingChange={setReplying}
-          onAnswered={(answer, clarification) => setResult({ question: result.question, answer, clarification })}
-        />
-      )}
-    </section>
+        </div>
+      </form>
+      {error && <p role="alert">{error}</p>}
+    </div>
   )
 }

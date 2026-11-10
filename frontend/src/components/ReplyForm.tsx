@@ -1,26 +1,18 @@
 import { type SubmitEvent, useState } from 'react'
-import { type Answer, askQuestion, type Clarification, MAX_REPLY_LENGTH } from '../api/ask.ts'
+import { MAX_REPLY_LENGTH } from '../api/ask.ts'
 
 type Props = {
-  datasetId: string
-  // The question as it was asked, which the reply is sent with.
-  question: string
-  clarifyingQuestion: string
-  // Ask holds this, because the question can't be sent again while a reply is on its way.
+  // True while this reply is on its way.
   replying: boolean
-  onReplyingChange: (replying: boolean) => void
-  onAnswered: (answer: Answer, clarification: Clarification) => void
+  // True while any question or reply of the dataset is on its way, this one included.
+  disabled: boolean
+  // Sends the reply with the question it clarifies, and throws an Error with a readable message when it can't. After
+  // it works, the card shows the answer in place of this form.
+  onReply: (reply: string) => Promise<void>
 }
 
-// Replies to a clarifying question, and gets the answer to the question it was asked about.
-export default function ReplyForm({
-  datasetId,
-  question,
-  clarifyingQuestion,
-  replying,
-  onReplyingChange,
-  onAnswered,
-}: Props) {
+// Replies to a card's clarifying question, inside the card, and gets the answer to the question it was asked about.
+export default function ReplyForm({ replying, disabled, onReply }: Props) {
   const [reply, setReply] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -32,16 +24,12 @@ export default function ReplyForm({
       return
     }
 
-    const clarification = { question: clarifyingQuestion, reply: replied }
-    onReplyingChange(true)
     setError(null)
     try {
-      onAnswered(await askQuestion(datasetId, question, clarification), clarification)
+      await onReply(replied)
     } catch (err) {
       // The typed reply stays, so it can be sent again.
       setError((err as Error).message)
-    } finally {
-      onReplyingChange(false)
     }
   }
 
@@ -56,10 +44,12 @@ export default function ReplyForm({
           onChange={(event) => setReply(event.target.value)}
         />
       </label>
-      <button type="submit" disabled={replying}>
-        {replying ? 'Replying…' : 'Reply'}
-      </button>
-      {error && <p role="alert">{error}</p>}
+      <div className="reply-actions">
+        <button type="submit" disabled={disabled}>
+          {replying ? 'Replying…' : 'Reply'}
+        </button>
+        {error && <p role="alert">{error}</p>}
+      </div>
     </form>
   )
 }
