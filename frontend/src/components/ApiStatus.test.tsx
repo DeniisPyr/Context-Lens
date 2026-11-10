@@ -16,7 +16,8 @@ describe('ApiStatus', () => {
 
     render(<ApiStatus />)
 
-    expect(await screen.findByText('API: online')).toBeInTheDocument()
+    expect(await screen.findByText('API online')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(/^API online$/)
     expect(fetchStub.mock.calls[0][0]).toBe('/api/health')
   })
 
@@ -25,7 +26,7 @@ describe('ApiStatus', () => {
 
     render(<ApiStatus />)
 
-    expect(await screen.findByText('API: offline')).toBeInTheDocument()
+    expect(await screen.findByText('API offline')).toBeInTheDocument()
   })
 
   it('shows offline on a non-OK response', async () => {
@@ -33,7 +34,7 @@ describe('ApiStatus', () => {
 
     render(<ApiStatus />)
 
-    expect(await screen.findByText('API: offline')).toBeInTheDocument()
+    expect(await screen.findByText('API offline')).toBeInTheDocument()
   })
 
   it('shows checking while the request is pending', () => {
@@ -41,7 +42,7 @@ describe('ApiStatus', () => {
 
     render(<ApiStatus />)
 
-    expect(screen.getByText('API: checking')).toBeInTheDocument()
+    expect(screen.getByText('Checking the API…')).toBeInTheDocument()
   })
 
   it('does not show offline when strict mode cancels the first request', async () => {
@@ -60,7 +61,7 @@ describe('ApiStatus', () => {
     await act(async () => {})
 
     expect(fetchStub).toHaveBeenCalledTimes(2)
-    expect(screen.getByText('API: checking')).toBeInTheDocument()
+    expect(screen.getByText('Checking the API…')).toBeInTheDocument()
   })
 
   it('aborts the request on unmount', () => {

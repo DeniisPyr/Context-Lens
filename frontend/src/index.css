@@ -182,15 +182,12 @@ h4 {
   letter-spacing: -0.01em;
 }
 
-button,
-input,
-select,
-textarea {
+/* The element rules sit in :where(), so any class that styles a control wins over them. */
+:where(button, input, select, textarea) {
   font: inherit;
   color: inherit;
 }
 
-/* The element rules sit in :where(), so any class that styles a control wins over them. */
 :where(button) {
   display: inline-flex;
   align-items: center;
@@ -343,56 +340,108 @@ textarea {
   outline-offset: 1px;
 }
 
-/* ---------- Page ---------- */
 
-main {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
+/* Small controls in the sidebar's rows, such as New dataset and Delete: text with an icon, no frame until hovered. */
+.mini-button {
+  gap: 4px;
+  min-height: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
-section {
+.mini-button.accent,
+.mini-button.accent:hover:not(:disabled) {
+  color: var(--accent-text);
+}
+
+.mini-button:hover:not(:disabled) {
+  background-color: var(--raised);
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.count {
+  padding: 0 7px;
+  border-radius: 999px;
+  background-color: var(--raised);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.api-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--dot-neutral);
+}
+
+.status-dot.online {
+  background-color: var(--ok-dot);
+  box-shadow: 0 0 0 3px var(--ok-ring);
+}
+
+.status-dot.offline {
+  background-color: var(--err);
+  box-shadow: 0 0 0 3px var(--err-soft);
+}
+
+/* ---------- Before the app: checking the session, its error, the login form ---------- */
+
+.gate {
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: 4rem 1rem;
+}
+
+.gate h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.gate .tagline {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--muted);
+}
+
+.gate section {
   margin-top: 2rem;
 }
 
-h2 {
+.gate h2 {
   margin: 0 0 1rem;
   font-size: 1.25rem;
 }
 
-/* The theme switch and the Log out button share the title's row, at the right, and go below the title when there's
-   no room. Lined up on the baseline, because the title's margin above would push them up. */
-.page-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0 1rem;
+.gate > [role='alert'] {
+  margin: 1.5rem 0 0.75rem;
 }
 
-/* A flex item's margin doesn't collapse with the intro's below it, so the gap would nearly double. */
-.page-header h1 {
-  margin-bottom: 0;
-}
-
-.page-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-}
-
-.page-actions .theme-switch {
-  width: 15rem;
-}
-
-.page-actions [role='alert'] {
-  flex-basis: 100%;
-  margin: 0;
-}
-
-/* The login form is laid out like the create form: the button beside the field, or below it when there's no room. */
-.dataset-form,
+/* The button beside the field, or below it when there's no room. */
 .login-form {
   display: flex;
   flex-wrap: wrap;
@@ -400,34 +449,528 @@ h2 {
   gap: 0.5rem 1rem;
 }
 
-.dataset-form label,
 .login-form label {
   flex: 1 1 16rem;
   min-width: 0;
 }
 
-.dataset-form [role='alert'],
+.login-form input {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
 .login-form [role='alert'] {
   flex-basis: 100%;
   margin: 0;
 }
 
+/* ---------- The workspace: the sidebar and the questions ---------- */
+
+/* Exactly the window's height, so the page never scrolls: each column scrolls inside instead. */
+.workspace {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background-color: var(--panel);
+}
+
+.sidebar-head {
+  flex: none;
+  padding: 16px 16px 0;
+}
+
+/* The status goes under the name when the two don't fit on one line. */
+.brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding-bottom: 4px;
+}
+
+.logo {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.logo .icon {
+  stroke-width: 2;
+}
+
+.app-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.brand .api-status {
+  margin-left: auto;
+}
+
+.sidebar-head .tagline {
+  margin: 0;
+  padding-top: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 12px 12px;
+}
+
+.sidebar-foot {
+  display: grid;
+  flex: none;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 0 2px 0 4px;
+}
+
+.avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background-color: var(--raised);
+  color: var(--muted);
+}
+
+.account-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+}
+
+.account-title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.account-sub {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.logout-button {
+  min-height: 30px;
+  height: 30px;
+  margin-left: auto;
+  padding: 0 10px;
+}
+
+.account [role='alert'] {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+/* ---------- Dataset ---------- */
+
+/* Wraps, so a question about deleting the dataset, or its error, gets a line of its own under the buttons. */
+.dataset-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 0 0 6px 4px;
+}
+
+.dataset-row .eyebrow {
+  margin-right: auto;
+}
+
+.dataset-choice > [role='alert'] {
+  margin: 0 4px 8px;
+  font-size: 12.5px;
+}
+
+.dataset-form {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+}
+
+.dataset-form label {
+  display: block;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* width: 100% stops a long name from widening the sidebar. */
+.dataset-form input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  font-size: 13.5px;
+  font-weight: 400;
+}
+
+.dataset-form-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.dataset-form-actions button {
+  min-height: 30px;
+  height: 30px;
+}
+
+.dataset-form [role='alert'] {
+  margin: 0;
+  font-size: 12.5px;
+}
+
+/* The card that shows the selected dataset. The real select covers it, unseen, and takes the clicks and the keys. */
+.switcher {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+
+.switcher:hover:not(:has(select:disabled)) {
+  border-color: var(--border-strong);
+}
+
+.switcher:has(select:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switcher:has(select:disabled) {
+  opacity: 0.6;
+}
+
+.switcher-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.switcher-icon .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* min-width: 0 lets a long name shrink to the card and end in an ellipsis instead of widening the sidebar. */
+.switcher-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.switcher-name,
+.switcher-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+.switcher-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.switcher-caption {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.switcher-chevrons {
+  color: var(--subtle);
+}
+
+.switcher-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switcher-select:disabled {
+  cursor: default;
+}
+
+/* ---------- The question to confirm a delete, for a dataset or a document ---------- */
+
+/* Takes a line of its own, and wraps a long name instead of widening the sidebar. */
+.confirm-delete {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 4px 0 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  color: var(--text-2);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.confirm-delete > span {
+  flex-basis: 100%;
+}
+
+.confirm-delete button {
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.delete-error {
+  flex-basis: 100%;
+  margin: 0;
+  padding: 2px 4px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+/* The alert colour marks the button that deletes, and its text says Delete, so it doesn't rely on the colour. The
+   colour is set on its own, so the tests can compare it with an alert's. */
+.danger-button,
+.danger-button:hover:not(:disabled) {
+  border-color: var(--err);
+  background-color: var(--err);
+  color: var(--on-err);
+}
+
+/* ---------- Documents ---------- */
+
+.documents {
+  margin-top: 18px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+}
+
+.section-head h2 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.documents > [role='alert'],
+.documents-empty {
+  margin: 0 4px 6px;
+  font-size: 12.5px;
+}
+
+.documents-empty {
+  color: var(--muted);
+}
+
+.document-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Wraps, so that a row's question or error gets a line of its own below the filename. */
+.document-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 10px;
+  min-height: 40px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.document-row:hover {
+  background-color: var(--raised);
+}
+
+.file-tile {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background-color: var(--card);
+  color: var(--subtle);
+}
+
+.file-tile .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.file-tile.pdf {
+  border-color: var(--pdf-border);
+  background-color: var(--pdf-bg);
+  color: var(--pdf);
+}
+
+/* A basis of 0 and min-width: 0, so that a long filename ends in an ellipsis instead of pushing the button out. */
+.document-meta {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.document-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.document-length {
+  color: var(--subtle);
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.document-row:hover .document-length {
+  color: var(--muted);
+}
+
+/* Shows on a row under the pointer or holding the focus, and always where there's no pointer to hover with. Until
+   then it takes no room, so the filename has the whole row, but it isn't display: none, so the keyboard still
+   reaches it, and the row opens it as soon as it has the focus. */
+.row-delete {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 0;
+  min-height: 28px;
+  height: 28px;
+  margin-left: -10px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 7px;
+  background-color: transparent;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.document-row:hover .row-delete,
+.document-row:focus-within .row-delete,
+.document-row:has(.delete-error) .row-delete {
+  width: 28px;
+  margin-left: 0;
+  opacity: 1;
+}
+
+.document-row:hover .row-delete:disabled {
+  opacity: 0.4;
+}
+
+.row-delete:hover:not(:disabled) {
+  background-color: var(--err-soft);
+  color: var(--err);
+}
+
+@media (hover: none) {
+  .row-delete {
+    width: 28px;
+    margin-left: 0;
+    opacity: 1;
+  }
+}
+
+/* ---------- Upload ---------- */
+
 .upload-form {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 1rem;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background-color: var(--card);
+  font-size: 12.5px;
 }
 
 .upload-form label {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 1rem;
+  gap: 6px;
   min-width: 0;
+  color: var(--muted);
 }
 
-/* Otherwise a flex item stays as wide as its content, and a file input's can be wider than a phone. */
+/* Otherwise a flex item stays as wide as its content, and a file input's can be wider than the sidebar. */
 .upload-form input {
   min-width: 0;
   max-width: 100%;
@@ -440,145 +983,174 @@ h2 {
 
 .upload-summary {
   margin: 0;
+  font-size: 12.5px;
 }
 
 .upload-summary:not(:empty) {
-  margin-top: 1rem;
+  margin: 8px 4px 0;
 }
 
 .upload-results {
-  margin: 0.5rem 0 0;
+  margin: 6px 0 0;
   padding: 0;
   list-style: none;
+  font-size: 12.5px;
 }
 
-/* Wraps, so that a long filename and a long message each get the whole width on a phone. */
+/* Wraps, so that a long filename and a long message each get the whole width. */
 .upload-results li {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 0 1rem;
-  padding: 0.5rem 0;
+  padding: 4px;
   border-top: 1px solid;
   border-top-color: var(--border);
   overflow-wrap: anywhere;
 }
 
-.document-list {
-  margin: 1rem 0 0;
-  padding: 0;
-  list-style: none;
-}
+/* ---------- Questions ---------- */
 
-/* Wraps, so that a row's question or error gets a line of its own below the filename. */
-.document-list li {
+.questions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-  padding: 0.5rem 0;
-  border-top: 1px solid;
-  border-top-color: var(--border);
-  overflow-wrap: anywhere;
-}
-
-/* A basis of 0, so that a long filename wraps beside its length instead of pushing it onto the next line. */
-.document-name {
-  flex: 1 1 0;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  background-color: var(--canvas);
 }
 
-.document-length {
-  flex-shrink: 0;
-  color: var(--subtle);
-}
-
-.confirm-delete {
+/* The note goes under the heading when the column is too narrow for both. */
+.questions-header {
   display: flex;
-  flex-basis: 100%;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.delete-error {
-  flex-basis: 100%;
-  margin: 0;
-}
-
-/* The alert colour marks the button that deletes, and its text says Delete, so it doesn't rely on the colour. The
-   colour is set on its own, so the tests can compare it with an alert's. */
-.danger-button,
-.danger-button:hover:not(:disabled) {
-  border-color: var(--err);
-  background-color: var(--err);
-  color: var(--on-err);
-}
-
-/* Like the create form: the button sits beside the select, and goes below it when there's no room. */
-.dataset-choice {
-  display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.5rem 1rem;
-  margin-bottom: 0.75rem;
+  justify-content: space-between;
+  gap: 4px 16px;
+  min-height: 82px;
+  padding: 12px 32px 13px;
+  border-bottom: 1px solid var(--border);
+  background-color: var(--chrome);
 }
 
-.dataset-choice label {
-  flex: 1 1 16rem;
+.questions-title {
   min-width: 0;
 }
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* A dataset's name can be 100 characters without a space. */
+.crumb-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.questions-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+}
+
+.questions-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.questions-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 32px 24px;
+}
+
+.empty-state {
+  margin: 48px auto;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ---------- Asking, and the answer ---------- */
 
 /* It names the dataset, and a name can be 100 characters without a space. */
 .ask-heading {
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: 15px;
+  font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.ask-form,
+.reply-form {
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background-color: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+
+.reply-form {
+  margin-top: 12px;
 }
 
 .ask-form label,
 .reply-form label {
   display: block;
-  margin-bottom: 0.75rem;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
-/* width: 100% stops a long name from widening a control past the page. */
-.dataset-choice select,
-.dataset-form input,
-.login-form input,
+/* width: 100% stops a long question from widening the column. */
 .ask-form textarea,
 .reply-form textarea {
   display: block;
   width: 100%;
-  margin-top: 0.25rem;
-}
-
-.ask-form textarea,
-.reply-form textarea {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 400;
   resize: vertical;
 }
 
 .ask-form [role='alert'],
 .reply-form [role='alert'] {
-  margin: 0.5rem 0 0;
-}
-
-.reply-form {
-  margin-top: 1rem;
+  margin: 8px 0 0;
 }
 
 .answer {
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding: 14px 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--card);
+  box-shadow: var(--shadow-card);
   overflow-wrap: anywhere;
 }
 
 .answer h3 {
-  margin: 1rem 0 0.5rem;
+  margin: 12px 0 6px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .answer-asked,
@@ -588,18 +1160,20 @@ h2 {
 }
 
 .answer-asked {
-  margin: 0 0 0.75rem;
+  margin: 0 0 8px;
   color: var(--muted);
+  font-size: 13px;
 }
 
 .answer-text {
   margin: 0;
   font-size: 15px;
+  line-height: 1.55;
 }
 
 .answer-not-found {
   margin: 0;
-  padding: 0.5rem 0.75rem;
+  padding: 8px 12px;
   border-radius: var(--radius-sm);
   background-color: var(--raised);
   color: var(--muted);
@@ -614,7 +1188,7 @@ h2 {
 
 /* Only the citations: the lines of an open viewer are list items inside these. */
 .citation-list > li {
-  padding: 0.5rem 0;
+  padding: 8px 0;
   border-top: 1px solid;
   border-top-color: var(--border);
 }
@@ -623,14 +1197,16 @@ h2 {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+  font-size: 13.5px;
   font-weight: 600;
 }
 
 .answer blockquote {
-  margin: 0.25rem 0 0;
-  padding-left: 0.75rem;
+  margin: 6px 0 0;
+  padding-left: 10px;
   border-left: 2px solid var(--border-strong);
   color: var(--text-2);
+  font-size: 13.5px;
 }
 
 .link-button {
@@ -659,12 +1235,15 @@ h2 {
   white-space: nowrap;
 }
 
+/* ---------- The lines around a citation ---------- */
+
 .line-viewer {
-  margin: 0.5rem 0 0;
+  margin: 8px 0 0;
 }
 
 .line-viewer .link-button {
   display: block;
+  font-size: 12.5px;
 }
 
 /* The first column fits the widest number shown, and subgrid lines every row up on it. */
@@ -672,8 +1251,8 @@ h2 {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   max-height: 24rem;
-  margin: 0.25rem 0;
-  padding: 0;
+  margin: 4px 0;
+  padding: 4px 0;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -681,6 +1260,7 @@ h2 {
   /* The stack itself rather than var(--mono): jsdom doesn't resolve variables, and a test checks for monospace. */
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12.5px;
+  line-height: 20px;
   list-style: none;
 }
 
@@ -693,7 +1273,7 @@ h2 {
 /* A page of a PDF starts with a row across both columns. Like a line number, it stays out of a copy of the lines. */
 .line-list .page-start {
   display: block;
-  padding: 0.25rem 0.5rem 0;
+  padding: 8px 12px 4px;
   color: var(--muted);
   font-family: var(--sans);
   -webkit-user-select: none;
@@ -703,6 +1283,8 @@ h2 {
 .page-start h4 {
   margin: 0;
   font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .page-start p {
@@ -718,7 +1300,7 @@ h2 {
 
 /* Safari only knows the prefixed user-select. */
 .line-number {
-  padding: 0 0.75rem 0 0.5rem;
+  padding: 0 12px 0 12px;
   color: var(--subtle);
   text-align: right;
   -webkit-user-select: none;
@@ -731,8 +1313,12 @@ h2 {
 }
 
 .line-text {
-  padding-right: 0.5rem;
+  padding-right: 12px;
   color: var(--text-2);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.line-list li[aria-current='true'] .line-text {
+  color: var(--text);
 }

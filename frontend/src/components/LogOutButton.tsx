@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { logOut } from '../api/session.ts'
+import { LogOutIcon } from './icons.tsx'
 
 type Props = {
   onLoggedOut: () => void
@@ -25,7 +26,8 @@ export default function LogOutButton({ onLoggedOut }: Props) {
 
   return (
     <>
-      <button type="button" disabled={loggingOut} onClick={handleClick}>
+      <button type="button" className="logout-button" disabled={loggingOut} onClick={handleClick}>
+        <LogOutIcon className="icon-sm" />
         {loggingOut ? 'Logging out…' : 'Log out'}
       </button>
       {error && <p role="alert">{error}</p>}

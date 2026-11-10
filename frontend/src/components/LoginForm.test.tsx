@@ -76,6 +76,7 @@ const logInButton = () => screen.getByRole('button', { name: 'Log in' })
 const logOutButton = () => screen.queryByRole('button', { name: 'Log out' })
 const datasetSelect = () => screen.getByRole<HTMLSelectElement>('combobox', { name: 'Dataset' })
 const nameInput = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'New dataset name' })
+const newDatasetButton = () => screen.getByRole('button', { name: 'New dataset' })
 
 const findLoginForm = () => screen.findByLabelText<HTMLInputElement>('Password')
 // The app is there once the newest dataset's documents have loaded.
@@ -88,7 +89,9 @@ async function logInWith(user: UserEvent, password: string) {
   await user.click(logInButton())
 }
 
+// The form to create a dataset opens from the New dataset button, since there are datasets already.
 async function createNamed(user: UserEvent, name: string) {
+  await user.click(newDatasetButton())
   await user.type(nameInput(), name)
   await user.click(screen.getByRole('button', { name: 'Create' }))
 }
@@ -100,7 +103,7 @@ function expectNoLoginForm() {
 }
 
 function expectNoApp() {
-  expect(screen.queryByRole('heading', { name: 'Datasets' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Questions in this session' })).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Documents' })).not.toBeInTheDocument()
 }
 
@@ -126,7 +129,7 @@ describe('while the session is being checked', () => {
     const fetchStub = stubPage(loggedIn, { 'GET /api/session': rejectsOnAbort })
 
     render(<App />)
-    await screen.findByText('API: online')
+    await screen.findByText('API online')
 
     expect(screen.getByRole('heading', { name: 'Context-Lens' })).toBeInTheDocument()
     expect(screen.getByText('Ask questions about your documents and get answers you can check.')).toBeInTheDocument()
@@ -396,7 +399,7 @@ describe('the Log out button', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not log out.')
     expect(logOutButton()).toBeEnabled()
-    expect(screen.getByRole('heading', { name: 'Datasets' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Questions in this session' })).toBeInTheDocument()
     expectNoLoginForm()
   })
 
@@ -407,6 +410,7 @@ describe('the Log out button', () => {
     render(<App />)
     await findApp()
     await user.selectOptions(datasetSelect(), reports.id)
+    await user.click(newDatasetButton())
     await user.type(nameInput(), 'Contracts')
     await user.click(logOutButton()!)
     await findLoginForm()
@@ -415,6 +419,9 @@ describe('the Log out button', () => {
 
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2)
     expect(datasetSelect()).toHaveValue(invoices.id)
+    // The form is closed again, and opens empty.
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+    await user.click(newDatasetButton())
     expect(nameInput()).toHaveValue('')
   })
 })
@@ -479,6 +486,9 @@ describe('when the session ends while the app is open', () => {
 
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2)
     expect(datasetSelect()).toHaveValue(invoices.id)
+    // The form is closed again, and opens empty.
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+    await user.click(newDatasetButton())
     expect(nameInput()).toHaveValue('')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(logOutButton()).toBeEnabled()

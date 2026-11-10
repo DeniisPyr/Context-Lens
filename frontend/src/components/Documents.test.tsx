@@ -14,7 +14,7 @@ function stubRoutes(routes: Record<string, Route>) {
   return fetchStub
 }
 
-// Documents gets its list as props, so this loads it with the real hook, the way DatasetContents does.
+// Documents gets its list as props, so this loads it with the real hook, the way Workspace does.
 function LoadedDocuments() {
   const { documents, error, reload, remove } = useDocuments('d1')
   const [busy, setBusy] = useState(false)
@@ -146,6 +146,55 @@ describe('the document list', () => {
 
     await vi.waitFor(() => expect(result.current.documents).toEqual([notes]))
     expect(fetchStub).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops the old list and its error as soon as the id changes, before the new list arrives', async () => {
+    stubRoutes({
+      [GET_LIST]: () => new Response('Bad Gateway', { status: 502 }),
+      'GET /api/datasets/d2/documents': rejectsOnAbort,
+    })
+
+    const { result, rerender } = renderHook(({ id }) => useDocuments(id), { initialProps: { id: 'd1' } })
+    await vi.waitFor(() => expect(result.current.error).toBe('Could not load the documents.'))
+    rerender({ id: 'd2' })
+
+    expect(result.current.documents).toBeNull()
+    expect(result.current.error).toBeNull()
+  })
+
+  it('loads nothing while no dataset is selected', async () => {
+    const fetchStub = stubRoutes({})
+
+    const { result } = renderHook(() => useDocuments(undefined))
+    await act(async () => {})
+
+    expect(fetchStub).not.toHaveBeenCalled()
+    expect(result.current.documents).toBeNull()
+  })
+
+  it('says how many documents there are beside the heading, once they have loaded', async () => {
+    const short = { id: '2', filename: 'short.md', line_count: 1, page_count: null }
+    stubRoutes({ [GET_LIST]: () => Response.json([notes, short]) })
+
+    render(<LoadedDocuments />)
+    const head = screen.getByRole('heading', { name: 'Documents' }).parentElement!
+    expect(head).toHaveTextContent(/^Documents$/)
+
+    await screen.findByRole('list', { name: 'Documents' })
+    expect(head).toHaveTextContent(/^Documents2$/)
+  })
+
+  it('cuts a long filename short with an ellipsis, and keeps the whole name as its title', async () => {
+    const long = `${'long'.repeat(100)}.txt`
+    stubRoutes({ [GET_LIST]: () => Response.json([{ ...notes, filename: long }]) })
+
+    render(<LoadedDocuments />)
+    await screen.findByRole('list', { name: 'Documents' })
+    const name = documentList().getByText(long)
+
+    expect(name).toHaveAttribute('title', long)
+    expect(name).toHaveStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: '0px' })
+    expect(name.parentElement).toHaveStyle({ minWidth: '0px' })
   })
 
   it('shows two documents with the same filename without a key warning', async () => {
@@ -777,6 +826,20 @@ describe('deleting a document', () => {
 
     expect(rowOf('notes.txt').getByRole('button', { name: 'Delete notes.txt' })).toHaveTextContent('Delete')
     expect(rowOf('short.md').getByRole('button', { name: 'Delete short.md' })).toBeEnabled()
+  })
+
+  // jsdom can't hover, and ignores the media query that shows it on touch screens, so only the focus is checked.
+  it('shows the Delete button of a row when the row holds the focus, and keeps it reachable when hidden', async () => {
+    await renderList()
+
+    expect(deleteButton('notes.txt')).toHaveStyle({ opacity: '0', width: '0px' })
+    expect(deleteButton('notes.txt')).not.toHaveStyle({ display: 'none' })
+    expect(deleteButton('notes.txt')).not.toHaveStyle({ visibility: 'hidden' })
+
+    deleteButton('notes.txt').focus()
+
+    expect(deleteButton('notes.txt')).toHaveStyle({ opacity: '1', width: '28px' })
+    expect(deleteButton('short.md')).toHaveStyle({ opacity: '0', width: '0px' })
   })
 
   it('asks in the row first and sends nothing until the user confirms', async () => {

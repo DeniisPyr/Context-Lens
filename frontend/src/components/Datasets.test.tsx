@@ -66,6 +66,7 @@ function waitingRoute() {
 const datasetSelect = () => screen.getByRole<HTMLSelectElement>('combobox', { name: 'Dataset' })
 const nameInput = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'New dataset name' })
 const createButton = () => screen.getByRole('button', { name: 'Create' })
+const newDatasetButton = () => screen.getByRole('button', { name: 'New dataset' })
 const questionBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Question' })
 const startMessage = 'Create a dataset to get started.'
 // The question a Delete button asks, for a dataset or a document. Named, because the theme switch is a group too.
@@ -77,7 +78,9 @@ const findDocument = (filename: string) => screen.findByRole('button', { name: `
 const requestsTo = (fetchStub: ReturnType<typeof stubRoutes>, url: string, method = 'GET') =>
   fetchStub.mock.calls.filter((call) => call[0] === url && (call[1]?.method ?? 'GET') === method)
 
+// Opens the form first when there are datasets already, and it's closed.
 async function createNamed(user: UserEvent, name: string) {
+  if (!screen.queryByRole('textbox', { name: 'New dataset name' })) await user.click(newDatasetButton())
   await user.clear(nameInput())
   await user.type(nameInput(), name)
   await user.click(createButton())
@@ -102,6 +105,9 @@ describe('before any dataset exists', () => {
     expectNoDocumentsOrAsk()
     expect(screen.queryByRole('combobox', { name: 'Dataset' })).not.toBeInTheDocument()
     expect(nameInput()).toBeInTheDocument()
+    // Creating a dataset is all there is to do, so the form can't be closed.
+    expect(screen.queryByRole('button', { name: 'New dataset' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
   })
 
   it('says nothing while the first load is running', async () => {
@@ -179,6 +185,103 @@ describe('before any dataset exists', () => {
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(screen.queryByText(startMessage)).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Ask a question about Reports' })).toBeInTheDocument()
+    // The form closes, and the focus goes to the button that opens it again.
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+    expect(newDatasetButton()).toHaveFocus()
+  })
+})
+
+describe('the New dataset button', () => {
+  it('opens the form under it, with the focus in the name field', async () => {
+    const user = userEvent.setup()
+    stubPage([reports])
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+
+    expect(newDatasetButton()).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+
+    await user.click(newDatasetButton())
+
+    expect(newDatasetButton()).toHaveAttribute('aria-expanded', 'true')
+    expect(nameInput()).toHaveFocus()
+    expect(createButton()).toBeEnabled()
+  })
+
+  it.each([
+    ['Cancel', (user: UserEvent) => user.click(screen.getByRole('button', { name: 'Cancel' }))],
+    ['Escape', (user: UserEvent) => user.keyboard('{Escape}')],
+    ['New dataset again', (user: UserEvent) => user.click(newDatasetButton())],
+  ])('closes the form on %s, sends nothing and puts the focus back on New dataset', async (_name, close) => {
+    const user = userEvent.setup()
+    const fetchStub = stubPage([reports])
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await user.click(newDatasetButton())
+    await user.type(nameInput(), 'Invoices')
+    await close(user)
+
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+    expect(newDatasetButton()).toHaveFocus()
+    expect(newDatasetButton()).toHaveAttribute('aria-expanded', 'false')
+    expect(requestsTo(fetchStub, '/api/datasets', 'POST')).toHaveLength(0)
+
+    // Nothing typed is kept for the next time.
+    await user.click(newDatasetButton())
+    expect(nameInput()).toHaveValue('')
+  })
+
+  it('keeps the form open and the name typed when creating fails', async () => {
+    const user = userEvent.setup()
+    stubPage([reports], { 'POST /api/datasets': () => new Response('Bad Gateway', { status: 502 }) })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+    await createNamed(user, 'Invoices')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not create the dataset.')
+    expect(nameInput()).toHaveValue('Invoices')
+    expect(newDatasetButton()).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+describe('the card of the selected dataset', () => {
+  const document = (id: string) => ({ id, filename: `${id}.txt`, line_count: 1, page_count: null })
+
+  it('shows its name, how many documents it holds and where it is in the list', async () => {
+    const user = userEvent.setup()
+    stubPage([reports, invoices, contracts], {
+      [listOf(contracts.id)]: () => Response.json([document('a'), document('b')]),
+      [listOf(reports.id)]: () => Response.json([document('c')]),
+    })
+
+    render(<App />)
+    await findDocument('a.txt')
+
+    expect(screen.getByText('Contracts', { selector: '.switcher-name' })).toBeInTheDocument()
+    expect(datasetSelect()).toHaveAccessibleDescription('2 documents · 3 of 3 datasets')
+
+    await user.selectOptions(datasetSelect(), reports.id)
+    await findDocument('c.txt')
+
+    expect(screen.getByText('Reports', { selector: '.switcher-name' })).toBeInTheDocument()
+    expect(datasetSelect()).toHaveAccessibleDescription('1 document · 1 of 3 datasets')
+  })
+
+  it('leaves the number of documents out until they have loaded, and says when it is the only dataset', async () => {
+    const { route, answer } = waitingRoute()
+    stubPage([reports], { [listOf(reports.id)]: route })
+
+    render(<App />)
+    await screen.findByRole('combobox', { name: 'Dataset' })
+
+    expect(datasetSelect()).toHaveAccessibleDescription('the only dataset')
+
+    await answer(Response.json([]))
+
+    expect(datasetSelect()).toHaveAccessibleDescription('0 documents · the only dataset')
   })
 })
 
@@ -240,6 +343,7 @@ describe('the Dataset select', () => {
   })
 
   it('stays inside the page width', async () => {
+    const user = userEvent.setup()
     stubPage([reports])
 
     render(<App />)
@@ -248,6 +352,7 @@ describe('the Dataset select', () => {
       width: '100%',
       boxSizing: 'border-box',
     })
+    await user.click(newDatasetButton())
     expect(nameInput()).toHaveStyle({ width: '100%', boxSizing: 'border-box' })
   })
 })
@@ -298,7 +403,7 @@ describe('creating a dataset', () => {
     expect(JSON.parse(init.body as string)).toEqual({ name: 'Reports' })
   })
 
-  it('clears the input, reloads the list from the server and selects the new dataset', async () => {
+  it('closes the form, reloads the list from the server and selects the new dataset', async () => {
     const user = userEvent.setup()
     // The reloaded list also holds a dataset this page didn't create: appending the POST response can't show it.
     const fetchStub = stubPage([reports], {
@@ -313,7 +418,8 @@ describe('creating a dataset', () => {
 
     expect(await screen.findByRole('option', { name: 'Contracts' })).toBeInTheDocument()
     expect(datasetSelect()).toHaveValue(invoices.id)
-    expect(nameInput()).toHaveValue('')
+    expect(screen.queryByRole('textbox', { name: 'New dataset name' })).not.toBeInTheDocument()
+    expect(newDatasetButton()).toHaveFocus()
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(2)
     expect(requestsTo(fetchStub, documentsPath(contracts.id))).toHaveLength(0)
   })
@@ -418,7 +524,7 @@ describe('creating a dataset', () => {
     })
 
     render(<App />)
-    await screen.findByRole('textbox', { name: 'New dataset name' })
+    await screen.findByRole('button', { name: 'New dataset' })
     await createNamed(user, 'Reports')
     await screen.findByText('No documents yet.')
 
@@ -744,7 +850,7 @@ describe('during an upload run', () => {
     return { route, answer: (position: number, response: Response) => act(async () => pending[position](response)) }
   }
 
-  it('disables the select and the Create button until the run ends', async () => {
+  it('disables the select and the New dataset and Delete dataset buttons until the run ends', async () => {
     const user = userEvent.setup()
     const { route, answer } = postsAnsweredByTheTest()
     stubPage([reports, invoices], { [`POST ${documentsPath(invoices.id)}`]: route })
@@ -753,17 +859,19 @@ describe('during an upload run', () => {
     await startRun(user, 'a.txt', 'b.txt')
 
     expect(datasetSelect()).toBeDisabled()
-    expect(createButton()).toBeDisabled()
+    expect(newDatasetButton()).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Delete dataset' })).toBeDisabled()
 
     await answer(0, uploaded())
 
     expect(datasetSelect()).toBeDisabled()
-    expect(createButton()).toBeDisabled()
+    expect(newDatasetButton()).toBeDisabled()
 
     await answer(1, new Response('Bad Gateway', { status: 502 }))
 
     expect(datasetSelect()).toBeEnabled()
-    expect(createButton()).toBeEnabled()
+    expect(newDatasetButton()).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Delete dataset' })).toBeEnabled()
   })
 
   it('sends every file to the dataset selected when the run started', async () => {
@@ -775,7 +883,7 @@ describe('during an upload run', () => {
     await screen.findByText('No documents yet.')
     await startRun(user, 'a.txt', 'b.txt')
 
-    await vi.waitFor(() => expect(createButton()).toBeEnabled())
+    await vi.waitFor(() => expect(newDatasetButton()).toBeEnabled())
     expect(requestsTo(fetchStub, documentsPath(reports.id), 'POST')).toHaveLength(2)
     expect(requestsTo(fetchStub, documentsPath(invoices.id), 'POST')).toHaveLength(0)
   })
@@ -827,6 +935,7 @@ describe('while a dataset is being created', () => {
 
     expect(datasetSelect()).toBeDisabled()
     expect(createButton()).toBeDisabled()
+    expect(newDatasetButton()).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled()
     expect(fileInput).toBeDisabled()
 
@@ -1019,7 +1128,7 @@ describe('deleting a dataset', () => {
     expect(deleteDatasetButton()).toHaveFocus()
     // The page lets go again.
     expect(datasetSelect()).toBeEnabled()
-    expect(createButton()).toBeEnabled()
+    expect(newDatasetButton()).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Upload' })).toBeEnabled()
     expect(requestsTo(fetchStub, '/api/datasets')).toHaveLength(1)
   })
@@ -1056,7 +1165,7 @@ describe('deleting a dataset', () => {
     expect(confirmButton()).toBeDisabled()
     expect(cancelButton()).toBeDisabled()
     expect(datasetSelect()).toBeDisabled()
-    expect(createButton()).toBeDisabled()
+    expect(newDatasetButton()).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Upload' })).toBeDisabled()
     expect(fileInput).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Delete a.txt' })).toBeDisabled()
@@ -1065,7 +1174,7 @@ describe('deleting a dataset', () => {
 
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(datasetSelect()).toBeEnabled()
-    expect(createButton()).toBeEnabled()
+    expect(newDatasetButton()).toBeEnabled()
   })
 
   it('cannot be deleted during an upload run', async () => {
@@ -1149,7 +1258,7 @@ describe('deleting a dataset', () => {
     expect(container.querySelector('img')).toBeNull()
   })
 
-  it('wraps a long name in the question, and lets the button go below the select on a phone', async () => {
+  it('wraps a long name in the question, and cuts it short in the card of the select', async () => {
     const user = userEvent.setup()
     const name = 'x'.repeat(100)
     stubPage([{ id: 'x', name }])
@@ -1160,6 +1269,8 @@ describe('deleting a dataset', () => {
 
     expect(questionFor(name)).toHaveStyle({ overflowWrap: 'anywhere', flexWrap: 'wrap', minWidth: '0px' })
     expect(questionFor(name)?.parentElement).toHaveStyle({ flexWrap: 'wrap' })
-    expect(datasetSelect().closest('label')).toHaveStyle({ minWidth: '0px' })
+    const shownName = screen.getByText(name, { selector: '.switcher-name' })
+    expect(shownName).toHaveStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+    expect(shownName.parentElement).toHaveStyle({ minWidth: '0px' })
   })
 })
