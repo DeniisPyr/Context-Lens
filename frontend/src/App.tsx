@@ -1,6 +1,7 @@
 import ApiStatus from './components/ApiStatus.tsx'
 import LoginForm from './components/LoginForm.tsx'
 import LogOutButton from './components/LogOutButton.tsx'
+import ThemeSwitch from './components/ThemeSwitch.tsx'
 import Workspace from './components/Workspace.tsx'
 import { useSession } from './hooks/useSession.ts'
 
@@ -11,7 +12,10 @@ export default function App() {
     <main>
       <header className="page-header">
         <h1>Context-Lens</h1>
-        {session.status === 'loggedIn' && session.loginRequired && <LogOutButton onLoggedOut={loggedOut} />}
+        <div className="page-actions">
+          <ThemeSwitch />
+          {session.status === 'loggedIn' && session.loginRequired && <LogOutButton onLoggedOut={loggedOut} />}
+        </div>
       </header>
       <p>Ask questions about your documents and get answers you can check.</p>
       <ApiStatus />

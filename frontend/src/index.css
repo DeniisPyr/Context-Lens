@@ -1,12 +1,349 @@
+/* Every colour the page uses, so a theme is one set of values. These are the light ones. */
 :root {
-  color-scheme: light dark;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  line-height: 1.5;
+  color-scheme: light;
+  /* Surfaces */
+  --canvas: #f9fafb;
+  --chrome: #ffffff;
+  --panel: #f9fafb;
+  --panel-alt: #ffffff;
+  --card: #ffffff;
+  --raised: #f3f4f6;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  /* Text */
+  --text: #111827;
+  --text-2: #374151;
+  --muted: #4b5563;
+  --subtle: #6b7280;
+  /* Accent: solid fills, then text, thin bars and tinted backgrounds */
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --on-accent: #ffffff;
+  --accent-text: #4338ca;
+  --accent-bar: #4f46e5;
+  --accent-soft: #eef2ff;
+  --accent-border: #c7d2fe;
+  --source-bg: #f8f9ff;
+  --hit-bg: #eef2ff;
+  --hit-no: #4338ca;
+  --mark: #c7d2fe;
+  /* Status */
+  --ok: #15803d;
+  --ok-dot: #16a34a;
+  --ok-ring: #dcfce7;
+  --err: #b91c1c;
+  --on-err: #ffffff;
+  --err-soft: #fef2f2;
+  --dot-neutral: #9ca3af;
+  --pdf: #9f1239;
+  --pdf-bg: #fff1f2;
+  --pdf-border: #fecdd3;
+  --skel-a: #eef0f3;
+  --skel-b: #f6f7f9;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06);
+  /* The theme switch: its track, and the segment that is chosen */
+  --seg-track: var(--raised);
+  --seg-on-bg: var(--card);
+  --seg-on-fg: var(--text);
+  --seg-on-bd: var(--border-strong);
+
+  --radius: 10px;
+  --radius-sm: 8px;
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Dark follows the device unless the stored choice is Light... */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --canvas: #0a0a0a;
+    --chrome: #0a0a0a;
+    --panel: #0f0f10;
+    --panel-alt: #0f0f10;
+    --card: #151517;
+    --raised: #1c1c1f;
+    --border: #26262a;
+    --border-strong: #36363c;
+    --text: #ededed;
+    --text-2: #d4d4d8;
+    --muted: #a1a1aa;
+    /* #71717a is under 4.5:1 for small text, so it is kept for dots only. */
+    --subtle: #8b8b93;
+    /* White on it is 4.85:1, where #6366f1 is 4.47:1. */
+    --accent: #5a5ff0;
+    --accent-hover: #4f54e6;
+    --on-accent: #ffffff;
+    --accent-text: #a5b4fc;
+    --accent-bar: #818cf8;
+    --accent-soft: rgba(99, 102, 241, 0.16);
+    --accent-border: rgba(129, 140, 248, 0.3);
+    --source-bg: rgba(99, 102, 241, 0.07);
+    --hit-bg: rgba(99, 102, 241, 0.18);
+    --hit-no: #a5b4fc;
+    --mark: rgba(129, 140, 248, 0.4);
+    --ok: #4ade80;
+    --ok-dot: #22c55e;
+    --ok-ring: rgba(34, 197, 94, 0.18);
+    --err: #f87171;
+    --on-err: #0a0a0a;
+    --err-soft: rgba(248, 113, 113, 0.12);
+    --dot-neutral: #71717a;
+    --pdf: #fb7185;
+    --pdf-bg: rgba(251, 113, 133, 0.1);
+    --pdf-border: rgba(251, 113, 133, 0.28);
+    --skel-a: #222226;
+    --skel-b: #2c2c31;
+    --shadow-sm: none;
+    --shadow-card: none;
+    --seg-track: #0a0a0a;
+    --seg-on-bg: #26262a;
+    --seg-on-fg: var(--text);
+    --seg-on-bd: #3a3a40;
+  }
+}
+
+/* ...or when the stored choice is Dark. Keep both blocks the same. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #0a0a0a;
+  --chrome: #0a0a0a;
+  --panel: #0f0f10;
+  --panel-alt: #0f0f10;
+  --card: #151517;
+  --raised: #1c1c1f;
+  --border: #26262a;
+  --border-strong: #36363c;
+  --text: #ededed;
+  --text-2: #d4d4d8;
+  --muted: #a1a1aa;
+  /* #71717a is under 4.5:1 for small text, so it is kept for dots only. */
+  --subtle: #8b8b93;
+  /* White on it is 4.85:1, where #6366f1 is 4.47:1. */
+  --accent: #5a5ff0;
+  --accent-hover: #4f54e6;
+  --on-accent: #ffffff;
+  --accent-text: #a5b4fc;
+  --accent-bar: #818cf8;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+  --accent-border: rgba(129, 140, 248, 0.3);
+  --source-bg: rgba(99, 102, 241, 0.07);
+  --hit-bg: rgba(99, 102, 241, 0.18);
+  --hit-no: #a5b4fc;
+  --mark: rgba(129, 140, 248, 0.4);
+  --ok: #4ade80;
+  --ok-dot: #22c55e;
+  --ok-ring: rgba(34, 197, 94, 0.18);
+  --err: #f87171;
+  --on-err: #0a0a0a;
+  --err-soft: rgba(248, 113, 113, 0.12);
+  --dot-neutral: #71717a;
+  --pdf: #fb7185;
+  --pdf-bg: rgba(251, 113, 133, 0.1);
+  --pdf-border: rgba(251, 113, 133, 0.28);
+  --skel-a: #222226;
+  --skel-b: #2c2c31;
+  --shadow-sm: none;
+  --shadow-card: none;
+  --seg-track: #0a0a0a;
+  --seg-on-bg: #26262a;
+  --seg-on-fg: var(--text);
+  --seg-on-bd: #3a3a40;
+}
+
+/* ---------- Base ---------- */
+
+/* Two rules, because jsdom drops a rule whose selectors include a pseudo-element, and the tests read box-sizing. */
+* {
+  box-sizing: border-box;
+}
+
+::before,
+::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  background-color: var(--canvas);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* The element rules sit in :where(), so any class that styles a control wins over them. */
+:where(button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+:where(button:hover:not(:disabled)) {
+  background-color: var(--raised);
+  color: var(--text);
+}
+
+/* The button that sends a form is the one to press. */
+:where(button[type='submit']) {
+  border-color: var(--accent);
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+:where(button[type='submit']:hover:not(:disabled)) {
+  border-color: var(--accent-hover);
+  background-color: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+:where(button:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
+
+:where(input[type='text'], input[type='password'], textarea, select) {
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  color: var(--text);
+}
+
+::placeholder {
+  color: var(--subtle);
+  opacity: 1;
+}
+
+/* One focus ring for everything a keyboard can reach. A text field shows it as soon as it has the focus. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:where(input, textarea, select):focus-visible {
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+[role='alert'],
+.upload-failed {
+  color: var(--err);
+}
+
+/* Hidden on screen, still read by a screen reader and, for a control, still reached with the keyboard. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-sm {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- Theme switch ---------- */
+
+.theme-switch {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--seg-track);
+}
+
+/* Holds its radio button, which is hidden on screen but keeps the keyboard and the screen reader. */
+.theme-option {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.theme-option-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.theme-option-face:hover {
+  color: var(--text);
+}
+
+.theme-option input:checked + .theme-option-face {
+  border-color: var(--seg-on-bd);
+  background-color: var(--seg-on-bg);
+  color: var(--seg-on-fg);
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-option input:focus-visible + .theme-option-face {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------- Page ---------- */
 
 main {
   max-width: 960px;
@@ -23,13 +360,8 @@ h2 {
   font-size: 1.25rem;
 }
 
-[role='alert'],
-.upload-failed {
-  color: light-dark(#b3261e, #ff8a80);
-}
-
-/* The Log out button shares the title's row, at the right, and goes below the title when there's no room. Lined up
-   on the baseline, because the title's margin above would push a centred button up. */
+/* The theme switch and the Log out button share the title's row, at the right, and go below the title when there's
+   no room. Lined up on the baseline, because the title's margin above would push them up. */
 .page-header {
   display: flex;
   flex-wrap: wrap;
@@ -43,9 +375,20 @@ h2 {
   margin-bottom: 0;
 }
 
-.page-header [role='alert'] {
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.page-actions .theme-switch {
+  width: 15rem;
+}
+
+.page-actions [role='alert'] {
   flex-basis: 100%;
-  margin: 0.5rem 0 0;
+  margin: 0;
 }
 
 /* The login form is laid out like the create form: the button beside the field, or below it when there's no room. */
@@ -116,7 +459,8 @@ h2 {
   justify-content: space-between;
   gap: 0 1rem;
   padding: 0.5rem 0;
-  border-top: 1px solid light-dark(#ddd, #444);
+  border-top: 1px solid;
+  border-top-color: var(--border);
   overflow-wrap: anywhere;
 }
 
@@ -133,7 +477,8 @@ h2 {
   align-items: center;
   gap: 0.5rem 1rem;
   padding: 0.5rem 0;
-  border-top: 1px solid light-dark(#ddd, #444);
+  border-top: 1px solid;
+  border-top-color: var(--border);
   overflow-wrap: anywhere;
 }
 
@@ -145,7 +490,7 @@ h2 {
 
 .document-length {
   flex-shrink: 0;
-  opacity: 0.7;
+  color: var(--subtle);
 }
 
 .confirm-delete {
@@ -163,24 +508,13 @@ h2 {
   margin: 0;
 }
 
-/* The alert colour marks the button that deletes, and its text says Delete, so it doesn't rely on the colour. */
-.danger-button {
-  padding: 0.125rem 0.75rem;
-  border: 1px solid light-dark(#b3261e, #ff8a80);
-  border-radius: 4px;
-  background: light-dark(#b3261e, #ff8a80);
-  color: light-dark(#fff, #1a1a1a);
-  cursor: pointer;
-}
-
-.danger-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.danger-button:focus-visible {
-  outline: 2px solid light-dark(#b3261e, #ff8a80);
-  outline-offset: 2px;
+/* The alert colour marks the button that deletes, and its text says Delete, so it doesn't rely on the colour. The
+   colour is set on its own, so the tests can compare it with an alert's. */
+.danger-button,
+.danger-button:hover:not(:disabled) {
+  border-color: var(--err);
+  background-color: var(--err);
+  color: var(--on-err);
 }
 
 /* Like the create form: the button sits beside the select, and goes below it when there's no room. */
@@ -215,10 +549,8 @@ h2 {
 .ask-form textarea,
 .reply-form textarea {
   display: block;
-  box-sizing: border-box;
   width: 100%;
   margin-top: 0.25rem;
-  font: inherit;
 }
 
 .ask-form textarea,
@@ -238,13 +570,15 @@ h2 {
 .answer {
   margin-top: 1.5rem;
   padding-top: 1rem;
-  border-top: 1px solid light-dark(#ddd, #444);
+  border-top: 1px solid var(--border);
   overflow-wrap: anywhere;
 }
 
 .answer h3 {
   margin: 1rem 0 0.5rem;
-  font-size: 1rem;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .answer-asked,
@@ -255,19 +589,20 @@ h2 {
 
 .answer-asked {
   margin: 0 0 0.75rem;
-  opacity: 0.7;
+  color: var(--muted);
 }
 
 .answer-text {
   margin: 0;
+  font-size: 15px;
 }
 
 .answer-not-found {
   margin: 0;
   padding: 0.5rem 0.75rem;
-  border-radius: 4px;
-  background: light-dark(#f2f2f2, #2a2a2a);
-  color: light-dark(#555, #aaa);
+  border-radius: var(--radius-sm);
+  background-color: var(--raised);
+  color: var(--muted);
   font-style: italic;
 }
 
@@ -280,41 +615,47 @@ h2 {
 /* Only the citations: the lines of an open viewer are list items inside these. */
 .citation-list > li {
   padding: 0.5rem 0;
-  border-top: 1px solid light-dark(#ddd, #444);
+  border-top: 1px solid;
+  border-top-color: var(--border);
 }
 
 .citation-source {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+  font-weight: 600;
 }
 
 .answer blockquote {
   margin: 0.25rem 0 0;
   padding-left: 0.75rem;
-  border-left: 3px solid light-dark(#ccc, #555);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
 }
 
 .link-button {
+  display: inline;
+  min-height: 0;
   padding: 0;
   border: none;
+  border-radius: 2px;
   background: none;
-  color: light-dark(#0b57d0, #8ab4f8);
+  color: var(--accent-text);
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
 }
 
-.link-button:focus-visible,
-.line-list:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 2px;
+.link-button:hover:not(:disabled) {
+  background: none;
+  color: var(--accent-text);
 }
 
 /* A long filename next to it wraps instead, and the button stays level with the first line of it. */
 .citation-lines {
   flex-shrink: 0;
   align-self: flex-start;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -334,10 +675,12 @@ h2 {
   margin: 0.25rem 0;
   padding: 0;
   overflow-y: auto;
-  border: 1px solid light-dark(#ddd, #444);
-  border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--panel-alt);
+  /* The stack itself rather than var(--mono): jsdom doesn't resolve variables, and a test checks for monospace. */
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
   list-style: none;
 }
 
@@ -351,38 +694,45 @@ h2 {
 .line-list .page-start {
   display: block;
   padding: 0.25rem 0.5rem 0;
+  color: var(--muted);
+  font-family: var(--sans);
   -webkit-user-select: none;
   user-select: none;
 }
 
 .page-start h4 {
   margin: 0;
-  font-size: inherit;
+  font-size: 11.5px;
 }
 
 .page-start p {
   margin: 0;
-  opacity: 0.7;
   font-style: italic;
 }
 
 .line-list li[aria-current='true'] {
-  background: light-dark(#ffe58a, #5c4a00);
-  box-shadow: inset 3px 0 0 light-dark(#8a6d00, #ffd54f);
-  color: light-dark(#1a1a1a, #fff);
+  background-color: var(--hit-bg);
+  box-shadow: inset 3px 0 0 var(--accent-bar);
+  color: var(--text);
 }
 
 /* Safari only knows the prefixed user-select. */
 .line-number {
   padding: 0 0.75rem 0 0.5rem;
-  opacity: 0.7;
+  color: var(--subtle);
   text-align: right;
   -webkit-user-select: none;
   user-select: none;
 }
 
+.line-list li[aria-current='true'] .line-number {
+  color: var(--hit-no);
+  font-weight: 700;
+}
+
 .line-text {
   padding-right: 0.5rem;
+  color: var(--text-2);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }

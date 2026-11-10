@@ -68,6 +68,8 @@ const nameInput = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'N
 const createButton = () => screen.getByRole('button', { name: 'Create' })
 const questionBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Question' })
 const startMessage = 'Create a dataset to get started.'
+// The question a Delete button asks, for a dataset or a document. Named, because the theme switch is a group too.
+const deleteQuestion = () => screen.queryByRole('group', { name: /^Delete / })
 
 // Waits for a document's row in the list, by its Delete button, which names the file.
 const findDocument = (filename: string) => screen.findByRole('button', { name: `Delete ${filename}` })
@@ -697,12 +699,12 @@ describe('switching to another dataset', () => {
     await user.selectOptions(datasetSelect(), reports.id)
     await findDocument('new.txt')
 
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
 
     await user.selectOptions(datasetSelect(), invoices.id)
     await screen.findByRole('button', { name: 'Delete old.txt' })
 
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
     expect(fetchStub.mock.calls.filter((call) => call[1]?.method === 'DELETE')).toHaveLength(0)
   })
 
@@ -857,8 +859,8 @@ describe('deleting a dataset', () => {
   const deleteDatasetButton = () => screen.getByRole('button', { name: 'Delete dataset' })
   const questionFor = (name: string) =>
     screen.queryByRole('group', { name: `Delete ${name} and all its documents? This can't be undone.` })
-  const confirmButton = () => within(screen.getByRole('group')).getByRole('button', { name: 'Delete' })
-  const cancelButton = () => within(screen.getByRole('group')).getByRole('button', { name: 'Cancel' })
+  const confirmButton = () => within(deleteQuestion()!).getByRole('button', { name: 'Delete' })
+  const cancelButton = () => within(deleteQuestion()!).getByRole('button', { name: 'Cancel' })
   const deleted: Route = () => new Response(null, { status: 204 })
   const deletesOf = (fetchStub: ReturnType<typeof stubRoutes>) =>
     fetchStub.mock.calls.filter((call) => call[1]?.method === 'DELETE').map(([url]) => url)
@@ -937,7 +939,7 @@ describe('deleting a dataset', () => {
     // Once when Contracts was the default at the start, and again now that the page has fallen back to it.
     await waitFor(() => expect(requestsTo(fetchStub, documentsPath(contracts.id))).toHaveLength(2))
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
   })
 
   it('moves to the newest remaining dataset at once, without waiting for the reload', async () => {
@@ -1013,7 +1015,7 @@ describe('deleting a dataset', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(detail)
     expect(datasetSelect()).toHaveValue(invoices.id)
     expect(screen.getByRole('option', { name: 'Invoices' })).toBeInTheDocument()
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
     expect(deleteDatasetButton()).toHaveFocus()
     // The page lets go again.
     expect(datasetSelect()).toBeEnabled()
@@ -1111,7 +1113,7 @@ describe('deleting a dataset', () => {
     await user.click(deleteDatasetButton())
     await user.selectOptions(datasetSelect(), reports.id)
 
-    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+    expect(deleteQuestion()).not.toBeInTheDocument()
     expect(deleteDatasetButton()).toBeEnabled()
     expect(deletesOf(fetchStub)).toEqual([])
   })
