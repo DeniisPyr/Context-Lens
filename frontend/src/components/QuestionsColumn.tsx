@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { Dataset } from '../api/datasets.ts'
-import { isWaiting, type Question } from '../hooks/useQuestions.ts'
+import { type Failure, isWaiting, type Question } from '../hooks/useQuestions.ts'
 import Ask from './Ask.tsx'
 import {
   CheckCircleIcon,
@@ -22,10 +22,11 @@ type Props = SourceProps & {
   noDatasets: boolean
   // null while the documents load, so the ask box only shows once there's something to search.
   documentCount: number | null
-  // The cards of the selected dataset, oldest first.
+  // The cards of the selected dataset, oldest first, and the last question about it that couldn't be asked.
   questions: Question[]
-  onAsk: (datasetId: string, question: string, documentCount: number) => Promise<void>
-  onReply: (datasetId: string, question: Question, reply: string) => Promise<void>
+  failedAsk: Failure | null
+  onAsk: (datasetId: string, question: string, documentCount: number) => void
+  onReply: (datasetId: string, question: Question, reply: string) => void
   // Take the user to the control in the sidebar that starts them off, opening it first on a narrow window, where
   // nothing else on the screen says where that is.
   onCreateDataset: () => void
@@ -42,6 +43,7 @@ export default function QuestionsColumn({
   noDatasets,
   documentCount,
   questions,
+  failedAsk,
   onAsk,
   onReply,
   onCreateDataset,
@@ -141,6 +143,7 @@ export default function QuestionsColumn({
           datasetName={dataset.name}
           asking={questions.some((question) => question.answer === null)}
           waiting={waiting}
+          failure={failedAsk}
           onAsk={(question) => onAsk(dataset.id, question, documentCount)}
         />
       )}

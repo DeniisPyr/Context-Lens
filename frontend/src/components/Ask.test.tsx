@@ -1071,6 +1071,29 @@ describe('when a document is deleted', () => {
     expect(screen.queryByRole('textbox', { name: 'Question' })).not.toBeInTheDocument()
   })
 
+  it('keeps a question that fails while the box is gone, and shows it when files are back', async () => {
+    const user = userEvent.setup()
+    const { route, answer } = waitingRoute()
+    stubPage([], {
+      [GET_LIST]: listThatChanges([notes], [], [latest]),
+      'DELETE /api/documents/1': deleted,
+      [POST_FILE]: postUpload,
+      'POST /api/ask': route,
+    })
+
+    await renderPage()
+    await ask(user, ' Why?\n')
+    await deleteFromTheList(user, 'notes.txt')
+    await screen.findByText(prompt)
+    answer(Response.json({ detail: 'This dataset has no documents.' }, { status: 409 }))
+    await vi.waitFor(() => expect(cards()).toHaveLength(0))
+    await upload(user, latest.filename)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('This dataset has no documents.')
+    expect(questionBox()).toHaveValue(' Why?\n')
+    expect(askButton()).toBeEnabled()
+  })
+
   it('keeps an answer about it, whose citations then say the document is gone', async () => {
     const user = userEvent.setup()
     stubPage([], {

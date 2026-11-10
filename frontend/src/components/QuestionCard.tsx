@@ -9,7 +9,8 @@ type Props = SourceProps & {
   question: Question
   // True while any question or reply of the dataset is on its way: a reply then waits its turn.
   waiting: boolean
-  onReply: (reply: string) => Promise<void>
+  // Sends the reply to the clarifying question, as typed.
+  onReply: (reply: string) => void
   // On the newest card, which the column scrolls to.
   ref?: Ref<HTMLElement>
 }
@@ -93,7 +94,7 @@ export default function QuestionCard({ question, waiting, onReply, ref, ...sourc
       <>
         <Answer result={answer} sourceKey={firstKey} number={number} {...sourceProps} />
         {answer.status === 'needs_clarification' && (
-          <ReplyForm replying={reply !== null} disabled={waiting} onReply={onReply} />
+          <ReplyForm replying={reply !== null} disabled={waiting} failure={question.failedReply} onReply={onReply} />
         )}
       </>
     )

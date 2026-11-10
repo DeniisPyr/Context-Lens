@@ -40,6 +40,7 @@ function question(changes: Partial<Question> = {}): Question {
     documentCount: 7,
     answer: answered,
     reply: null,
+    failedReply: null,
     ...changes,
   }
 }
@@ -223,7 +224,7 @@ describe('a clarifying question in a card', () => {
     expect(screen.getByRole('button', { name: 'Reply' })).toBeDisabled()
   })
 
-  it('sends the trimmed reply', async () => {
+  it('hands on the reply as typed, to be trimmed when it is sent and kept as typed if it fails', async () => {
     const user = userEvent.setup()
     const onReply = vi.fn(async () => {})
     renderCard(question({ answer: clarifying }), { onReply })
@@ -231,7 +232,35 @@ describe('a clarifying question in a card', () => {
     await user.type(screen.getByRole('textbox', { name: 'Your reply' }), '  A laptop. ')
     await user.click(screen.getByRole('button', { name: 'Reply' }))
 
-    expect(onReply).toHaveBeenCalledWith('A laptop.')
+    expect(onReply).toHaveBeenCalledWith('  A laptop. ')
+    expect(screen.getByRole('textbox', { name: 'Your reply' })).toHaveValue('  A laptop. ')
+  })
+
+  it('shows a reply that could not be sent, as typed, with the reason, when the card comes back', () => {
+    renderCard(question({ answer: clarifying, failedReply: { error: 'Gemini is busy.', draft: ' A laptop.\n' } }))
+
+    expect(screen.getByRole('textbox', { name: 'Your reply' })).toHaveValue(' A laptop.\n')
+    expect(screen.getByRole('alert')).toHaveTextContent('Gemini is busy.')
+    expect(screen.getByRole('button', { name: 'Reply' })).toBeEnabled()
+  })
+
+  it('puts a reply that fails while the card shows back in an empty box, but keeps what was typed since', async () => {
+    const user = userEvent.setup()
+    const waitingReply = question({ answer: clarifying, reply: { text: 'A laptop.', answer: null } })
+    const failed = (draft: string) => question({ answer: clarifying, failedReply: { error: 'Gemini is busy.', draft } })
+    const { rerender } = renderCard(waitingReply)
+    const props = { waiting: false, onReply: vi.fn(), openSource: null, onToggleSource: vi.fn() }
+
+    rerender(<QuestionCard question={failed('A laptop.')} {...props} />)
+
+    expect(screen.getByRole('textbox', { name: 'Your reply' })).toHaveValue('A laptop.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Gemini is busy.')
+
+    await user.clear(screen.getByRole('textbox', { name: 'Your reply' }))
+    await user.type(screen.getByRole('textbox', { name: 'Your reply' }), 'A phone.')
+    rerender(<QuestionCard question={failed('A laptop, again.')} {...props} />)
+
+    expect(screen.getByRole('textbox', { name: 'Your reply' })).toHaveValue('A phone.')
   })
 })
 

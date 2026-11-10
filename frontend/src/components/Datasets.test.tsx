@@ -850,6 +850,102 @@ describe('switching to another dataset', () => {
     expect(questionBox()).toHaveValue('')
   })
 
+  describe('with a question or a reply that could not be sent', () => {
+    const detail = 'Gemini is unavailable right now. Please try again.'
+    const failure = () => Response.json({ detail }, { status: 503 })
+    const clarifying = { status: 'needs_clarification', answer: 'Which contract?', citations: [] }
+    const replyBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Your reply' })
+
+    async function switchTo(dataset: typeof reports, filename: string) {
+      const user = userEvent.setup()
+      await user.selectOptions(datasetSelect(), dataset.id)
+      await findDocument(filename)
+    }
+
+    it('brings back the error and the question as typed on the way back, until the next question is sent', async () => {
+      const user = userEvent.setup()
+      stubTwoDatasets({
+        'POST /api/ask': vi.fn<Route>().mockResolvedValueOnce(failure()).mockResolvedValue(Response.json(answered)),
+      })
+
+      await askTheOldDataset(user)
+      expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+      await switchTo(reports, 'new.txt')
+      await switchTo(invoices, 'old.txt')
+
+      expect(screen.getByRole('alert')).toHaveTextContent(detail)
+      expect(questionBox()).toHaveValue('The old question')
+      expect(oldCard()).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Ask' }))
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(await screen.findByText('The old answer.')).toBeInTheDocument()
+      await switchTo(reports, 'new.txt')
+      await switchTo(invoices, 'old.txt')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(questionBox()).toHaveValue('')
+    })
+
+    it('keeps a question that fails after the switch for its own dataset, and shows it on the way back', async () => {
+      const user = userEvent.setup()
+      const { route, answer } = waitingRoute()
+      stubTwoDatasets({ 'POST /api/ask': route })
+
+      await askTheOldDataset(user)
+      await switchTo(reports, 'new.txt')
+      await answer(failure())
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(questionBox()).toHaveValue('')
+
+      await switchTo(invoices, 'old.txt')
+
+      expect(screen.getByRole('alert')).toHaveTextContent(detail)
+      expect(questionBox()).toHaveValue('The old question')
+      expect(oldCard()).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Ask' })).toBeEnabled()
+    })
+
+    it('does not overwrite a question typed after coming back, before the failure came', async () => {
+      const user = userEvent.setup()
+      const { route, answer } = waitingRoute()
+      stubTwoDatasets({ 'POST /api/ask': route })
+
+      await askTheOldDataset(user)
+      await switchTo(reports, 'new.txt')
+      await switchTo(invoices, 'old.txt')
+      await user.type(questionBox(), 'A new question')
+      await answer(failure())
+
+      expect(screen.getByRole('alert')).toHaveTextContent(detail)
+      expect(questionBox()).toHaveValue('A new question')
+    })
+
+    it('keeps a reply that fails after the switch on its card, with the error, for the way back', async () => {
+      const user = userEvent.setup()
+      const { route, answer } = waitingRoute()
+      stubTwoDatasets({
+        'POST /api/ask': vi.fn<Route>().mockResolvedValueOnce(Response.json(clarifying)).mockImplementation(route),
+      })
+
+      await askTheOldDataset(user)
+      await user.type(await screen.findByRole('textbox', { name: 'Your reply' }), ' The main one.\n')
+      await user.click(screen.getByRole('button', { name: 'Reply' }))
+      await switchTo(reports, 'new.txt')
+      await answer(failure())
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      await switchTo(invoices, 'old.txt')
+
+      const asked = oldCard()!
+      expect(within(asked).getByText('Needs your reply')).toBeInTheDocument()
+      expect(within(asked).getByRole('textbox', { name: 'Your reply' })).toBe(replyBox())
+      expect(replyBox()).toHaveValue(' The main one.\n')
+      expect(within(asked).getByRole('alert')).toHaveTextContent(detail)
+      expect(within(asked).getByRole('button', { name: 'Reply' })).toBeEnabled()
+    })
+  })
+
   it('removes an error about the old list', async () => {
     const user = userEvent.setup()
     stubTwoDatasets({ [listOf(invoices.id)]: () => new Response('Bad Gateway', { status: 502 }) })

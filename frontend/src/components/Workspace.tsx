@@ -42,6 +42,7 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
   const documents = useDocuments(selected?.id)
   // The cards of every dataset asked about since the login. Only the selected dataset's show.
   const questions = useQuestions()
+  const asked = selected && questions.byDataset[selected.id]
   // One source at a time, in the panel beside the cards.
   const [openSource, setOpenSource] = useState<OpenSource | null>(null)
   // The chip that opened it, to give the focus back to when it closes, and the panel's heading, to give it to.
@@ -197,7 +198,8 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
         dataset={selected}
         noDatasets={datasets?.length === 0}
         documentCount={documents.documents?.length ?? null}
-        questions={(selected && questions.byDataset[selected.id]) ?? []}
+        questions={asked?.questions ?? []}
+        failedAsk={asked?.failedAsk ?? null}
         onAsk={questions.ask}
         onReply={questions.reply}
         onCreateDataset={() => showInSidebar(nameInput.current)}
