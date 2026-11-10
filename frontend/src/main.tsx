@@ -4,8 +4,9 @@ import './index.css'
 import App from './App.tsx'
 import { applyTheme, readTheme } from './theme.ts'
 
-// Before the first render, so the page comes up in the stored theme instead of switching to it. A script in
-// index.html would run even earlier, but the Content Security Policy allows no inline scripts.
+// public/theme-init.js, which index.html loads before anything is drawn, has applied the stored theme already. This
+// applies it again in case that script couldn't load: the page then switches to the stored theme a moment late
+// rather than not at all, and the theme switch, which starts on the theme the page shows, shows the stored choice.
 applyTheme(readTheme())
 
 createRoot(document.getElementById('root')!).render(

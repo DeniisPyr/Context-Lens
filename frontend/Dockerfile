@@ -9,6 +9,8 @@ COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.ts ./
 COPY src ./src
+# Copied into the build as they are, such as theme-init.js, which index.html loads by its own name.
+COPY public ./public
 RUN npm run build
 
 # nginx as an unprivileged user, which is why it listens on 8080.

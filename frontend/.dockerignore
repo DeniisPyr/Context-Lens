@@ -7,6 +7,7 @@
 !tsconfig*.json
 !vite.config.ts
 !src/
+!public/
 !nginx/
 
 # Not even inside the folders above.

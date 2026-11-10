@@ -28,7 +28,7 @@ describe('ThemeSwitch', () => {
     expect(radio('Dark')).toBeInTheDocument()
   })
 
-  it('starts on System when nothing is stored', () => {
+  it('starts on System when the page follows the device', () => {
     render(<ThemeSwitch />)
 
     expect(radio('System')).toBeChecked()
@@ -36,12 +36,26 @@ describe('ThemeSwitch', () => {
     expect(radio('Dark')).not.toBeChecked()
   })
 
-  it('starts on the stored choice', () => {
+  // The stored choice is on the page before the switch shows: theme-init.js and main.tsx apply it.
+  it('starts on the theme the page shows', () => {
     localStorage.setItem(KEY, 'dark')
+    html.dataset.theme = 'dark'
 
     render(<ThemeSwitch />)
 
     expect(radio('Dark')).toBeChecked()
+    expect(radio('System')).not.toBeChecked()
+  })
+
+  it('starts on the theme the page shows when storage is blocked, as after logging out and in again', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure.', 'SecurityError')
+    })
+    html.dataset.theme = 'light'
+
+    render(<ThemeSwitch />)
+
+    expect(radio('Light')).toBeChecked()
     expect(radio('System')).not.toBeChecked()
   })
 

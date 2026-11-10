@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { applyTheme, readTheme, saveTheme, type Theme } from '../theme.ts'
+import { appliedTheme, applyTheme, saveTheme, type Theme } from '../theme.ts'
 import { MonitorIcon, MoonIcon, SunIcon } from './icons.tsx'
 
 const OPTIONS = [
@@ -11,8 +11,9 @@ const OPTIONS = [
 // Real radio buttons, drawn as one segmented control: the arrow keys move between them, and a screen reader says
 // which of the three is chosen.
 export default function ThemeSwitch() {
-  // main.tsx has already applied the stored choice, so this only needs to know which one it was.
-  const [theme, setTheme] = useState<Theme>(readTheme)
+  // Starts on the theme the page shows rather than on what storage says: while storage is blocked, a choice made
+  // earlier in this visit, as before logging out and in again, is only on the page.
+  const [theme, setTheme] = useState<Theme>(appliedTheme)
   const name = useId()
 
   function handleChange(chosen: Theme) {

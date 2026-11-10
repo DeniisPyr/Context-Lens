@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { applyTheme, readTheme, saveTheme } from './theme.ts'
+import { appliedTheme, applyTheme, readTheme, saveTheme } from './theme.ts'
 
 const KEY = 'context-lens-theme'
 
@@ -51,6 +51,33 @@ describe('applyTheme', () => {
     applyTheme('system')
 
     expect(document.documentElement).not.toHaveAttribute('data-theme')
+  })
+})
+
+describe('appliedTheme', () => {
+  it.each(['light', 'dark'] as const)('reads %s off the page', (theme) => {
+    applyTheme(theme)
+
+    expect(appliedTheme()).toBe(theme)
+  })
+
+  it('says System when the page follows the device', () => {
+    expect(appliedTheme()).toBe('system')
+  })
+
+  it('says System for a mark it does not know', () => {
+    document.documentElement.dataset.theme = 'sepia'
+
+    expect(appliedTheme()).toBe('system')
+  })
+
+  it('does not read storage, which can be blocked or say something else', () => {
+    localStorage.setItem(KEY, 'light')
+    const getItem = vi.spyOn(Storage.prototype, 'getItem')
+    applyTheme('dark')
+
+    expect(appliedTheme()).toBe('dark')
+    expect(getItem).not.toHaveBeenCalled()
   })
 })
 
