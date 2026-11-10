@@ -2,7 +2,7 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing. When the answer depends on something the question doesn't say, it asks.
 
-![Logging in, creating a dataset and uploading seven documents, one of them a PDF. Then three questions: one answered from page 3 of the PDF, with its citation opened in the line viewer; one the documents don't answer, which gets "not found"; and one that gets a clarifying question back, with the lines that show why, then an answer to the reply.](docs/demo.gif)
+![Logging in, creating a dataset and uploading seven documents, one of them a PDF, in the dark theme. Then three questions, each kept as a card: one answered from page 3 of the PDF, with its source opened in the panel beside it; one the documents don't answer, which gets "not found"; and one that gets a clarifying question back, with the lines that show why, then an answer to the reply in the same card.](docs/demo.gif)
 
 *The waits for Gemini are cut short in this recording. The documents are the fictional ones from the evaluation set, with the leaflet turned into a PDF.*
 
@@ -13,7 +13,8 @@ Ask questions about your own documents and get answers backed by exact quotes, e
 - **Cited answers:** Gemini answers from those chunks only, and cites the file, the lines and an exact quote for every claim. For a PDF, the app works out the page.
 - **Checked citations:** every quote is checked in code against the document's real lines. If one fails, or there are none, the answer becomes "not found", so every quote the user sees is really in the document.
 - **Clarifying questions:** when the documents answer differently for different situations and the question doesn't say which one applies, it asks one question back, citing the lines that differ.
-- **Line viewer:** each citation opens at its lines in the document.
+- **Source panel:** each citation opens beside the answers, at its lines in the document.
+- **Workspace:** datasets and documents in a sidebar, every question of the session kept as a card, light and dark themes, and a layout for phones.
 - **Evaluation:** a fixed set of 78 questions scores the answers and compares search with sending whole documents.
 - **One command:** Docker Compose runs it all behind a password login, with nginx capping request sizes and rates.
 
@@ -144,7 +145,7 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:5173, create a dataset, upload `.txt`, `.md` or `.pdf` files into it (up to 1 MB each), and ask a question about the dataset. If the answer depends on something the question doesn't say, you get a question back, with the lines that show why, and a box to reply in. Click a citation's lines, or its page for a PDF, to read them in its document. To delete a document, use the Delete button in its row; to delete a dataset with all its documents, use Delete dataset beside the Dataset select. Both ask before they delete anything. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
+Then open http://localhost:5173 and create a dataset in the sidebar. Add `.txt`, `.md` or `.pdf` files to it (up to 1 MB each), with Add files in the sidebar or by dropping them on it; they upload at once. Then ask a question at the bottom of the page, and press Enter to send it. Each question becomes a card. If the answer depends on something the question doesn't say, the card asks back, with the lines that show why, and a box to reply in. Click a source's lines, or its page for a PDF, to read them in the panel beside the cards. To delete a document, use the trash button in its row; to delete a dataset with all its documents, use Delete above the dataset. Both ask before they delete anything. The theme switch at the bottom of the sidebar follows the system or keeps light or dark. Vite forwards `/api` requests to the backend at `http://localhost:8000`. To use a different address, set `API_PROXY_TARGET` (see `frontend/.env.example`).
 
 You can also call the API directly. Create a dataset and upload a file into it using the `id` from its response, then read the document, ask about it or delete it using the `id` from the upload response. When an answer's `status` is `needs_clarification`, its `answer` is a question back: send the question again with that text and your reply in `clarification`. Deleting the dataset deletes its documents too. With a password set, log in first with `curl -c cookies.txt -X POST http://localhost:8000/api/session -H "Content-Type: application/json" -d '{"password": "<ACCESS_PASSWORD>"}'`, and add `-b cookies.txt` to each command below:
 
@@ -353,6 +354,7 @@ Searching once for each part of a question, or giving it more chunks, might fix 
 - **Line numbers in quotes.** Once in 233 runs, Gemini copied a line's number from the prompt into its quote, and the check rejected a right answer. Removing such a number before the check should keep those answers.
 - **A side effect of clarifying questions.** One question that needs two documents was answered right in 2 of 3 runs before Gemini could ask back, and got "not found" in all 3 after. Running both instructions on that question side by side would show whether the new one is the cause.
 - **PDFs.** There's no OCR, so scanned PDFs can't be read, and columns and tables come out in the order pypdf reads them.
+- **Questions are kept in the page.** The cards of a session live in the browser's memory, so a reload or a logout clears them.
 - **One password for everyone.** Everyone who logs in sees every dataset. Sharing it between people would need user accounts, with datasets of their own.
 - **One machine.** The Docker setup is published on this machine only. To serve it to others, it needs HTTPS in front, `SECURE_COOKIES=true`, and nginx set to see each client's real address for the rate limits. The checklist at the top of `frontend/nginx/default.conf` lists these steps and the rest.
 - **Gemini's errors.** When the Gemini account runs out of prepaid credits, the app says only that Gemini could not answer the question, or could not index the document. The reason is only in the backend's log.
@@ -420,6 +422,7 @@ backend/
     └── versions/            # one file for each schema change
 frontend/
 ├── Dockerfile               # builds the page and serves it with nginx
+├── public/theme-init.js     # applies the stored theme before the page is first drawn
 └── nginx/default.conf       # serves the page, passes /api on, and caps sizes, rates and headers
 ```
 
@@ -428,8 +431,9 @@ The frontend lives in `frontend/src/`:
 ```
 src/
 ├── main.tsx                   # starts React
-├── App.tsx                    # the page: checks the session, then shows the login form or the app
-├── index.css                  # page styles
+├── App.tsx                    # the page: checks the session, then shows the login screen or the workspace
+├── index.css                  # the design: colour tokens for both themes, layout and components
+├── theme.ts                   # reads, saves and applies the theme: system, light or dark
 ├── api/                       # every HTTP call lives here
 │   ├── ask.ts                 # asks a question about a dataset
 │   ├── datasets.ts            # lists, creates and deletes datasets
@@ -439,24 +443,34 @@ src/
 │   ├── request.ts             # sends a request, turns any failure into a message, and says when a session ends
 │   └── session.ts             # checks the session, logs in and logs out
 ├── components/
-│   ├── Answer.tsx             # shows one answer or clarifying question, and its citations
+│   ├── Answer.tsx             # what came back, inside its card: an answer, a clarifying question or "not found"
 │   ├── ApiStatus.tsx          # shows whether the API is reachable
-│   ├── Ask.tsx                # asks a question about the selected dataset
+│   ├── Ask.tsx                # the box at the bottom that asks the next question
+│   ├── citationLabel.ts       # names a citation's place: its lines, or its pages for a PDF
 │   ├── ConfirmDelete.tsx      # a Delete button that asks first, inline
 │   ├── CreateDatasetForm.tsx  # names and creates a dataset
-│   ├── DatasetContents.tsx    # everything for one dataset: its documents and the questions
 │   ├── Datasets.tsx           # chooses a dataset, offers to create one and to delete it
-│   ├── Documents.tsx          # shows the upload form and the document list, with Delete buttons
+│   ├── Documents.tsx          # the document list, with trash buttons, and the upload
+│   ├── icons.tsx              # small line icons, drawn inline
 │   ├── LineViewer.tsx         # shows a citation's lines in the document, with a PDF's pages
 │   ├── LoginForm.tsx          # asks for the password
 │   ├── LogOutButton.tsx       # logs out
 │   ├── pageOfLine.ts          # finds the page of a PDF that holds a line
-│   ├── ReplyForm.tsx          # replies to a clarifying question
-│   ├── UploadForm.tsx         # chooses files, uploads them one by one and says how each went
-│   └── Workspace.tsx          # the app once logged in: the datasets, and the selected one's contents
+│   ├── QuestionCard.tsx       # one question of the session: its number, status, time and what came back
+│   ├── QuestionsColumn.tsx    # the middle column: the cards, an empty state, and the box to ask
+│   ├── ReplyForm.tsx          # replies to a clarifying question, inside its card
+│   ├── Sidebar.tsx            # the left column, and on a phone the drawer: datasets, documents, theme, account
+│   ├── SourcePanel.tsx        # the panel that shows a cited document around its citation
+│   ├── Sources.tsx            # a card for each citation: the file, its lines or pages, and the quote
+│   ├── ThemeSwitch.tsx        # System, Light or Dark
+│   ├── TopBar.tsx             # the bar of a narrow window, with the Menu button that opens the sidebar
+│   ├── Upload.tsx             # the drop zone, and a card that follows each file of an upload
+│   └── Workspace.tsx          # the app once logged in: lays out the columns and holds what they share
 ├── hooks/
 │   ├── useDatasets.ts         # loads the dataset list
 │   ├── useDocuments.ts        # loads the documents of a dataset
+│   ├── useMediaQuery.ts       # whether the window matches a media query, as it changes size
+│   ├── useQuestions.ts        # the questions of the session, kept for each dataset, and asking and replying
 │   └── useSession.ts          # whether a login is needed, and whether the session is still valid
 └── test/setup.ts              # test setup
 ```
