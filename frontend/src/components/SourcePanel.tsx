@@ -18,12 +18,14 @@ type Props = {
   source: OpenSource
   // Workspace moves the focus here when a source opens.
   headingRef: RefObject<HTMLHeadingElement | null>
+  // True while the sidebar is open over it as a drawer.
+  inert: boolean
   onClose: () => void
 }
 
 // The column on the right that shows a cited document around its citation: which file, where the quote was found and
 // which question cites it, then the lines themselves.
-export default function SourcePanel({ source, headingRef, onClose }: Props) {
+export default function SourcePanel({ source, headingRef, inert, onClose }: Props) {
   const { citation, number, why } = source
   const label = citationLabel(citation)
 
@@ -36,7 +38,7 @@ export default function SourcePanel({ source, headingRef, onClose }: Props) {
   }
 
   return (
-    <aside className="source-panel" aria-label="Source" onKeyDown={handleKeyDown}>
+    <aside className="source-panel" aria-label="Source" inert={inert} onKeyDown={handleKeyDown}>
       <header className="source-panel-head">
         <div className="source-panel-top">
           {citation.start_page === null ? <FileIcon className="source-icon" /> : <PdfIcon className="source-icon pdf" />}

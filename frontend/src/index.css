@@ -42,6 +42,9 @@
   --skel-b: #f6f7f9;
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
   --shadow-card: 0 1px 3px rgba(16, 24, 40, 0.06);
+  /* What lies over the page on a narrow window: the drawer and the source panel, and the shade behind the drawer */
+  --shadow-overlay: 0 0 32px rgba(16, 24, 40, 0.18);
+  --backdrop: rgba(16, 24, 40, 0.32);
   /* The theme switch: its track, and the segment that is chosen */
   --seg-track: var(--raised);
   --seg-on-bg: var(--card);
@@ -97,6 +100,8 @@
     --skel-b: #2c2c31;
     --shadow-sm: none;
     --shadow-card: none;
+    --shadow-overlay: 0 0 32px rgba(0, 0, 0, 0.7);
+    --backdrop: rgba(0, 0, 0, 0.6);
     --seg-track: #0a0a0a;
     --seg-on-bg: #26262a;
     --seg-on-fg: var(--text);
@@ -146,6 +151,8 @@
   --skel-b: #2c2c31;
   --shadow-sm: none;
   --shadow-card: none;
+  --shadow-overlay: 0 0 32px rgba(0, 0, 0, 0.7);
+  --backdrop: rgba(0, 0, 0, 0.6);
   --seg-track: #0a0a0a;
   --seg-on-bg: #26262a;
   --seg-on-fg: var(--text);
@@ -558,6 +565,12 @@ h4 {
   background-color: var(--panel);
 }
 
+/* The sidebar only takes the focus as a drawer, so a screen reader names it. It isn't a control, and Tab goes on to
+   the first control inside. */
+.sidebar:focus {
+  outline: none;
+}
+
 .sidebar-head {
   flex: none;
   padding: 16px 16px 0;
@@ -606,7 +619,10 @@ h4 {
   line-height: 1.45;
 }
 
+/* Positioned, like the list of questions, so the hidden labels inside scroll with it and stay inside it. Placed
+   against the page instead, one far down the list would stretch the page, and the page would scroll. */
 .sidebar-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -1324,7 +1340,11 @@ h4 {
   font-size: 12.5px;
 }
 
+/* Positioned, so a hidden label in a card, such as a collapse button's name, scrolls with the cards and stays inside
+   the list. Placed against the page, the newest card's would stretch the page past the window's bottom, and bringing
+   that card into view would scroll the whole page up. */
 .questions-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -2085,4 +2105,257 @@ p.line-viewer[role='alert'] {
 
 .line-list li[aria-current='true'] .line-text {
   color: var(--text);
+}
+
+/* ---------- Narrow windows ---------- */
+
+/* The bar across the top of a narrow window, with the Menu button that opens the sidebar as a drawer. It is hidden
+   from 900 px up rather than shown below it, so the tests, which see no media queries, can reach the button. Above
+   the drawer, so the drawer's shadow doesn't fall on it. */
+.top-bar {
+  position: relative;
+  z-index: 50;
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  background-color: var(--chrome);
+}
+
+.menu-button {
+  flex: none;
+  gap: 6px;
+  min-height: 34px;
+  height: 34px;
+  margin-right: 4px;
+  padding: 0 12px 0 10px;
+}
+
+.menu-button[aria-expanded='true'] {
+  border-color: var(--accent-border);
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.top-bar .logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.top-bar .logo .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* min-width: 0, so a long dataset name ends in an ellipsis instead of widening the bar. */
+.top-bar-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+}
+
+.top-bar-name {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.top-bar-dataset {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+.top-bar-dataset-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The shade beside the open drawer, under the top bar, so the Menu button stays in view to close it. */
+.drawer-backdrop {
+  position: fixed;
+  inset: 56px 0 0;
+  z-index: 30;
+  background-color: var(--backdrop);
+}
+
+@media (min-width: 900px) {
+  .top-bar,
+  .drawer-backdrop {
+    display: none;
+  }
+}
+
+/* Under 1280 px a third column would squeeze the questions, so the source panel lies over their right side instead,
+   and they keep their width. Fixed to the window, which the workspace fills: positioning the workspace instead would
+   let the hidden labels deep in the cards stretch it, and scrolling a card into view would then scroll it too. */
+@media (max-width: 1279px) {
+  .workspace.with-source {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .source-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    width: min(420px, 100%);
+    box-shadow: var(--shadow-overlay);
+  }
+}
+
+/* Under 900 px the questions take the whole width under the top bar. The sidebar waits off the left edge, hidden from
+   the keyboard and screen readers too, until Menu slides it in over the page. */
+@media (max-width: 899px) {
+  .workspace,
+  .workspace.with-source {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 56px;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(320px, calc(100% - 48px));
+    box-shadow: var(--shadow-overlay);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 0.2s ease,
+      visibility 0.2s;
+  }
+
+  .workspace.drawer-open .sidebar {
+    transform: none;
+    visibility: visible;
+  }
+
+  /* Over the whole width, under the top bar. */
+  .source-panel {
+    top: 56px;
+    left: 0;
+    width: auto;
+    border-left: 0;
+    box-shadow: none;
+  }
+
+  /* The top bar names the dataset already. */
+  .questions-header .crumb {
+    display: none;
+  }
+
+  .questions-header,
+  .source-panel-head {
+    min-height: 0;
+  }
+
+  .questions-header {
+    padding: 12px 20px;
+  }
+
+  .questions-body {
+    padding: 12px 20px;
+  }
+
+  .ask-bar {
+    padding: 10px 20px 12px;
+  }
+
+  .source-panel-head {
+    padding: 10px 12px 10px 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
+}
+
+/* A phone: the card's header and the rows of a reply stack, so the question keeps a readable width. */
+@media (max-width: 599px) {
+  .questions-header,
+  .questions-body,
+  .ask-bar {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .question-card {
+    padding: 12px 14px 14px;
+  }
+
+  /* The question on the first line, beside the collapse button, and the chip and the time under it. */
+  .card-head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .card-title {
+    flex-basis: calc(100% - 36px);
+  }
+
+  .card-head .collapse-button {
+    order: 1;
+    align-self: flex-start;
+    margin-top: -3px;
+  }
+
+  .status-chip {
+    order: 2;
+  }
+
+  .card-head time {
+    order: 3;
+  }
+
+  .exchange {
+    gap: 8px;
+  }
+
+  .exchange div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The hint gives its lines to the cards, and stays the question box's description for screen readers. The header
+     says the same: each question is answered on its own. */
+  .ask-form {
+    position: relative;
+  }
+
+  .ask-hint {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* Safari on a phone zooms into a field whose text is under 16 px when it takes the focus. */
+@media (pointer: coarse) {
+  .ask-form textarea,
+  .reply-form textarea,
+  .dataset-form input,
+  .login-form input,
+  .switcher-select {
+    font-size: 16px;
+  }
 }

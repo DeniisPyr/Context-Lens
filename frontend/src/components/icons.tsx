@@ -43,6 +43,15 @@ export function StackIcon(props: Props) {
   )
 }
 
+// Three lines: the menu that opens the sidebar on a narrow window.
+export function MenuIcon(props: Props) {
+  return (
+    <Icon {...props}>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </Icon>
+  )
+}
+
 export function ChevronsUpDownIcon(props: Props) {
   return (
     <Icon {...props}>

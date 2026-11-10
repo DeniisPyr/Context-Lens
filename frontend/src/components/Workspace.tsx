@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { Dataset } from '../api/datasets.ts'
 import { useDatasets } from '../hooks/useDatasets.ts'
@@ -9,6 +9,11 @@ import Documents from './Documents.tsx'
 import QuestionsColumn from './QuestionsColumn.tsx'
 import Sidebar from './Sidebar.tsx'
 import SourcePanel, { type OpenSource } from './SourcePanel.tsx'
+import TopBar from './TopBar.tsx'
+
+// A window this wide has room for the sidebar's column. On a narrower one the sidebar is a drawer, opened from the top
+// bar. The stylesheet switches at the same width.
+const WIDE_ENOUGH_FOR_SIDEBAR = '(min-width: 900px)'
 
 type Props = {
   loginRequired: boolean
@@ -38,6 +43,11 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
   // The chip that opened it, to give the focus back to when it closes, and the panel's heading, to give it to.
   const opener = useRef<HTMLButtonElement | null>(null)
   const panelHeading = useRef<HTMLHeadingElement>(null)
+  // The sidebar as a drawer over the page, on a narrow window. The Menu button opens it and takes the focus back.
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const menuButton = useRef<HTMLButtonElement>(null)
+  const sidebar = useRef<HTMLElement>(null)
+  const sidebarId = useId()
 
   // The dataset the open source belongs to. When another one is selected, however that happens, the panel closes
   // during this very render, so it never shows beside the other dataset's cards, and doesn't open again on return.
@@ -47,6 +57,19 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
     setOpenSource(null)
   }
 
+  // When the window grows wide enough for the sidebar's column, as when a tablet turns, the drawer closes: the page
+  // behind it would stay inert otherwise, and it would open again by itself when the window got narrow.
+  useEffect(() => {
+    if (!drawerOpen) return
+    const wide = window.matchMedia?.(WIDE_ENOUGH_FOR_SIDEBAR)
+    if (!wide) return
+    const closeWhenWide = () => {
+      if (wide.matches) setDrawerOpen(false)
+    }
+    wide.addEventListener('change', closeWhenWide)
+    return () => wide.removeEventListener('change', closeWhenWide)
+  }, [drawerOpen])
+
   function handleCreated(dataset: Dataset) {
     add(dataset)
     setChosenId(dataset.id)
@@ -55,6 +78,32 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
   function handleDeleted(id: string) {
     remove(id)
     questions.forget(id)
+  }
+
+  // Each of these renders at once with flushSync, so the element that should get the focus can take it: the drawer,
+  // which a screen reader then names, or the Menu button, since whatever had the focus slides out of view.
+  function openDrawer() {
+    flushSync(() => setDrawerOpen(true))
+    sidebar.current?.focus()
+  }
+
+  function closeDrawer() {
+    flushSync(() => setDrawerOpen(false))
+    menuButton.current?.focus()
+  }
+
+  // Picking another dataset is what the drawer is opened for most, so it closes to show that dataset's questions.
+  function choose(id: string) {
+    setChosenId(id)
+    if (drawerOpen) closeDrawer()
+  }
+
+  // Escape closes the drawer, unless something inside it has used the key already, as the new dataset form does.
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape' && drawerOpen && !event.defaultPrevented) {
+      event.preventDefault()
+      closeDrawer()
+    }
   }
 
   // Each of these renders at once with flushSync, so the element that should get the focus is already there.
@@ -77,9 +126,24 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
     else openSourceFrom(source, button)
   }
 
+  const className = ['workspace', openSource && 'with-source', drawerOpen && 'drawer-open'].filter(Boolean).join(' ')
+
   return (
-    <div className={openSource ? 'workspace with-source' : 'workspace'}>
-      <Sidebar loginRequired={loginRequired} onLoggedOut={onLoggedOut}>
+    <div className={className} onKeyDown={handleKeyDown}>
+      <TopBar
+        datasetName={selected?.name}
+        sidebarId={sidebarId}
+        drawerOpen={drawerOpen}
+        menuRef={menuButton}
+        onMenu={drawerOpen ? closeDrawer : openDrawer}
+      />
+      <Sidebar
+        id={sidebarId}
+        ref={sidebar}
+        drawerOpen={drawerOpen}
+        loginRequired={loginRequired}
+        onLoggedOut={onLoggedOut}
+      >
         <Datasets
           datasets={datasets}
           error={error}
@@ -87,7 +151,7 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
           documentCount={documents.documents?.length ?? null}
           busy={busy}
           onBusyChange={setBusy}
-          onChoose={setChosenId}
+          onChoose={choose}
           onCreated={handleCreated}
           onDeleted={handleDeleted}
         />
@@ -105,6 +169,8 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
           />
         )}
       </Sidebar>
+      {/* Only for the pointer: a tap beside the drawer closes it. The keyboard has Escape, and the Menu button. */}
+      {drawerOpen && <div className="drawer-backdrop" aria-hidden="true" onClick={closeDrawer} />}
       <QuestionsColumn
         dataset={selected}
         noDatasets={datasets?.length === 0}
@@ -114,8 +180,11 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
         onReply={questions.reply}
         openSource={openSource?.key ?? null}
         onToggleSource={toggleSource}
+        inert={drawerOpen}
       />
-      {openSource && <SourcePanel source={openSource} headingRef={panelHeading} onClose={closeSource} />}
+      {openSource && (
+        <SourcePanel source={openSource} headingRef={panelHeading} inert={drawerOpen} onClose={closeSource} />
+      )}
     </div>
   )
 }

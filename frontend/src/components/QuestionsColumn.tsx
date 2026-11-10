@@ -17,6 +17,8 @@ type Props = SourceProps & {
   questions: Question[]
   onAsk: (datasetId: string, question: string, documentCount: number) => Promise<void>
   onReply: (datasetId: string, question: Question, reply: string) => Promise<void>
+  // True while the sidebar is open over it as a drawer, so neither the keyboard nor a screen reader wanders in.
+  inert: boolean
 }
 
 // The middle of the page: a header naming the dataset, the cards of the questions asked about it, which scroll on
@@ -28,6 +30,7 @@ export default function QuestionsColumn({
   questions,
   onAsk,
   onReply,
+  inert,
   ...sourceProps
 }: Props) {
   const newestCard = useRef<HTMLElement>(null)
@@ -43,7 +46,7 @@ export default function QuestionsColumn({
   }, [newestState])
 
   return (
-    <main className="questions">
+    <main className="questions" inert={inert}>
       <header className="questions-header">
         <div className="questions-title">
           {dataset && (
