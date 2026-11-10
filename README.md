@@ -2,6 +2,10 @@
 
 Ask questions about your own documents and get answers backed by exact quotes, each linked to the lines it comes from. When the documents don't contain the answer, Context-Lens says so instead of guessing. When the answer depends on something the question doesn't say, it asks.
 
+![Logging in, creating a dataset and uploading seven documents, one of them a PDF. Then three questions: one answered from page 3 of the PDF, with its citation opened in the line viewer; one the documents don't answer, which gets "not found"; and one that gets a clarifying question back, with the lines that show why, then an answer to the reply.](docs/demo.gif)
+
+*The waits for Gemini are cut short in this recording. The documents are the fictional ones from the evaluation set.*
+
 ## What it does
 
 - **Datasets:** upload many `.txt`, `.md` and `.pdf` files at once into a named dataset, stored in Postgres.
@@ -400,6 +404,7 @@ Postgres, Docker, the migrations and the evaluation questions live outside that 
 
 ```
 compose.yaml                 # runs Postgres for development, and with --profile app the whole app
+docs/demo.gif                # the recording at the top of this README
 scripts/check-docker-stack.sh  # checks a running Docker app: login, size cap, rate limit, headers
 backend/
 ├── Dockerfile               # the backend image, which also applies the migrations
