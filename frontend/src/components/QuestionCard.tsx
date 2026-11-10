@@ -3,9 +3,9 @@ import type { Question } from '../hooks/useQuestions.ts'
 import Answer from './Answer.tsx'
 import { ChevronDownIcon, ChevronUpIcon, SpinnerIcon } from './icons.tsx'
 import ReplyForm from './ReplyForm.tsx'
-import Sources from './Sources.tsx'
+import Sources, { type SourceProps } from './Sources.tsx'
 
-type Props = {
+type Props = SourceProps & {
   question: Question
   // True while any question or reply of the dataset is on its way: a reply then waits its turn.
   waiting: boolean
@@ -33,8 +33,8 @@ function statusOf({ answer, reply }: Question): { label: string; tone: string } 
 }
 
 // One question of the session: its number, the question, where it is, and below that what came back.
-export default function QuestionCard({ question, waiting, onReply, ref }: Props) {
-  const { number, answer, reply } = question
+export default function QuestionCard({ question, waiting, onReply, ref, ...sourceProps }: Props) {
+  const { id, number, answer, reply } = question
   const [collapsed, setCollapsed] = useState(false)
   // The clarifying question's sources, once the reply is answered. They start hidden: the answer comes first.
   const [whyOpen, setWhyOpen] = useState(false)
@@ -42,6 +42,10 @@ export default function QuestionCard({ question, waiting, onReply, ref }: Props)
   const bodyId = useId()
   const whyId = useId()
   const status = statusOf(question)
+  // The sources of the first answer and of the answer to the reply are told apart in the panel by these keys.
+  const firstKey = `${id}:first`
+  const replyKey = `${id}:reply`
+  const showing = sourceProps.openSource?.startsWith(`${id}:`) ?? false
 
   let body: ReactNode
   if (answer === null) {
@@ -68,7 +72,7 @@ export default function QuestionCard({ question, waiting, onReply, ref }: Props)
             <dd>{reply.text}</dd>
           </div>
         </dl>
-        <Answer result={reply.answer} />
+        <Answer result={reply.answer} sourceKey={replyKey} number={number} {...sourceProps} />
         <button
           type="button"
           className="why-toggle"
@@ -80,14 +84,14 @@ export default function QuestionCard({ question, waiting, onReply, ref }: Props)
           {whyOpen ? <ChevronUpIcon className="icon-sm" /> : <ChevronDownIcon className="icon-sm" />}
         </button>
         <div id={whyId} hidden={!whyOpen}>
-          <Sources citations={answer.citations} />
+          <Sources citations={answer.citations} group={{ key: firstKey, number, why: true }} {...sourceProps} />
         </div>
       </>
     )
   } else {
     body = (
       <>
-        <Answer result={answer} />
+        <Answer result={answer} sourceKey={firstKey} number={number} {...sourceProps} />
         {answer.status === 'needs_clarification' && (
           <ReplyForm replying={reply !== null} disabled={waiting} onReply={onReply} />
         )}
@@ -98,7 +102,7 @@ export default function QuestionCard({ question, waiting, onReply, ref }: Props)
   return (
     <article
       ref={ref}
-      className={answer === null ? 'question-card pending' : 'question-card'}
+      className={['question-card', answer === null && 'pending', showing && 'showing'].filter(Boolean).join(' ')}
       aria-labelledby={headingId}
       aria-busy={status.tone === 'busy' || undefined}
     >

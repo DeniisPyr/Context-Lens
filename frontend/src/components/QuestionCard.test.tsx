@@ -47,8 +47,21 @@ function question(changes: Partial<Question> = {}): Question {
 const replied = (answer: Answer | null, text = 'A laptop.') =>
   question({ answer: clarifying, reply: { text, answer } })
 
-function renderCard(asked: Question, { waiting = false, onReply = vi.fn(async () => {}) } = {}) {
-  return render(<QuestionCard question={asked} waiting={waiting} onReply={onReply} />)
+function renderCard(
+  asked: Question,
+  { waiting = false, onReply = vi.fn(async () => {}), openSource = null as string | null } = {},
+) {
+  const onToggleSource = vi.fn()
+  const view = render(
+    <QuestionCard
+      question={asked}
+      waiting={waiting}
+      onReply={onReply}
+      openSource={openSource}
+      onToggleSource={onToggleSource}
+    />,
+  )
+  return { ...view, onToggleSource }
 }
 
 const card = () => screen.getByRole('article')
@@ -306,5 +319,43 @@ describe('Why I asked', () => {
 
     expect(whyButton()).toHaveAttribute('aria-expanded', 'false')
     expect(screen.getByText('a lost laptop')).not.toBeVisible()
+  })
+})
+
+describe('the sources of a card', () => {
+  it('tells the answer to the reply from the lines the clarifying question cited', async () => {
+    const user = userEvent.setup()
+    const { onToggleSource } = renderCard(replied(answered))
+
+    await user.click(screen.getByRole('button', { name: 'Line 3' }))
+    await user.click(whyButton())
+    await user.click(screen.getByRole('button', { name: 'Line 2' }))
+
+    expect(onToggleSource.mock.calls.map(([source]) => [source.key, source.number, source.why])).toEqual([
+      ['1:reply:0', 3, false],
+      ['1:first:0', 3, true],
+    ])
+  })
+
+  it('stands out while one of its sources is open, and only then', () => {
+    const { unmount } = renderCard(question(), { openSource: '1:first:0' })
+    expect(card()).toHaveClass('showing')
+    expect(screen.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-pressed', 'true')
+    unmount()
+
+    renderCard(question(), { openSource: '2:first:0' })
+
+    expect(card()).not.toHaveClass('showing')
+    expect(screen.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('keeps a clarifying source pressed behind Why I asked once the reply is answered', async () => {
+    const user = userEvent.setup()
+    renderCard(replied(answered), { openSource: '1:first:1' })
+
+    await user.click(whyButton())
+
+    expect(screen.getByRole('button', { name: 'Lines 7–8' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-pressed', 'false')
   })
 })

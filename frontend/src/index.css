@@ -475,6 +475,11 @@ h4 {
   overflow: hidden;
 }
 
+/* With a source open, the panel takes a third column, and the questions give it the room. */
+.workspace.with-source {
+  grid-template-columns: 280px minmax(0, 1fr) 420px;
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -1339,6 +1344,12 @@ h4 {
   scroll-margin-top: 14px;
 }
 
+/* The card whose source is open in the panel. */
+.question-card.showing {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-card);
+}
+
 /* Waiting for its answer: a dashed outline, like something not finished. */
 .question-card.pending {
   padding-top: 12px;
@@ -1525,6 +1536,23 @@ h4 {
   background-color: var(--canvas);
 }
 
+/* The one open in the panel: tinted, with the accent bar at its edge. */
+.source-card.showing {
+  border-color: var(--accent-border);
+  background-color: var(--source-bg);
+}
+
+.source-card.showing::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: -1px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background-color: var(--accent-bar);
+}
+
 /* The filename wraps under its icon before the chip leaves the row. */
 .source-top {
   display: flex;
@@ -1564,11 +1592,22 @@ h4 {
 }
 
 .source-chip:hover:not(:disabled),
-.source-chip[aria-expanded='true'],
 .source-chip[aria-pressed='true'] {
   border-color: var(--accent-border);
   background-color: var(--accent-soft);
   color: var(--accent-text);
+}
+
+/* Says, at the end of the row, that the panel shows this source. */
+.source-showing {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* Quote marks drawn around it, outside the text, so a copy is the quote alone. */
@@ -1780,28 +1819,132 @@ h4 {
   color: var(--accent-text);
 }
 
-/* ---------- The lines around a citation ---------- */
+/* ---------- The source panel ---------- */
 
-.line-viewer {
-  margin: 8px 0 0;
+.source-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background-color: var(--panel-alt);
 }
 
-.line-viewer .link-button {
-  display: block;
+/* As tall as the header of the questions column, so the two lines up. */
+.source-panel-head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 82px;
+  padding: 12px 14px 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-panel-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* One line, cut short with an ellipsis: its title holds the whole name. */
+.source-panel h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The chip in the header only labels: it has the open chip's look, without being a button. */
+.source-panel-top .source-chip {
+  display: inline-flex;
+  align-items: center;
+  border-color: var(--accent-border);
+  background-color: var(--accent-soft);
+}
+
+.source-panel-close {
+  margin-left: auto;
+}
+
+.source-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  color: var(--muted);
   font-size: 12.5px;
 }
 
-/* The first column fits the widest number shown, and subgrid lines every row up on it. */
-.line-list {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  max-height: 24rem;
-  margin: 4px 0;
-  padding: 4px 0;
-  overflow-y: auto;
-  border: 1px solid var(--border);
+.source-panel-meta .icon {
+  color: var(--ok);
+}
+
+/* ---------- The lines around a citation ---------- */
+
+/* Fills the panel under its header. The buttons stay at the ends, and the lines scroll between them. */
+.line-viewer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 0 12px;
+}
+
+/* Loading, or the error. */
+p.line-viewer {
+  padding: 16px 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+p.line-viewer[role='alert'] {
+  color: var(--err);
+}
+
+.more-lines {
+  flex: none;
+  gap: 6px;
+  width: calc(100% - 28px);
+  min-height: 30px;
+  height: 30px;
+  margin: 0 14px;
+  border: 1px dashed;
+  border-color: var(--border-strong);
   border-radius: var(--radius-sm);
   background-color: var(--panel-alt);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.more-lines:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background-color: var(--raised);
+  color: var(--text);
+}
+
+.line-list + .more-lines {
+  margin-top: 10px;
+}
+
+/* The first column fits the widest number shown, and subgrid lines every row up on it. It takes the height its lines
+   need, and no more than the panel has, scrolling when they're more. */
+.line-list {
+  display: grid;
+  flex: 0 1 auto;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-content: start;
+  min-height: 0;
+  max-height: 100%;
+  margin: 2px 0 0;
+  padding: 0;
+  overflow-y: auto;
   /* The stack itself rather than var(--mono): jsdom doesn't resolve variables, and a test checks for monospace. */
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 12.5px;
@@ -1809,20 +1952,38 @@ h4 {
   list-style: none;
 }
 
+/* The list scrolls with the keyboard, so it shows the focus inside its own edges. */
+.line-list:focus-visible {
+  outline-offset: -2px;
+}
+
 .line-list li {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
+  padding: 1px 0;
 }
 
-/* A page of a PDF starts with a row across both columns. Like a line number, it stays out of a copy of the lines. */
+/* A page of a PDF starts with a row across both columns: its name and a rule. Like a line number, it stays out of a
+   copy of the lines. */
 .line-list .page-start {
-  display: block;
-  padding: 8px 12px 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px 18px 6px;
   color: var(--muted);
   font-family: var(--sans);
   -webkit-user-select: none;
   user-select: none;
+}
+
+.page-start::after {
+  content: '';
+  flex: 1;
+  order: 1;
+  height: 1px;
+  background-color: var(--border);
 }
 
 .page-start h4 {
@@ -1833,19 +1994,26 @@ h4 {
 }
 
 .page-start p {
-  margin: 0;
+  flex-basis: 100%;
+  order: 2;
+  margin: 2px 0 0;
+  font-size: 12px;
   font-style: italic;
 }
 
+/* The cited lines: tinted, with the accent bar at their edge. */
 .line-list li[aria-current='true'] {
+  padding: 3px 0;
   background-color: var(--hit-bg);
   box-shadow: inset 3px 0 0 var(--accent-bar);
   color: var(--text);
 }
 
-/* Safari only knows the prefixed user-select. */
+/* Room for two digits at least, so short documents keep the gutter of long ones. Safari only knows the prefixed
+   user-select. */
 .line-number {
-  padding: 0 12px 0 12px;
+  min-width: 57px;
+  padding: 0 12px 0 15px;
   color: var(--subtle);
   text-align: right;
   -webkit-user-select: none;
@@ -1858,7 +2026,7 @@ h4 {
 }
 
 .line-text {
-  padding-right: 12px;
+  padding-right: 16px;
   color: var(--text-2);
   overflow-wrap: anywhere;
   white-space: pre-wrap;

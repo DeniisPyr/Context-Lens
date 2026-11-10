@@ -4,8 +4,9 @@ import { isWaiting, type Question } from '../hooks/useQuestions.ts'
 import Ask from './Ask.tsx'
 import { CheckCircleIcon, HelpIcon, InfoIcon, LensIcon, SearchOffIcon, StackIcon } from './icons.tsx'
 import QuestionCard from './QuestionCard.tsx'
+import type { SourceProps } from './Sources.tsx'
 
-type Props = {
+type Props = SourceProps & {
   // undefined while the datasets load, or when there are none.
   dataset: Dataset | undefined
   // True once the list has loaded and is empty, so the start prompt can't show before we know.
@@ -20,7 +21,15 @@ type Props = {
 
 // The middle of the page: a header naming the dataset, the cards of the questions asked about it, which scroll on
 // their own, and the box to ask the next one, pinned at the bottom.
-export default function QuestionsColumn({ dataset, noDatasets, documentCount, questions, onAsk, onReply }: Props) {
+export default function QuestionsColumn({
+  dataset,
+  noDatasets,
+  documentCount,
+  questions,
+  onAsk,
+  onReply,
+  ...sourceProps
+}: Props) {
   const newestCard = useRef<HTMLElement>(null)
   const hasDocuments = documentCount !== null && documentCount > 0
   const waiting = isWaiting(questions)
@@ -86,6 +95,7 @@ export default function QuestionsColumn({ dataset, noDatasets, documentCount, qu
                 question={question}
                 waiting={waiting}
                 onReply={(reply) => onReply(dataset.id, question, reply)}
+                {...sourceProps}
               />
             ))}
           </div>

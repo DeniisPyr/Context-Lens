@@ -114,6 +114,8 @@ const askRequests = (fetchStub: ReturnType<typeof stubRoutes>) =>
 const askBodies = (fetchStub: ReturnType<typeof stubRoutes>) =>
   askRequests(fetchStub).map(([, init]) => JSON.parse(init?.body as string))
 
+const panel = () => screen.queryByRole('complementary', { name: 'Source' })
+
 const replyBox = () => screen.getByRole<HTMLTextAreaElement>('textbox', { name: 'Your reply' })
 const replyButton = () => screen.getByRole('button', { name: 'Reply' })
 const replyForm = () => within(replyBox().form!)
@@ -658,8 +660,6 @@ describe('an answer that cites two files', () => {
     })
   }
 
-  const citationOf = (button: HTMLElement) => button.closest('li') as HTMLElement
-
   it('shows each citation with the file it comes from', async () => {
     const user = userEvent.setup()
     stubTwoFiles()
@@ -677,7 +677,7 @@ describe('an answer that cites two files', () => {
     expect(within(second).getByRole('blockquote')).toHaveTextContent('report line 2')
   })
 
-  it("opens each citation's lines in its own document", async () => {
+  it("opens each citation's lines in its own document, in the panel", async () => {
     const user = userEvent.setup()
     const fetchStub = stubTwoFiles()
 
@@ -687,11 +687,11 @@ describe('an answer that cites two files', () => {
     const reportButton = screen.getByRole('button', { name: 'Line 2' })
 
     await user.click(notesButton)
-    const notesViewer = await within(citationOf(notesButton)).findByRole('list', { name: 'Lines of notes.txt' })
+    const notesViewer = await within(panel()!).findByRole('list', { name: 'Lines of notes.txt' })
     expect(within(notesViewer).getByText('notes line 3').closest('li')).toHaveAttribute('aria-current', 'true')
 
     await user.click(reportButton)
-    const reportViewer = await within(citationOf(reportButton)).findByRole('list', { name: 'Lines of report.md' })
+    const reportViewer = await within(panel()!).findByRole('list', { name: 'Lines of report.md' })
     expect(within(reportViewer).getByText('report line 2').closest('li')).toHaveAttribute('aria-current', 'true')
     expect(screen.queryByRole('list', { name: 'Lines of notes.txt' })).not.toBeInTheDocument()
 
@@ -713,7 +713,7 @@ describe('an open citation', () => {
     await screen.findByRole('list', { name: 'Lines of notes.txt' })
   }
 
-  it('stays open in its own card when another question is answered, whose citations start closed', async () => {
+  it('stays open when another question is answered, whose chips start unpressed', async () => {
     const user = userEvent.setup()
     const fetchStub = stubPage([notes], { 'GET /api/documents/1': documentRoute })
 
@@ -725,9 +725,10 @@ describe('an open citation', () => {
     const second = within(await findCard(2, 'How?'))
     await second.findByText('The answer.')
 
-    expect(second.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-expanded', 'false')
-    expect(second.getByRole('button', { name: 'Lines 4–6' })).toHaveAttribute('aria-expanded', 'false')
-    expect(within(card(1, 'Why?')).getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-expanded', 'true')
+    expect(second.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-pressed', 'false')
+    expect(second.getByRole('button', { name: 'Lines 4–6' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(card(1, 'Why?')).getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(panel()!).getByText('Quote found on line 3 · cited in Q1')).toBeInTheDocument()
     expect(openViewers()).toHaveLength(1)
     expect(documentRequests(fetchStub)).toHaveLength(1)
   })
@@ -743,7 +744,7 @@ describe('an open citation', () => {
     await ask(user, 'How?')
 
     expect(documentRequests(fetchStub)[0][1]?.signal?.aborted).toBe(false)
-    expect(within(card(1, 'Why?')).getByRole('status')).toHaveTextContent('Loading the document…')
+    expect(within(panel()!).getByRole('status')).toHaveTextContent('Loading the document…')
 
     answer(Response.json(answered))
     await within(await findCard(2, 'How?')).findByText('The answer.')
@@ -1188,10 +1189,10 @@ describe('a clarifying question', () => {
     expect(askRequests(fetchStub)).toHaveLength(2)
   })
 
-  it('leaves its open citation behind: the answer to the reply starts with every citation closed', async () => {
+  it('keeps its open source in the panel after the reply, behind Why I asked, and the new chips start unpressed', async () => {
     const user = userEvent.setup()
     const lines = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`)
-    stubPage([notes], {
+    const fetchStub = stubPage([notes], {
       'POST /api/ask': answersInTurn(clarifying, answered),
       'GET /api/documents/1': () => Response.json({ ...notes, lines, page_starts: null }),
     })
@@ -1200,12 +1201,18 @@ describe('a clarifying question', () => {
     await askAndGetClarifyingQuestion(user)
     await user.click(screen.getByRole('button', { name: 'Line 2' }))
     await screen.findByRole('list', { name: 'Lines of notes.txt' })
+    expect(within(panel()!).getByText('Quote found on line 2 · cited in Q1 · why I asked')).toBeInTheDocument()
     await reply(user)
     await screen.findByText('The answer.')
 
-    expect(screen.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.getByRole('button', { name: 'Lines 4–6' })).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryAllByRole('list', { name: /^Lines of/ })).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Line 3' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Lines 4–6' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(panel()!).getByText('Quote found on line 2 · cited in Q1 · why I asked')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Why I asked (2)' }))
+
+    expect(screen.getByRole('button', { name: 'Line 2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(fetchStub.mock.calls.filter(([url]) => url === '/api/documents/1')).toHaveLength(1)
   })
 
   it('keeps its reply box while other questions are asked, and puts the answer to the reply in its card', async () => {
