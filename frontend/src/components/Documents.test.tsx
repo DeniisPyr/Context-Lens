@@ -1,6 +1,6 @@
 import { act, fireEvent, render, renderHook, screen, within } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
-import { StrictMode, useState } from 'react'
+import { StrictMode, useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useDocuments } from '../hooks/useDocuments.ts'
 import Documents from './Documents.tsx'
@@ -18,12 +18,14 @@ function stubRoutes(routes: Record<string, Route>) {
 function LoadedDocuments() {
   const { documents, error, reload, remove } = useDocuments('d1')
   const [busy, setBusy] = useState(false)
+  const input = useRef<HTMLInputElement>(null)
   return (
     <Documents
       datasetId="d1"
       documents={documents}
       error={error}
       busy={busy}
+      fileInputRef={input}
       onBusyChange={setBusy}
       onUploaded={reload}
       onDeleted={remove}

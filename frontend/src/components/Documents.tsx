@@ -1,3 +1,4 @@
+import type { RefObject } from 'react'
 import { deleteDocument, type DocumentSummary } from '../api/documents.ts'
 import ConfirmDelete from './ConfirmDelete.tsx'
 import { FileIcon, PdfIcon, TrashIcon } from './icons.tsx'
@@ -14,12 +15,23 @@ type Props = {
   documents: DocumentSummary[] | null
   error: string | null
   busy: boolean
+  // The upload's file input, which Workspace focuses when the empty questions column asks for files.
+  fileInputRef: RefObject<HTMLInputElement | null>
   onBusyChange: (busy: boolean) => void
   onUploaded: () => void
   onDeleted: (id: string) => void
 }
 
-export default function Documents({ datasetId, documents, error, busy, onBusyChange, onUploaded, onDeleted }: Props) {
+export default function Documents({
+  datasetId,
+  documents,
+  error,
+  busy,
+  fileInputRef,
+  onBusyChange,
+  onUploaded,
+  onDeleted,
+}: Props) {
   async function handleDelete(doc: DocumentSummary) {
     await deleteDocument(doc.id)
     onDeleted(doc.id)
@@ -64,7 +76,13 @@ export default function Documents({ datasetId, documents, error, busy, onBusyCha
           ))}
         </ul>
       )}
-      <Upload datasetId={datasetId} busy={busy} onBusyChange={onBusyChange} onUploaded={onUploaded} />
+      <Upload
+        datasetId={datasetId}
+        busy={busy}
+        inputRef={fileInputRef}
+        onBusyChange={onBusyChange}
+        onUploaded={onUploaded}
+      />
     </section>
   )
 }

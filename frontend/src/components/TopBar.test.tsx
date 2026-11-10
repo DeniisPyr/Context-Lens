@@ -43,6 +43,17 @@ function stubPage(routes: Record<string, Route> = {}) {
   })
 }
 
+// matchMedia for a window this many pixels wide, answering the queries the page asks it.
+function stubWindowWidth(width: number) {
+  const matchMedia = vi.fn((query: string) => {
+    const [, bound, pixels] = /^\((min|max)-width: (\d+)px\)$/.exec(query)!
+    const matches = bound === 'min' ? width >= Number(pixels) : width <= Number(pixels)
+    return { matches, addEventListener: vi.fn(), removeEventListener: vi.fn() }
+  })
+  vi.stubGlobal('matchMedia', matchMedia)
+  return matchMedia
+}
+
 const menuButton = () => screen.getByRole('button', { name: 'Menu' })
 // Found from its button: Testing Library takes every header on the page for a banner, the cards' too.
 const topBar = () => menuButton().closest('header')!
@@ -255,18 +266,25 @@ describe('closing the drawer', () => {
     expect(menuButton()).toHaveFocus()
   })
 
-  it('closes when a dataset is chosen, and shows its questions', async () => {
+  it('stays open when a dataset is chosen, which shows its questions behind it', async () => {
     const user = userEvent.setup()
     stubPage()
 
     await renderPage()
     await openDrawer(user)
+    act(() => datasetSelect().focus())
     await user.selectOptions(datasetSelect(), reports.id)
 
-    expectClosed()
-    expect(menuButton()).toHaveFocus()
+    // On Windows and Linux every arrow key on the select chooses a dataset, so closing would take the list away.
+    expectOpen()
+    expect(datasetSelect()).toHaveFocus()
     expect(datasetSelect()).toHaveValue(reports.id)
     expect(within(questionsColumn()).getByText('Reports')).toBeInTheDocument()
+
+    await user.selectOptions(datasetSelect(), invoices.id)
+
+    expectOpen()
+    expect(datasetSelect()).toHaveValue(invoices.id)
   })
 
   it('stays open when a dataset is created, so files can go into it next', async () => {
@@ -345,5 +363,65 @@ describe('with the drawer closed', () => {
 
     expect(newDatasetButton()).toHaveFocus()
     expectClosed()
+  })
+})
+
+describe('the buttons of the empty questions column, on a narrow window', () => {
+  it('opens the drawer from Create a dataset, with the focus in the name field', async () => {
+    const user = userEvent.setup()
+    const matchMedia = stubWindowWidth(390)
+    stubPage({ 'GET /api/datasets': () => Response.json([]) })
+
+    render(<App />)
+    await screen.findByText('Create a dataset to get started.')
+    await user.click(screen.getByRole('button', { name: 'Create a dataset' }))
+
+    expect(matchMedia).toHaveBeenCalledWith('(min-width: 900px)')
+    expectOpen()
+    expect(screen.getByRole('textbox', { name: 'New dataset name' })).toHaveFocus()
+  })
+
+  it('opens the drawer from Add files, with the focus on the file input', async () => {
+    const user = userEvent.setup()
+    stubWindowWidth(390)
+    stubPage({ 'GET /api/datasets/i/documents': () => Response.json([]) })
+
+    render(<App />)
+    await screen.findByText('Add files to Invoices to ask about them.')
+    await user.click(screen.getByRole('button', { name: 'Add files' }))
+
+    expectOpen()
+    expect(screen.getByLabelText('Add files')).toHaveFocus()
+  })
+
+  it('gives the focus to the drawer when the file input is disabled, as it is while files upload', async () => {
+    const user = userEvent.setup()
+    stubWindowWidth(390)
+    stubPage({
+      'GET /api/datasets/i/documents': () => Response.json([]),
+      'POST /api/datasets/i/documents': () => new Promise<Response>(() => {}),
+    })
+
+    render(<App />)
+    await screen.findByText('Add files to Invoices to ask about them.')
+    await user.upload(screen.getByLabelText('Add files'), new File(['text'], 'a.txt'))
+    expect(screen.getByLabelText('Add files')).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Add files' }))
+
+    expectOpen()
+    expect(sidebar()).toHaveFocus()
+  })
+
+  it('leaves the drawer closed on a window wide enough for the sidebar, and only moves the focus', async () => {
+    const user = userEvent.setup()
+    stubWindowWidth(1440)
+    stubPage({ 'GET /api/datasets/i/documents': () => Response.json([]) })
+
+    render(<App />)
+    await screen.findByText('Add files to Invoices to ask about them.')
+    await user.click(screen.getByRole('button', { name: 'Add files' }))
+
+    expectClosed()
+    expect(screen.getByLabelText('Add files')).toHaveFocus()
   })
 })

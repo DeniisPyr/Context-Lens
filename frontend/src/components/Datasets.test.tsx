@@ -111,6 +111,17 @@ describe('before any dataset exists', () => {
     expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
   })
 
+  it('leads from the start prompt to the name field in the sidebar', async () => {
+    const user = userEvent.setup()
+    stubPage([])
+
+    render(<App />)
+    await screen.findByText(startMessage)
+    await user.click(screen.getByRole('button', { name: 'Create a dataset' }))
+
+    expect(nameInput()).toHaveFocus()
+  })
+
   it('says nothing while the first load is running', async () => {
     const fetchStub = stubPage([], { 'GET /api/datasets': rejectsOnAbort })
 

@@ -2,7 +2,16 @@ import { useLayoutEffect, useRef } from 'react'
 import type { Dataset } from '../api/datasets.ts'
 import { isWaiting, type Question } from '../hooks/useQuestions.ts'
 import Ask from './Ask.tsx'
-import { CheckCircleIcon, HelpIcon, InfoIcon, LensIcon, SearchOffIcon, StackIcon } from './icons.tsx'
+import {
+  CheckCircleIcon,
+  HelpIcon,
+  InfoIcon,
+  LensIcon,
+  PlusIcon,
+  SearchOffIcon,
+  StackIcon,
+  UploadIcon,
+} from './icons.tsx'
 import QuestionCard from './QuestionCard.tsx'
 import type { SourceProps } from './Sources.tsx'
 
@@ -17,6 +26,10 @@ type Props = SourceProps & {
   questions: Question[]
   onAsk: (datasetId: string, question: string, documentCount: number) => Promise<void>
   onReply: (datasetId: string, question: Question, reply: string) => Promise<void>
+  // Take the user to the control in the sidebar that starts them off, opening it first on a narrow window, where
+  // nothing else on the screen says where that is.
+  onCreateDataset: () => void
+  onAddFiles: () => void
   // True while the sidebar is open over it as a drawer, so neither the keyboard nor a screen reader wanders in.
   inert: boolean
 }
@@ -30,6 +43,8 @@ export default function QuestionsColumn({
   questions,
   onAsk,
   onReply,
+  onCreateDataset,
+  onAddFiles,
   inert,
   ...sourceProps
 }: Props) {
@@ -63,9 +78,23 @@ export default function QuestionsColumn({
         </p>
       </header>
       <div className="questions-body">
-        {noDatasets && <p className="empty-state">Create a dataset to get started.</p>}
+        {noDatasets && (
+          <div className="empty-state">
+            <p>Create a dataset to get started.</p>
+            <button type="button" onClick={onCreateDataset}>
+              <PlusIcon className="icon-sm" />
+              Create a dataset
+            </button>
+          </div>
+        )}
         {dataset && questions.length === 0 && !hasDocuments && (
-          <p className="empty-state">Add files to {dataset.name} to ask about them.</p>
+          <div className="empty-state">
+            <p>Add files to {dataset.name} to ask about them.</p>
+            <button type="button" onClick={onAddFiles}>
+              <UploadIcon className="icon-sm" />
+              Add files
+            </button>
+          </div>
         )}
         {dataset && questions.length === 0 && hasDocuments && (
           <div className="first-question">

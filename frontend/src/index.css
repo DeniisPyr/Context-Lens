@@ -1359,6 +1359,11 @@ h4 {
   overflow-wrap: anywhere;
 }
 
+/* What to do, then the button that leads to it in the sidebar. */
+.empty-state p {
+  margin: 0 0 12px;
+}
+
 /* What the first question can bring back, until there is one. A dataset's name can be 100 characters without a space. */
 .first-question {
   max-width: 28rem;
@@ -2236,14 +2241,20 @@ p.line-viewer[role='alert'] {
     box-shadow: var(--shadow-overlay);
     transform: translateX(-100%);
     visibility: hidden;
+    /* Closing, it stays visible while it slides out, and only then leaves the keyboard and screen readers. */
     transition:
       transform 0.2s ease,
-      visibility 0.2s;
+      visibility 0s linear 0.2s;
   }
 
+  /* Opening, it's visible at once, so it can take the focus as soon as Menu is pressed. A hidden element can't, and
+     the focus would stay on Menu. */
   .workspace.drawer-open .sidebar {
     transform: none;
     visibility: visible;
+    transition:
+      transform 0.2s ease,
+      visibility 0s;
   }
 
   /* Over the whole width, under the top bar. */
@@ -2283,7 +2294,8 @@ p.line-viewer[role='alert'] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar {
+  .sidebar,
+  .workspace.drawer-open .sidebar {
     transition: none;
   }
 }

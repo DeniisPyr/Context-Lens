@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react'
+import { type RefObject, useId, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createDataset, type Dataset, deleteDataset } from '../api/datasets.ts'
 import ConfirmDelete from './ConfirmDelete.tsx'
@@ -12,6 +12,8 @@ type Props = {
   // How many documents the selected dataset holds, for the line under its name. null while they load.
   documentCount: number | null
   busy: boolean
+  // The new dataset's name field, which Workspace focuses when the empty questions column asks for a dataset.
+  nameInputRef: RefObject<HTMLInputElement | null>
   onBusyChange: (busy: boolean) => void
   onChoose: (id: string) => void
   onCreated: (dataset: Dataset) => void
@@ -33,6 +35,7 @@ export default function Datasets({
   selected,
   documentCount,
   busy,
+  nameInputRef: nameInput,
   onBusyChange,
   onChoose,
   onCreated,
@@ -40,7 +43,6 @@ export default function Datasets({
 }: Props) {
   const [formOpen, setFormOpen] = useState(false)
   const newButton = useRef<HTMLButtonElement>(null)
-  const nameInput = useRef<HTMLInputElement>(null)
   const selectId = useId()
   const captionId = useId()
 

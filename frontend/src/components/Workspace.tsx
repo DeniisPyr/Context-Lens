@@ -44,10 +44,14 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
   const opener = useRef<HTMLButtonElement | null>(null)
   const panelHeading = useRef<HTMLHeadingElement>(null)
   // The sidebar as a drawer over the page, on a narrow window. The Menu button opens it and takes the focus back.
+  // Choosing a dataset leaves it open: on Windows and Linux every arrow key on the select chooses one.
   const [drawerOpen, setDrawerOpen] = useState(false)
   const menuButton = useRef<HTMLButtonElement>(null)
   const sidebar = useRef<HTMLElement>(null)
   const sidebarId = useId()
+  // The controls in the sidebar that get the user started, which the empty questions column points to.
+  const nameInput = useRef<HTMLInputElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   // The dataset the open source belongs to. When another one is selected, however that happens, the panel closes
   // during this very render, so it never shows beside the other dataset's cards, and doesn't open again on return.
@@ -92,10 +96,16 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
     menuButton.current?.focus()
   }
 
-  // Picking another dataset is what the drawer is opened for most, so it closes to show that dataset's questions.
-  function choose(id: string) {
-    setChosenId(id)
-    if (drawerOpen) closeDrawer()
+  // The empty questions column has a button for the control in the sidebar that gets the user started: the new
+  // dataset's name, or the files to add. On a narrow window the sidebar is a drawer, which opens first. The control
+  // shows its focus ring even after a click, since the file input is hidden and only its zone's ring says where the
+  // focus went. If the control can't take the focus, as the file input can't while files upload, the drawer takes it,
+  // as when Menu opens it.
+  function showInSidebar(control: HTMLElement | null) {
+    const narrow = window.matchMedia?.(WIDE_ENOUGH_FOR_SIDEBAR).matches === false
+    if (narrow) flushSync(() => setDrawerOpen(true))
+    control?.focus({ focusVisible: true })
+    if (narrow && document.activeElement !== control) sidebar.current?.focus()
   }
 
   // Escape closes the drawer, unless something inside it has used the key already, as the new dataset form does.
@@ -150,8 +160,9 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
           selected={selected}
           documentCount={documents.documents?.length ?? null}
           busy={busy}
+          nameInputRef={nameInput}
           onBusyChange={setBusy}
-          onChoose={choose}
+          onChoose={setChosenId}
           onCreated={handleCreated}
           onDeleted={handleDeleted}
         />
@@ -163,6 +174,7 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
             documents={documents.documents}
             error={documents.error}
             busy={busy}
+            fileInputRef={fileInput}
             onBusyChange={setBusy}
             onUploaded={documents.reload}
             onDeleted={documents.remove}
@@ -178,6 +190,8 @@ export default function Workspace({ loginRequired, onLoggedOut }: Props) {
         questions={(selected && questions.byDataset[selected.id]) ?? []}
         onAsk={questions.ask}
         onReply={questions.reply}
+        onCreateDataset={() => showInSidebar(nameInput.current)}
+        onAddFiles={() => showInSidebar(fileInput.current)}
         openSource={openSource?.key ?? null}
         onToggleSource={toggleSource}
         inert={drawerOpen}

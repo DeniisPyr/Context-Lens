@@ -1,10 +1,12 @@
-import { type ChangeEvent, type DragEvent, useId, useState } from 'react'
+import { type ChangeEvent, type DragEvent, type RefObject, useId, useState } from 'react'
 import { uploadDocument } from '../api/documents.ts'
 import { CheckCircleIcon, PendingIcon, SpinnerIcon, UploadIcon, XCircleIcon, XIcon } from './icons.tsx'
 
 type Props = {
   datasetId: string
   busy: boolean
+  // The file input, which Workspace focuses when the empty questions column asks for files.
+  inputRef: RefObject<HTMLInputElement | null>
   onBusyChange: (busy: boolean) => void
   onUploaded: () => void
 }
@@ -24,7 +26,7 @@ const STATE_TEXTS = { uploaded: 'Uploaded', uploading: 'Uploading…', waiting: 
 
 // The drop zone, and under it a card that follows the files of the last run. Choosing or dropping files starts the
 // run at once: there's nothing more to confirm.
-export default function Upload({ datasetId, busy, onBusyChange, onUploaded }: Props) {
+export default function Upload({ datasetId, busy, inputRef, onBusyChange, onUploaded }: Props) {
   // The names of the files in the last run, in order, and one result for each file that has finished: its error, or
   // null when it was uploaded. The run is on until every file has its result.
   const [filenames, setFilenames] = useState<string[]>([])
@@ -115,6 +117,7 @@ export default function Upload({ datasetId, busy, onBusyChange, onUploaded }: Pr
           </span>
         </span>
         <input
+          ref={inputRef}
           type="file"
           className="visually-hidden"
           multiple
